@@ -33,6 +33,23 @@ class SettingsUpdate(BaseModel):
     remove_commercials: Optional[bool] = None
 
 
+NON_NULLABLE_FIELDS = {
+    "download_folder",
+    "tv_template",
+    "movie_template",
+    "sports_template",
+    "default_template",
+    "max_concurrent_downloads",
+    "transcode_enabled",
+    "transcode_format",
+    "hw_accel",
+    "transcode_quality",
+    "delete_original_after_transcode",
+    "comskip_enabled",
+    "remove_commercials",
+}
+
+
 @router.get("")
 async def get_settings(session: AsyncSession = Depends(get_session)):
     """Get app settings."""
@@ -79,6 +96,8 @@ async def update_settings(
     # Update fields
     update_dict = update_data.model_dump(exclude_unset=True)
     for field, value in update_dict.items():
+        if value is None and field in NON_NULLABLE_FIELDS:
+            continue
         setattr(settings, field, value)
 
     await session.commit()
