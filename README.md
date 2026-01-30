@@ -77,6 +77,14 @@ mkdir -p config downloads
 docker-compose up -d
 ```
 
+#### Quick Start (Docker, no clone)
+
+```bash
+curl -O https://raw.githubusercontent.com/razzamatazm/mustarrd/main/docker-compose.yml
+mkdir -p config downloads
+docker compose up -d
+```
+
 ### Tools (ffmpeg + comskip)
 
 Docker builds install ffmpeg via apt and compile comskip from source in the backend image.
