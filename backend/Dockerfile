@@ -40,6 +40,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application + tools
 COPY backend /app/backend
 COPY tools /app/tools
+COPY comskip.ini /app/comskip.ini
 
 # Copy comskip binary from builder
 COPY --from=comskip-builder /tmp/comskip/comskip /usr/local/bin/comskip

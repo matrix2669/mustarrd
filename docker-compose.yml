@@ -7,7 +7,7 @@ services:
       - ./config:/app/config
       - ./downloads:/app/downloads
     environment:
-      - CATCHUP_DATABASE_URL=sqlite+aiosqlite:///./config/catchup_dvr.db
+      - CATCHUP_DATABASE_URL=sqlite+aiosqlite:////app/config/catchup_dvr.db
       - CATCHUP_DEFAULT_DOWNLOAD_FOLDER=/app/downloads
     restart: unless-stopped
 

@@ -85,6 +85,9 @@ mkdir -p config downloads
 docker compose up -d
 ```
 
+Note: Docker uses absolute paths inside the container:
+`/app/config` and `/app/downloads`.
+
 ### Tools (ffmpeg + comskip)
 
 Docker builds install ffmpeg via apt and compile comskip from source in the backend image.

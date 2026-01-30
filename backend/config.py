@@ -48,7 +48,6 @@ def ensure_config_files() -> Path:
     return config_dir
 
 
-# Ensure data directories exist
-Path("./data").mkdir(exist_ok=True)
+# Ensure config + download directories exist
 Path(settings.default_download_folder).mkdir(parents=True, exist_ok=True)
 ensure_config_files()
