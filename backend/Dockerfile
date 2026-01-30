@@ -16,7 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && rm -rf /var/lib/apt/lists/*
 
 RUN git clone --depth 1 https://github.com/erikkaashoek/Comskip . \
-  && make
+  && make -C ./comskip
 
 FROM python:3.11-slim
 
