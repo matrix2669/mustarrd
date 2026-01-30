@@ -7,6 +7,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     yasm \
     pkg-config \
+    autoconf \
+    automake \
+    libtool \
     libargtable2-dev \
     libavcodec-dev \
     libavformat-dev \
@@ -16,7 +19,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && rm -rf /var/lib/apt/lists/*
 
 RUN git clone --depth 1 https://github.com/erikkaashoek/Comskip . \
-  && make -C ./comskip
+  && ./autogen.sh \
+  && ./configure \
+  && make
 
 FROM python:3.11-slim
 
