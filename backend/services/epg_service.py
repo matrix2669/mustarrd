@@ -7,6 +7,7 @@ from sqlalchemy import select
 from models import XtreamAccount
 from services.xtream_client import XtreamClient
 from config import settings as app_settings
+from models import AppSettings
 from zoneinfo import ZoneInfo
 
 
@@ -72,6 +73,11 @@ class EPGService:
         if use_cache and self._is_cache_valid(cache_key):
             return self._cache[cache_key]["data"]
 
+        # Load EPG offset
+        result = await session.execute(select(AppSettings))
+        app_settings_row = result.scalar_one_or_none()
+        epg_offset_minutes = app_settings_row.epg_offset_minutes if app_settings_row else 0
+
         client = await self._get_client(session, account_id)
         try:
             epg_data = await client.get_epg(channel_id)
@@ -79,7 +85,7 @@ class EPGService:
             # Process EPG entries
             processed = []
             for entry in epg_data:
-                processed.append(self._process_epg_entry(entry))
+                processed.append(self._process_epg_entry(entry, epg_offset_minutes))
 
             # Cache the results
             self._cache[cache_key] = {
@@ -91,7 +97,7 @@ class EPGService:
         finally:
             await client.close()
 
-    def _process_epg_entry(self, entry: dict) -> dict:
+    def _process_epg_entry(self, entry: dict, epg_offset_minutes: int = 0) -> dict:
         """Process and normalize an EPG entry."""
         # Decode base64 title and description if present
         title = entry.get("title", "")
@@ -125,6 +131,13 @@ class EPGService:
         else:
             start_time = start_time_utc
             end_time = end_time_utc
+
+        if epg_offset_minutes:
+            offset = timedelta(minutes=epg_offset_minutes)
+            if start_time:
+                start_time = start_time + offset
+            if end_time:
+                end_time = end_time + offset
 
         duration_minutes = 0
         if start_time and end_time:

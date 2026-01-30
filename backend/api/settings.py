@@ -36,10 +36,12 @@ class SettingsUpdate(BaseModel):
     hw_accel: Optional[str] = None
     transcode_quality: Optional[str] = None
     delete_original_after_transcode: Optional[bool] = None
+    remux_only: Optional[bool] = None
     comskip_enabled: Optional[bool] = None
     comskip_path: Optional[str] = None
     comskip_ini_path: Optional[str] = None
     remove_commercials: Optional[bool] = None
+    epg_offset_minutes: Optional[int] = None
 
 
 NON_NULLABLE_FIELDS = {
@@ -54,8 +56,10 @@ NON_NULLABLE_FIELDS = {
     "hw_accel",
     "transcode_quality",
     "delete_original_after_transcode",
+    "remux_only",
     "comskip_enabled",
     "remove_commercials",
+    "epg_offset_minutes",
 }
 
 
@@ -140,6 +144,12 @@ async def update_settings(
         if value is None and field in NON_NULLABLE_FIELDS:
             continue
         setattr(settings, field, value)
+
+    # If comskip is enabled, ensure transcoding is on.
+    if update_dict.get("comskip_enabled") is True:
+        settings.transcode_enabled = True
+        if settings.remove_commercials:
+            settings.remux_only = False
 
     await session.commit()
     await session.refresh(settings)

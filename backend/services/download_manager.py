@@ -317,6 +317,7 @@ class DownloadManager:
             hw_accel = HardwareAccel.CPU
 
         quality = settings.transcode_quality if hasattr(settings, 'transcode_quality') else "balanced"
+        remux_only = getattr(settings, "remux_only", False)
 
         will_comskip = settings.comskip_enabled and post_processor.comskip_available
         will_transcode = settings.transcode_enabled and post_processor.ffmpeg_available
@@ -391,7 +392,8 @@ class DownloadManager:
                         hw_accel=hw_accel,
                         remove_original=settings.delete_original_after_transcode,
                         progress_callback=progress_callback,
-                        log_callback=log_callback
+                        log_callback=log_callback,
+                        remux_only=False
                     )
                     commercials_removed = True
                     await log_callback(f"Commercial removal complete: {current_path}")
@@ -421,7 +423,8 @@ class DownloadManager:
                     quality=quality,
                     progress_callback=progress_callback,
                     log_callback=log_callback,
-                    remove_original=settings.delete_original_after_transcode
+                    remove_original=settings.delete_original_after_transcode,
+                    remux_only=remux_only
                 )
                 await log_callback(f"Transcoding complete: {current_path}")
             except Exception as e:

@@ -124,7 +124,17 @@ export default function Settings() {
   })
 
   const handleChange = (field, value) => {
-    setFormData((prev) => ({ ...prev, [field]: value }))
+    setFormData((prev) => {
+      const next = { ...prev, [field]: value }
+      if (field === 'comskip_enabled' && value) {
+        next.transcode_enabled = true
+      }
+      if (field === 'remove_commercials' && value) {
+        next.transcode_enabled = true
+        next.remux_only = false
+      }
+      return next
+    })
     setHasChanges(true)
   }
 
@@ -199,6 +209,15 @@ export default function Settings() {
             max={5}
             value={formData.max_concurrent_downloads}
             onChange={(val) => handleChange('max_concurrent_downloads', val)}
+          />
+
+          <NumberInput
+            label="EPG Time Offset (minutes)"
+            description="Adjust guide times if your provider's schedule is offset"
+            min={-720}
+            max={720}
+            value={formData.epg_offset_minutes || 0}
+            onChange={(val) => handleChange('epg_offset_minutes', val)}
           />
         </Stack>
       </Card>
@@ -339,10 +358,10 @@ export default function Settings() {
                         label="Output Format"
                         data={[
                           { value: 'mp4', label: 'MP4 (H.264 + AAC)' },
-                          { value: 'mkv', label: 'MKV (copy streams)' },
+                          { value: 'mkv', label: 'MKV (best compatibility)' },
                           { value: 'ts', label: 'TS (keep original)' },
                         ]}
-                        value={formData.transcode_format || 'mp4'}
+                        value={formData.transcode_format || 'mkv'}
                         onChange={(val) => handleChange('transcode_format', val)}
                       />
 
@@ -356,6 +375,7 @@ export default function Settings() {
                         })) || [{ value: 'cpu', label: 'CPU (Software)' }]}
                         value={formData.hw_accel || 'cpu'}
                         onChange={(val) => handleChange('hw_accel', val)}
+                        disabled={formData.remux_only}
                       />
 
                       <Select
@@ -370,6 +390,14 @@ export default function Settings() {
                         ]}
                         value={formData.transcode_quality || 'balanced'}
                         onChange={(val) => handleChange('transcode_quality', val)}
+                        disabled={formData.remux_only}
+                      />
+
+                      <Switch
+                        label="Remux only (no re-encode)"
+                        description="Faster and lossless; improves seeking without re-encoding"
+                        checked={formData.remux_only !== false}
+                        onChange={(e) => handleChange('remux_only', e.currentTarget.checked)}
                       />
 
                       <Switch
@@ -406,7 +434,7 @@ export default function Settings() {
             <Accordion.Item value="comskip">
               <Accordion.Control>
                 <Group gap="xs">
-                  <Text>Commercial Detection (Comskip)</Text>
+                  <Text>Commercial Detection (Comskip) (YMMV)</Text>
                   {formData.comskip_enabled && (
                     <Badge size="xs" color="blue">Enabled</Badge>
                   )}

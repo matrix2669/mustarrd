@@ -407,7 +407,8 @@ class PostProcessor:
         quality: str = "balanced",
         progress_callback: Optional[Callable[[float], None]] = None,
         log_callback: Optional[Callable[[str], None]] = None,
-        remove_original: bool = False
+        remove_original: bool = False,
+        remux_only: bool = False
     ) -> str:
         """
         Transcode a video file to a different format.
@@ -441,10 +442,13 @@ class PostProcessor:
         ]
 
         if output_format in [OutputFormat.MP4, OutputFormat.MKV]:
-            # Add video encoder args
-            cmd.extend(self._get_encoder_args(hw_accel, "h264", quality))
-            # Audio - AAC for compatibility
-            cmd.extend(["-c:a", "aac", "-b:a", "192k"])
+            if remux_only:
+                cmd.extend(["-map", "0", "-c", "copy"])
+            else:
+                # Add video encoder args
+                cmd.extend(self._get_encoder_args(hw_accel, "h264", quality))
+                # Audio - AAC for compatibility
+                cmd.extend(["-c:a", "aac", "-b:a", "192k"])
         else:
             # TS - copy streams
             cmd.extend(["-c", "copy"])
@@ -532,7 +536,8 @@ class PostProcessor:
         hw_accel: HardwareAccel = HardwareAccel.CPU,
         remove_original: bool = False,
         progress_callback: Optional[Callable[[float], None]] = None,
-        log_callback: Optional[Callable[[str], None]] = None
+        log_callback: Optional[Callable[[str], None]] = None,
+        remux_only: bool = False
     ) -> str:
         """
         Remove commercials from video using EDL file.
@@ -561,7 +566,8 @@ class PostProcessor:
                 hw_accel,
                 progress_callback=progress_callback,
                 log_callback=log_callback,
-                remove_original=remove_original
+                remove_original=remove_original,
+                remux_only=remux_only
             )
 
         input_file = Path(input_path)
@@ -580,7 +586,8 @@ class PostProcessor:
                 hw_accel,
                 progress_callback=progress_callback,
                 log_callback=log_callback,
-                remove_original=remove_original
+                remove_original=remove_original,
+                remux_only=remux_only
             )
 
         # Create concat file for ffmpeg
