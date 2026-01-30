@@ -7,6 +7,7 @@ import shutil
 class Settings(BaseSettings):
     app_name: str = "Catchup DVR"
     debug: bool = False
+    timezone: str = "UTC"
 
     # Database
     database_url: str = "sqlite+aiosqlite:///./data/catchup_dvr.db"

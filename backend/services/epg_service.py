@@ -6,6 +6,8 @@ from sqlalchemy import select
 
 from models import XtreamAccount
 from services.xtream_client import XtreamClient
+from config import settings as app_settings
+from zoneinfo import ZoneInfo
 
 
 class EPGService:
@@ -110,8 +112,19 @@ class EPGService:
         start_timestamp = entry.get("start_timestamp", 0)
         stop_timestamp = entry.get("stop_timestamp", 0)
 
-        start_time = datetime.fromtimestamp(int(start_timestamp), tz=timezone.utc) if start_timestamp else None
-        end_time = datetime.fromtimestamp(int(stop_timestamp), tz=timezone.utc) if stop_timestamp else None
+        start_time_utc = datetime.fromtimestamp(int(start_timestamp), tz=timezone.utc) if start_timestamp else None
+        end_time_utc = datetime.fromtimestamp(int(stop_timestamp), tz=timezone.utc) if stop_timestamp else None
+
+        if start_time_utc and end_time_utc:
+            try:
+                tz = ZoneInfo(app_settings.timezone)
+            except Exception:
+                tz = timezone.utc
+            start_time = start_time_utc.astimezone(tz)
+            end_time = end_time_utc.astimezone(tz)
+        else:
+            start_time = start_time_utc
+            end_time = end_time_utc
 
         duration_minutes = 0
         if start_time and end_time:
