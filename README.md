@@ -67,6 +67,15 @@ For docker-compose, you only need two host folders:
 
 The database is stored at `./config/catchup_dvr.db` and downloads at `./downloads/`.
 
+#### Quick Start (Docker)
+
+```bash
+git clone https://github.com/razzamatazm/mustarrd.git
+cd mustarrd
+mkdir -p config downloads
+docker-compose up -d
+```
+
 ### Tools (ffmpeg + comskip)
 
 Docker builds install ffmpeg via apt and compile comskip from source in the backend image.
