@@ -5,6 +5,7 @@ from sqlalchemy import select
 from typing import Optional
 
 from database import get_session
+from config import ensure_config_files
 from models import AppSettings
 from services.download_manager import download_manager
 from services.post_processor import post_processor
@@ -41,6 +42,14 @@ async def get_settings(session: AsyncSession = Depends(get_session)):
     if not settings:
         # Create default settings
         settings = AppSettings()
+        session.add(settings)
+        await session.commit()
+        await session.refresh(settings)
+
+    config_dir = ensure_config_files()
+    default_ini = config_dir / "comskip.ini"
+    if settings.comskip_ini_path is None and default_ini.exists():
+        settings.comskip_ini_path = str(default_ini)
         session.add(settings)
         await session.commit()
         await session.refresh(settings)

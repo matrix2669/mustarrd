@@ -66,6 +66,7 @@ For docker-compose, you only need two host folders:
 ```
 
 The database is stored at `./config/catchup_dvr.db` and downloads at `./downloads/`.
+On first run, `comskip.ini` is copied into `./config/comskip.ini` and set as the default.
 
 #### Quick Start (Docker)
 

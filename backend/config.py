@@ -1,5 +1,7 @@
 from pydantic_settings import BaseSettings
 from pathlib import Path
+import shutil
+
 
 
 class Settings(BaseSettings):
@@ -23,6 +25,30 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
+def _get_config_dir() -> Path:
+    db_url = settings.database_url
+    prefix = "sqlite+aiosqlite:///"
+    if db_url.startswith(prefix):
+        db_path = Path(db_url[len(prefix):])
+        return db_path.parent
+    return Path("./config")
+
+
+def ensure_config_files() -> Path:
+    config_dir = _get_config_dir()
+    config_dir.mkdir(parents=True, exist_ok=True)
+
+    repo_root = Path(__file__).resolve().parents[1]
+    bundled_ini = repo_root / "comskip.ini"
+    target_ini = config_dir / "comskip.ini"
+
+    if bundled_ini.exists() and not target_ini.exists():
+        shutil.copyfile(bundled_ini, target_ini)
+
+    return config_dir
+
+
 # Ensure data directories exist
 Path("./data").mkdir(exist_ok=True)
 Path(settings.default_download_folder).mkdir(parents=True, exist_ok=True)
+ensure_config_files()
