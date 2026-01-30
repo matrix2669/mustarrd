@@ -1,5 +1,5 @@
 import base64
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -110,8 +110,8 @@ class EPGService:
         start_timestamp = entry.get("start_timestamp", 0)
         stop_timestamp = entry.get("stop_timestamp", 0)
 
-        start_time = datetime.fromtimestamp(int(start_timestamp)) if start_timestamp else None
-        end_time = datetime.fromtimestamp(int(stop_timestamp)) if stop_timestamp else None
+        start_time = datetime.fromtimestamp(int(start_timestamp), tz=timezone.utc) if start_timestamp else None
+        end_time = datetime.fromtimestamp(int(stop_timestamp), tz=timezone.utc) if stop_timestamp else None
 
         duration_minutes = 0
         if start_time and end_time:
@@ -141,7 +141,7 @@ class EPGService:
         """Get past programs that are available for catchup."""
         epg_data = await self.get_epg_for_channel(session, account_id, channel_id)
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         cutoff = now - timedelta(days=days_back)
 
         past_programs = []

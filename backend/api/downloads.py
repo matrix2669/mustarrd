@@ -12,6 +12,7 @@ from services.download_manager import download_manager
 from services.xtream_client import XtreamClient
 from services.file_namer import file_namer
 from services.epg_service import epg_service
+from config import settings as app_settings
 
 
 router = APIRouter()
@@ -106,7 +107,10 @@ async def create_download(
     # Get settings for download folder
     settings_result = await session.execute(select(AppSettings))
     settings = settings_result.scalar_one_or_none()
-    download_folder = settings.download_folder if settings else "./data/downloads"
+    if settings and settings.download_folder and not settings.download_folder.startswith("./data"):
+        download_folder = settings.download_folder
+    else:
+        download_folder = app_settings.default_download_folder
 
     # Parse program times - use UTC timestamps for timeshift URL
     start_timestamp = data.program.get("start_timestamp")

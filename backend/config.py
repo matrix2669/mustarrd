@@ -39,7 +39,7 @@ def ensure_config_files() -> Path:
     config_dir.mkdir(parents=True, exist_ok=True)
 
     repo_root = Path(__file__).resolve().parents[1]
-    bundled_ini = repo_root / "comskip.ini"
+    bundled_ini = repo_root.parent / "comskip.ini"
     target_ini = config_dir / "comskip.ini"
 
     if bundled_ini.exists() and not target_ini.exists():

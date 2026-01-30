@@ -50,7 +50,7 @@ RUN chmod +x /usr/local/bin/comskip
 RUN chmod +x /app/tools/bin/*/ffmpeg /app/tools/bin/*/ffprobe /app/tools/bin/*/comskip 2>/dev/null || true
 
 # Create data directories
-RUN mkdir -p /app/data/downloads
+RUN mkdir -p /app/downloads
 
 # Expose port
 EXPOSE 8000
