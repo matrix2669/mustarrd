@@ -16,8 +16,8 @@ class EPGService:
         self._cache: dict = {}  # Simple in-memory cache
         self._cache_ttl = 3600  # 1 hour
 
-    def _get_cache_key(self, account_id: int, channel_id: str) -> str:
-        return f"{account_id}:{channel_id}"
+    def _get_cache_key(self, account_id: int, channel_id: str, epg_offset_minutes: int) -> str:
+        return f"{account_id}:{channel_id}:{app_settings.timezone}:{epg_offset_minutes}"
 
     def _is_cache_valid(self, cache_key: str) -> bool:
         if cache_key not in self._cache:
@@ -68,15 +68,14 @@ class EPGService:
         use_cache: bool = True
     ) -> list:
         """Get EPG data for a specific channel."""
-        cache_key = self._get_cache_key(account_id, channel_id)
-
-        if use_cache and self._is_cache_valid(cache_key):
-            return self._cache[cache_key]["data"]
-
         # Load EPG offset
         result = await session.execute(select(AppSettings))
         app_settings_row = result.scalar_one_or_none()
         epg_offset_minutes = app_settings_row.epg_offset_minutes if app_settings_row else 0
+        cache_key = self._get_cache_key(account_id, channel_id, epg_offset_minutes)
+
+        if use_cache and self._is_cache_valid(cache_key):
+            return self._cache[cache_key]["data"]
 
         client = await self._get_client(session, account_id)
         try:
