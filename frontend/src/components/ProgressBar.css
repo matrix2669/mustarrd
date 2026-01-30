@@ -1,0 +1,23 @@
+.progress-bar-fill {
+  background-color: var(--progress-color);
+}
+
+.progress-bar-indeterminate {
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--progress-color) 45%,
+    transparent 90%
+  );
+  background-size: 200% 100%;
+  animation: progress-bar-indeterminate 1.2s linear infinite;
+}
+
+@keyframes progress-bar-indeterminate {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}

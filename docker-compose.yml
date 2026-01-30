@@ -1,0 +1,24 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    ports:
+      - "4177:8000"
+    volumes:
+      - ./config:/app/config
+      - ./downloads:/app/downloads
+    environment:
+      - CATCHUP_DATABASE_URL=sqlite+aiosqlite:///./config/catchup_dvr.db
+      - CATCHUP_DEFAULT_DOWNLOAD_FOLDER=/app/downloads
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    restart: unless-stopped

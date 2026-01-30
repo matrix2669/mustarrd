@@ -1,0 +1,90 @@
+const API_BASE = '/api'
+
+async function request(endpoint, options = {}) {
+  const url = `${API_BASE}${endpoint}`
+  const config = {
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers,
+    },
+    ...options,
+  }
+
+  if (config.body && typeof config.body === 'object') {
+    config.body = JSON.stringify(config.body)
+  }
+
+  const response = await fetch(url, config)
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Request failed' }))
+    throw new Error(error.detail || 'Request failed')
+  }
+
+  return response.json()
+}
+
+// Accounts
+export const accountsApi = {
+  list: () => request('/accounts'),
+  get: (id) => request(`/accounts/${id}`),
+  create: (data) => request('/accounts', { method: 'POST', body: data }),
+  update: (id, data) => request(`/accounts/${id}`, { method: 'PUT', body: data }),
+  delete: (id) => request(`/accounts/${id}`, { method: 'DELETE' }),
+  test: (id) => request(`/accounts/${id}/test`, { method: 'POST' }),
+}
+
+// Channels & EPG
+export const channelsApi = {
+  getCategories: (accountId) => request(`/accounts/${accountId}/categories`),
+  getChannels: (accountId, categoryId = null, catchupOnly = true) => {
+    const params = new URLSearchParams()
+    if (categoryId) params.append('category_id', categoryId)
+    params.append('catchup_only', catchupOnly)
+    return request(`/accounts/${accountId}/channels?${params}`)
+  },
+  getChannel: (accountId, channelId) => request(`/accounts/${accountId}/channels/${channelId}`),
+  getEpg: (accountId, channelId, daysBack = 7) =>
+    request(`/accounts/${accountId}/channels/${channelId}/epg?days_back=${daysBack}`),
+  getCatchup: (accountId, channelId, daysBack = 7) =>
+    request(`/accounts/${accountId}/channels/${channelId}/catchup?days_back=${daysBack}`),
+}
+
+// Downloads
+export const downloadsApi = {
+  list: () => request('/downloads'),
+  getQueue: () => request('/downloads/queue'),
+  getHistory: () => request('/downloads/history'),
+  get: (id) => request(`/downloads/${id}`),
+  create: (data) => request('/downloads', { method: 'POST', body: data }),
+  cancel: (id) => request(`/downloads/${id}`, { method: 'DELETE' }),
+  retry: (id) => request(`/downloads/${id}/retry`, { method: 'POST' }),
+  previewFilename: (data) => request('/downloads/preview-filename', { method: 'POST', body: data }),
+}
+
+// Settings
+export const settingsApi = {
+  get: () => request('/settings'),
+  update: (data) => request('/settings', { method: 'PUT', body: data }),
+  getTemplates: () => request('/settings/templates'),
+  getTools: () => request('/settings/tools'),
+}
+
+// WebSocket for download progress
+export function createDownloadWebSocket(onMessage, onError = null) {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  const wsUrl = `${protocol}//${window.location.host}/api/downloads/ws`
+
+  const ws = new WebSocket(wsUrl)
+
+  ws.onmessage = (event) => {
+    const data = JSON.parse(event.data)
+    onMessage(data)
+  }
+
+  ws.onerror = (error) => {
+    if (onError) onError(error)
+  }
+
+  return ws
+}
