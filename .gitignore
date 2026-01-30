@@ -5,6 +5,8 @@
 *.db
 *.db-journal
 *.process.log
+__pycache__/
+*.pyc
 
 config/
 downloads/
