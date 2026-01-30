@@ -5,7 +5,7 @@ from sqlalchemy import select
 from typing import Optional
 
 from database import get_session
-from config import ensure_config_files
+from config import ensure_config_files, settings as app_settings
 from models import AppSettings
 from services.download_manager import download_manager
 from services.post_processor import post_processor
@@ -42,6 +42,12 @@ async def get_settings(session: AsyncSession = Depends(get_session)):
     if not settings:
         # Create default settings
         settings = AppSettings()
+        session.add(settings)
+        await session.commit()
+        await session.refresh(settings)
+
+    if not settings.download_folder or settings.download_folder.startswith("./data"):
+        settings.download_folder = app_settings.default_download_folder
         session.add(settings)
         await session.commit()
         await session.refresh(settings)
