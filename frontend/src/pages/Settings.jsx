@@ -26,6 +26,7 @@ import {
   IconWand,
   IconCheck,
   IconX,
+  IconDownload,
 } from '@tabler/icons-react'
 
 import { settingsApi } from '../api'
@@ -74,6 +75,25 @@ export default function Settings() {
   const { data: toolsStatus } = useQuery({
     queryKey: ['settings', 'tools'],
     queryFn: settingsApi.getTools,
+  })
+
+  const installFfmpegMutation = useMutation({
+    mutationFn: () => settingsApi.installFfmpegMacos(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings', 'tools'] })
+      notifications.show({
+        title: 'ffmpeg Installed',
+        message: 'macOS ffmpeg tools have been installed.',
+        color: 'green',
+      })
+    },
+    onError: (error) => {
+      notifications.show({
+        title: 'Install Failed',
+        message: error.message,
+        color: 'red',
+      })
+    },
   })
 
   // Initialize form when settings load
@@ -366,6 +386,17 @@ export default function Settings() {
                         ffmpeg not found. Install with: <Code>brew install ffmpeg</Code> (macOS) or{' '}
                         <Code>apt install ffmpeg</Code> (Linux)
                       </Text>
+                      {toolsStatus?.platform?.system === 'Darwin' && toolsStatus?.macos_ffmpeg?.supported && (
+                        <Group mt="sm">
+                          <Button
+                            leftSection={<IconDownload size={14} />}
+                            loading={installFfmpegMutation.isPending}
+                            onClick={() => installFfmpegMutation.mutate()}
+                          >
+                            Install macOS ffmpeg (osxexperts.net)
+                          </Button>
+                        </Group>
+                      )}
                     </Alert>
                   )}
                 </Stack>

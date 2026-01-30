@@ -78,10 +78,23 @@ class PostProcessor:
             "arm64": "linux-arm64",
         }
         candidates = []
-        arch_dir = arch_map.get(arch)
-        if arch_dir:
-            candidates.append(base / arch_dir)
-        candidates.append(base)
+        system = platform.system()
+        if system == "Linux":
+            arch_dir = arch_map.get(arch)
+            if arch_dir:
+                candidates.append(base / arch_dir)
+            candidates.append(base)
+        elif system == "Darwin":
+            mac_map = {
+                "arm64": "macos-arm64",
+                "aarch64": "macos-arm64",
+                "x86_64": "macos-x86_64",
+                "amd64": "macos-x86_64",
+            }
+            arch_dir = mac_map.get(arch)
+            if arch_dir:
+                candidates.append(base / arch_dir)
+            candidates.append(base)
         return [p for p in candidates if p.exists()]
 
     def _resolve_ffmpeg_path(self) -> Optional[str]:
