@@ -80,11 +80,6 @@ function App() {
         <Group h="100%" px="md" justify="space-between">
           <Group>
             <Burger opened={opened} onClick={toggle} hiddenFrom="sm" size="sm" />
-            <img
-              src={mustarrdLogo}
-              alt="Mustarrd"
-              style={{ width: 288, height: 'auto' }}
-            />
           </Group>
           <ActionIcon
             variant="subtle"
@@ -98,6 +93,13 @@ function App() {
       </AppShell.Header>
 
       <AppShell.Navbar p="md">
+        <Group mb="md" justify="center">
+          <img
+            src={mustarrdLogo}
+            alt="Mustarrd"
+            style={{ width: '100%', height: 'auto', maxWidth: 220 }}
+          />
+        </Group>
         {navItems.map((item) => (
           <MantineNavLink
             key={item.to}
