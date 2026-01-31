@@ -325,17 +325,8 @@ class DownloadManager:
         if not will_comskip and not will_transcode:
             return current_path
 
-        from pathlib import Path
-        log_path = Path(file_path).with_suffix(".process.log")
-
-        async def write_log_line(message: str):
-            timestamp = datetime.utcnow().isoformat(timespec="seconds") + "Z"
-            async with aiofiles.open(log_path, "a") as f:
-                await f.write(f"[{timestamp}] {message}\n")
-
         async def log_callback(message: str):
             await self._broadcast_log(download_id, message)
-            await write_log_line(message)
 
         if settings.comskip_enabled and not post_processor.comskip_available:
             await log_callback("Comskip enabled but not available; skipping detection.")

@@ -293,19 +293,19 @@ export default function Settings() {
                         onChange={(e) => handleChange('delete_original_after_transcode', e.currentTarget.checked)}
                       />
 
-                      <Select
-                        label="Output Format"
-                        data={[
-                          { value: 'mp4', label: 'MP4 (H.264 + AAC)' },
-                          { value: 'mkv', label: 'MKV (best compatibility)' },
-                          { value: 'ts', label: 'TS (keep original)' },
-                        ]}
-                        value={formData.transcode_format || 'mkv'}
-                        onChange={(val) => handleChange('transcode_format', val)}
-                      />
-
                       {!formData.remux_only && (
                         <>
+                          <Select
+                            label="Output Format"
+                            data={[
+                              { value: 'mp4', label: 'MP4 (H.264 + AAC)' },
+                              { value: 'mkv', label: 'MKV (best compatibility)' },
+                              { value: 'ts', label: 'TS (keep original)' },
+                            ]}
+                            value={formData.transcode_format || 'mkv'}
+                            onChange={(val) => handleChange('transcode_format', val)}
+                          />
+
                           <Select
                             label="Output Hardware"
                             description="Use GPU for faster encoding"
