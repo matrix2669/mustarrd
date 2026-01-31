@@ -25,20 +25,40 @@ async def init_db():
 
     # One-time migration: ensure download_folder defaults to config setting
     try:
-        from sqlalchemy import select
+        from sqlalchemy import select, text
         from models import AppSettings
         from config import settings as app_settings
 
         # Add new columns if missing (SQLite)
         async with engine.begin() as conn:
             try:
-                result = await conn.execute("PRAGMA table_info(app_settings)")
+                result = await conn.execute(text("PRAGMA table_info(app_settings)"))
                 rows = result.fetchall()
                 existing = {row[1] for row in rows}
-                if "remux_only" not in existing:
-                    await conn.execute("ALTER TABLE app_settings ADD COLUMN remux_only BOOLEAN NOT NULL DEFAULT 1")
-                if "epg_offset_minutes" not in existing:
-                    await conn.execute("ALTER TABLE app_settings ADD COLUMN epg_offset_minutes INTEGER NOT NULL DEFAULT 0")
+                required_columns = {
+                    "download_folder": "VARCHAR(1000) NOT NULL DEFAULT './data/downloads'",
+                    "tv_template": "VARCHAR(500) NOT NULL DEFAULT '{show} - S{season:02d}E{episode:02d} - {title}'",
+                    "movie_template": "VARCHAR(500) NOT NULL DEFAULT '{title} ({year})'",
+                    "sports_template": "VARCHAR(500) NOT NULL DEFAULT '{title} - {date}'",
+                    "default_template": "VARCHAR(500) NOT NULL DEFAULT '{channel} - {title} - {date}'",
+                    "max_concurrent_downloads": "INTEGER NOT NULL DEFAULT 2",
+                    "transcode_enabled": "BOOLEAN NOT NULL DEFAULT 0",
+                    "transcode_format": "VARCHAR(10) NOT NULL DEFAULT 'mkv'",
+                    "hw_accel": "VARCHAR(20) NOT NULL DEFAULT 'cpu'",
+                    "transcode_quality": "VARCHAR(20) NOT NULL DEFAULT 'balanced'",
+                    "delete_original_after_transcode": "BOOLEAN NOT NULL DEFAULT 1",
+                    "remux_only": "BOOLEAN NOT NULL DEFAULT 1",
+                    "epg_offset_minutes": "INTEGER NOT NULL DEFAULT 0",
+                    "comskip_enabled": "BOOLEAN NOT NULL DEFAULT 0",
+                    "comskip_path": "VARCHAR(1000)",
+                    "comskip_ini_path": "VARCHAR(1000)",
+                    "remove_commercials": "BOOLEAN NOT NULL DEFAULT 1",
+                }
+                for column, column_def in required_columns.items():
+                    if column not in existing:
+                        await conn.execute(
+                            text(f"ALTER TABLE app_settings ADD COLUMN {column} {column_def}")
+                        )
             except Exception:
                 pass
 
