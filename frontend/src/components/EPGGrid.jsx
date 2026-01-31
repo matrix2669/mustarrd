@@ -167,7 +167,7 @@ export default function EPGGrid({ epgData, onProgramClick }) {
   ).length
 
   return (
-    <Stack gap="md">
+    <Stack gap="md" style={{ height: '100%' }}>
       <Group justify="space-between">
         <Text size="sm" c="dimmed">
           Showing {epgData.length} programs
@@ -181,7 +181,7 @@ export default function EPGGrid({ epgData, onProgramClick }) {
         Click on highlighted programs to download. Blue border indicates catchup is available.
       </Text>
 
-      <ScrollArea h={500} ref={scrollAreaRef}>
+      <ScrollArea style={{ flex: 1 }} ref={scrollAreaRef}>
         <Stack gap="lg">
           {programsByDay.map(({ date, programs }) => (
             <Box key={date.format('YYYY-MM-DD')} id={`epg-day-${date.format('YYYY-MM-DD')}`}>

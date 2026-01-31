@@ -41,14 +41,14 @@ function ChannelList({ channels, selectedChannel, onSelectChannel, isLoading }) 
   }
 
   return (
-    <Stack gap="xs">
+    <Stack gap="xs" style={{ height: '100%' }}>
       <TextInput
         placeholder="Search channels..."
         leftSection={<IconSearch size={16} />}
         value={search}
         onChange={(e) => setSearch(e.target.value)}
       />
-      <ScrollArea h={500}>
+      <ScrollArea style={{ flex: 1 }}>
         <Stack gap={4}>
           {filteredChannels.map((channel) => (
             <Card
@@ -216,9 +216,17 @@ export default function Browse() {
         </Group>
       </Group>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr', gap: 16 }}>
-        <Card shadow="sm" padding="md" radius="md" withBorder>
-          <Stack gap="xs">
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: '300px 1fr',
+          gap: 16,
+          alignItems: 'stretch',
+          height: 'calc(100vh - 220px)',
+        }}
+      >
+        <Card shadow="sm" padding="md" radius="md" withBorder style={{ height: '100%' }}>
+          <Stack gap="xs" style={{ height: '100%' }}>
             <Group gap="xs">
               <IconVideo size={18} />
               <Text fw={500}>Channels</Text>
@@ -237,9 +245,9 @@ export default function Browse() {
           </Stack>
         </Card>
 
-        <Card shadow="sm" padding="md" radius="md" withBorder>
+        <Card shadow="sm" padding="md" radius="md" withBorder style={{ height: '100%' }}>
           {selectedChannel ? (
-            <Stack>
+            <Stack style={{ height: '100%' }}>
               <Group justify="space-between">
                 <Group gap="xs">
                   {selectedChannel.stream_icon && (
@@ -258,12 +266,12 @@ export default function Browse() {
                 </Badge>
               </Group>
 
-              <Tabs defaultValue="timeline">
+              <Tabs defaultValue="timeline" style={{ flex: 1, minHeight: 0 }}>
                 <Tabs.List>
                   <Tabs.Tab value="timeline">EPG Timeline</Tabs.Tab>
                 </Tabs.List>
 
-                <Tabs.Panel value="timeline" pt="md">
+                <Tabs.Panel value="timeline" pt="md" style={{ height: '100%' }}>
                   <TextInput
                     placeholder="Search shows on this channel..."
                     leftSection={<IconSearch size={16} />}
