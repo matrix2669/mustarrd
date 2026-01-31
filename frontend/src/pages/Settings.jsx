@@ -381,7 +381,7 @@ export default function Settings() {
             <Accordion.Item value="comskip">
               <Accordion.Control>
                 <Group gap="xs">
-                  <Text>Commercial Detection (Comskip) (YMMV)</Text>
+                  <Text>Commercial Detection (Comskip) (Beta)</Text>
                   {formData.comskip_enabled && (
                     <Badge size="xs" color="blue">Enabled</Badge>
                   )}
