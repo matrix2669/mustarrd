@@ -107,6 +107,7 @@ export default function Browse() {
   const [selectedCategory, setSelectedCategory] = useState(null)
   const [selectedChannel, setSelectedChannel] = useState(null)
   const [downloadProgram, setDownloadProgram] = useState(null)
+  const [programSearch, setProgramSearch] = useState('')
 
   // Fetch accounts
   const { data: accounts, isLoading: accountsLoading } = useQuery({
@@ -142,8 +143,24 @@ export default function Browse() {
     enabled: !!selectedAccountId && !!selectedChannel,
   })
 
+  const filteredEpgData = useMemo(() => {
+    if (!epgData) return epgData
+    if (!programSearch) return epgData
+    const searchLower = programSearch.toLowerCase()
+    return epgData.filter((program) => {
+      const title = program.title?.toLowerCase() || ''
+      const desc = program.description?.toLowerCase() || ''
+      return title.includes(searchLower) || desc.includes(searchLower)
+    })
+  }, [epgData, programSearch])
+
   const handleProgramClick = (program) => {
     setDownloadProgram(program)
+  }
+
+  const handleSelectChannel = (channel) => {
+    setSelectedChannel(channel)
+    setProgramSearch('')
   }
 
   const accountOptions = accounts?.map((acc) => ({
@@ -214,7 +231,7 @@ export default function Browse() {
             <ChannelList
               channels={channels}
               selectedChannel={selectedChannel}
-              onSelectChannel={setSelectedChannel}
+              onSelectChannel={handleSelectChannel}
               isLoading={channelsLoading}
             />
           </Stack>
@@ -247,13 +264,20 @@ export default function Browse() {
                 </Tabs.List>
 
                 <Tabs.Panel value="timeline" pt="md">
+                  <TextInput
+                    placeholder="Search shows on this channel..."
+                    leftSection={<IconSearch size={16} />}
+                    value={programSearch}
+                    onChange={(e) => setProgramSearch(e.target.value)}
+                    mb="md"
+                  />
                   {epgLoading ? (
                     <Stack align="center" justify="center" h={300}>
                       <Loader />
                     </Stack>
-                  ) : epgData ? (
+                  ) : filteredEpgData ? (
                     <EPGGrid
-                      epgData={epgData}
+                      epgData={filteredEpgData}
                       onProgramClick={handleProgramClick}
                     />
                   ) : (
