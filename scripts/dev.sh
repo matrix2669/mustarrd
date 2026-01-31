@@ -17,6 +17,8 @@ start_services() {
   ( cd "$ROOT/frontend" && npm run dev > /tmp/mustarrd-frontend.log 2>&1 & )
   echo "Backend log: /tmp/mustarrd-backend.log"
   echo "Frontend log: /tmp/mustarrd-frontend.log"
+  echo "Backend URL: http://localhost:8000"
+  echo "Frontend URL: http://localhost:5173"
 }
 
 kill_services() {
