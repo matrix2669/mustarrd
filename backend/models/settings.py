@@ -37,6 +37,7 @@ class AppSettings(Base):
     delete_original_after_transcode: Mapped[bool] = mapped_column(Boolean, default=True)
     remux_only: Mapped[bool] = mapped_column(Boolean, default=True)
     epg_offset_minutes: Mapped[int] = mapped_column(Integer, default=0)
+    show_future_programs: Mapped[bool] = mapped_column(Boolean, default=False)
 
     comskip_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     comskip_path: Mapped[str | None] = mapped_column(String(1000), nullable=True)
@@ -63,4 +64,5 @@ class AppSettings(Base):
             "comskip_ini_path": self.comskip_ini_path,
             "remove_commercials": self.remove_commercials,
             "epg_offset_minutes": self.epg_offset_minutes,
+            "show_future_programs": self.show_future_programs,
         }

@@ -532,6 +532,13 @@ export default function Settings() {
             checked={colorScheme === 'dark'}
             onChange={(e) => setColorScheme(e.currentTarget.checked ? 'dark' : 'light')}
           />
+
+          <Switch
+            label="Show future (unavailable) programs"
+            description="Toggle visibility of upcoming shows in the EPG"
+            checked={formData.show_future_programs || false}
+            onChange={(e) => handleChange('show_future_programs', e.currentTarget.checked)}
+          />
         </Stack>
       </Card>
     </Stack>

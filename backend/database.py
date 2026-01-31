@@ -53,6 +53,7 @@ async def init_db():
                     "comskip_path": "VARCHAR(1000)",
                     "comskip_ini_path": "VARCHAR(1000)",
                     "remove_commercials": "BOOLEAN NOT NULL DEFAULT 1",
+                    "show_future_programs": "BOOLEAN NOT NULL DEFAULT 0",
                 }
                 for column, column_def in required_columns.items():
                     if column not in existing:

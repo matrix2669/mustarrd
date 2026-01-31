@@ -3,7 +3,7 @@ import { Stack, Text, Group, Badge, ScrollArea, Box } from '@mantine/core'
 import { IconClock, IconDownload } from '@tabler/icons-react'
 import dayjs from 'dayjs'
 
-function ProgramBlock({ program, onClick, isPast, isCurrent }) {
+function ProgramBlock({ program, onClick, isPast, isCurrent, elementId }) {
   const startTime = dayjs(program.start_time)
   const endTime = dayjs(program.end_time)
 
@@ -19,6 +19,7 @@ function ProgramBlock({ program, onClick, isPast, isCurrent }) {
 
   return (
     <Box
+      id={elementId}
       style={{
         padding: '8px 12px',
         borderRadius: 6,
@@ -69,19 +70,17 @@ function ProgramBlock({ program, onClick, isPast, isCurrent }) {
   )
 }
 
-function DaySection({ date, programs, onProgramClick }) {
+function DaySection({ date, programs, onProgramClick, showFuture }) {
   const now = dayjs()
   const isToday = date.isSame(now, 'day')
 
   // Sort programs by start time
   const sortedPrograms = useMemo(() => {
-    const visible = isToday
-      ? programs.filter((p) => dayjs(p.end_time).isBefore(now))
-      : programs
+    const visible = showFuture ? programs : programs.filter((p) => dayjs(p.end_time).isBefore(now))
     return [...visible].sort((a, b) =>
       dayjs(b.start_time).valueOf() - dayjs(a.start_time).valueOf()
     )
-  }, [programs, isToday])
+  }, [programs, showFuture, now])
 
   return (
     <Stack gap="xs">
@@ -100,6 +99,7 @@ function DaySection({ date, programs, onProgramClick }) {
           const end = dayjs(program.end_time)
           const isPast = end.isBefore(now)
           const isCurrent = start.isBefore(now) && end.isAfter(now)
+          const elementId = `epg-program-${program.epg_id || program.id || idx}`
 
           return (
             <ProgramBlock
@@ -108,6 +108,7 @@ function DaySection({ date, programs, onProgramClick }) {
               onClick={onProgramClick}
               isPast={isPast}
               isCurrent={isCurrent}
+              elementId={elementId}
             />
           )
         })}
@@ -116,8 +117,9 @@ function DaySection({ date, programs, onProgramClick }) {
   )
 }
 
-export default function EPGGrid({ epgData, onProgramClick }) {
+export default function EPGGrid({ epgData, onProgramClick, showFuture = false }) {
   const scrollAreaRef = useRef(null)
+  const now = dayjs()
 
   // Group programs by day
   const programsByDay = useMemo(() => {
@@ -142,15 +144,49 @@ export default function EPGGrid({ epgData, onProgramClick }) {
     return Object.values(grouped).sort((a, b) => b.date.valueOf() - a.date.valueOf())
   }, [epgData])
 
+  const scrollTargetId = useMemo(() => {
+    let target = null
+    for (const { programs } of programsByDay) {
+      const sorted = [...programs].sort((a, b) =>
+        dayjs(b.start_time).valueOf() - dayjs(a.start_time).valueOf()
+      )
+      for (const program of sorted) {
+        const start = dayjs(program.start_time)
+        const end = dayjs(program.end_time)
+        const isCurrent = start.isBefore(now) && end.isAfter(now)
+        if (isCurrent) {
+          target = program
+          break
+        }
+      }
+      if (target) break
+    }
+    if (!target) {
+      for (const { programs } of programsByDay) {
+        const sorted = [...programs].sort((a, b) =>
+          dayjs(b.start_time).valueOf() - dayjs(a.start_time).valueOf()
+        )
+        for (const program of sorted) {
+          const end = dayjs(program.end_time)
+          if (end.isBefore(now)) {
+            target = program
+            break
+          }
+        }
+        if (target) break
+      }
+    }
+    return target ? `epg-program-${target.epg_id || target.id || 'target'}` : null
+  }, [programsByDay, now])
+
   // Scroll to today on load
   useEffect(() => {
-    // Find today's section
-    const todayKey = dayjs().format('YYYY-MM-DD')
-    const todaySection = document.getElementById(`epg-day-${todayKey}`)
-    if (todaySection) {
-      todaySection.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    if (!scrollTargetId) return
+    const target = document.getElementById(scrollTargetId)
+    if (target) {
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' })
     }
-  }, [epgData])
+  }, [scrollTargetId])
 
   if (!epgData || epgData.length === 0) {
     return (
@@ -189,6 +225,7 @@ export default function EPGGrid({ epgData, onProgramClick }) {
                 date={date}
                 programs={programs}
                 onProgramClick={onProgramClick}
+                showFuture={showFuture}
               />
             </Box>
           ))}

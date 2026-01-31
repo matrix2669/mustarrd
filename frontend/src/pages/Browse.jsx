@@ -18,7 +18,7 @@ import {
 import { useQuery } from '@tanstack/react-query'
 import { IconSearch, IconAlertCircle, IconVideo, IconClock } from '@tabler/icons-react'
 
-import { accountsApi, channelsApi } from '../api'
+import { accountsApi, channelsApi, settingsApi } from '../api'
 import EPGGrid from '../components/EPGGrid'
 import DownloadModal from '../components/DownloadModal'
 
@@ -141,6 +141,11 @@ export default function Browse() {
     queryKey: ['epg', selectedAccountId, selectedChannel?.stream_id],
     queryFn: () => channelsApi.getEpg(selectedAccountId, selectedChannel.stream_id, 7),
     enabled: !!selectedAccountId && !!selectedChannel,
+  })
+
+  const { data: appSettings } = useQuery({
+    queryKey: ['settings'],
+    queryFn: settingsApi.get,
   })
 
   const filteredEpgData = useMemo(() => {
@@ -287,6 +292,7 @@ export default function Browse() {
                     <EPGGrid
                       epgData={filteredEpgData}
                       onProgramClick={handleProgramClick}
+                      showFuture={appSettings?.show_future_programs}
                     />
                   ) : (
                     <Text c="dimmed" ta="center" py="xl">

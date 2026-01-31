@@ -43,6 +43,7 @@ class SettingsUpdate(BaseModel):
     comskip_ini_path: Optional[str] = None
     remove_commercials: Optional[bool] = None
     epg_offset_minutes: Optional[int] = None
+    show_future_programs: Optional[bool] = None
 
 
 NON_NULLABLE_FIELDS = {
@@ -61,6 +62,7 @@ NON_NULLABLE_FIELDS = {
     "comskip_enabled",
     "remove_commercials",
     "epg_offset_minutes",
+    "show_future_programs",
 }
 
 
