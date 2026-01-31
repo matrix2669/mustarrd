@@ -8,6 +8,7 @@ import {
   useMantineColorScheme,
   ActionIcon,
   Badge,
+  Stack,
 } from '@mantine/core'
 import { useDisclosure } from '@mantine/hooks'
 import {
@@ -72,51 +73,51 @@ function App() {
 
   return (
     <AppShell
-      header={{ height: 60 }}
       navbar={{ width: 250, breakpoint: 'sm', collapsed: { mobile: !opened } }}
       padding="md"
     >
-      <AppShell.Header>
-        <Group h="100%" px="md" justify="space-between">
-          <Group>
-            <Burger opened={opened} onClick={toggle} hiddenFrom="sm" size="sm" />
-          </Group>
-          <ActionIcon
-            variant="subtle"
-            size="lg"
-            onClick={() => toggleColorScheme()}
-            aria-label="Toggle color scheme"
-          >
-            {colorScheme === 'dark' ? <IconSun size={20} /> : <IconMoon size={20} />}
-          </ActionIcon>
-        </Group>
-      </AppShell.Header>
-
       <AppShell.Navbar p="md">
-        <Group mb="md" justify="center">
-          <img
-            src={mustarrdLogo}
-            alt="Mustarrd"
-            style={{ width: '100%', height: 'auto', maxWidth: 220 }}
-          />
-        </Group>
-        {navItems.map((item) => (
-          <MantineNavLink
-            key={item.to}
-            component={NavLink}
-            to={item.to}
-            label={item.label}
-            leftSection={<item.icon size={20} />}
-            rightSection={
-              item.badge ? (
-                <Badge size="sm" variant="filled" color="blue">
-                  {item.badge}
-                </Badge>
-              ) : null
-            }
-            style={{ borderRadius: 8, marginBottom: 4 }}
-          />
-        ))}
+        <Stack h="100%" justify="space-between" gap="md">
+          <Stack gap="md">
+            <Group justify="flex-start">
+              <Burger opened={opened} onClick={toggle} hiddenFrom="sm" size="sm" />
+            </Group>
+            <Group mb="md" justify="center">
+              <img
+                src={mustarrdLogo}
+                alt="Mustarrd"
+                style={{ width: '100%', height: 'auto', maxWidth: 220 }}
+              />
+            </Group>
+            {navItems.map((item) => (
+              <MantineNavLink
+                key={item.to}
+                component={NavLink}
+                to={item.to}
+                label={item.label}
+                leftSection={<item.icon size={20} />}
+                rightSection={
+                  item.badge ? (
+                    <Badge size="sm" variant="filled" color="blue">
+                      {item.badge}
+                    </Badge>
+                  ) : null
+                }
+                style={{ borderRadius: 8, marginBottom: 4 }}
+              />
+            ))}
+          </Stack>
+          <Group justify="center">
+            <ActionIcon
+              variant="subtle"
+              size="lg"
+              onClick={() => toggleColorScheme()}
+              aria-label="Toggle color scheme"
+            >
+              {colorScheme === 'dark' ? <IconSun size={20} /> : <IconMoon size={20} />}
+            </ActionIcon>
+          </Group>
+        </Stack>
       </AppShell.Navbar>
 
       <AppShell.Main>
