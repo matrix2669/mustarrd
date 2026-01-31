@@ -13,11 +13,11 @@ else
 fi
 
 start_services() {
-  ( cd "$ROOT/backend" && "$UVICORN" main:app --host 0.0.0.0 --port 8001 > /tmp/mustarrd-backend.log 2>&1 & )
+  ( cd "$ROOT/backend" && "$UVICORN" main:app --host 0.0.0.0 --port 5172 > /tmp/mustarrd-backend.log 2>&1 & )
   ( cd "$ROOT/frontend" && npm run dev > /tmp/mustarrd-frontend.log 2>&1 & )
   echo "Backend log: /tmp/mustarrd-backend.log"
   echo "Frontend log: /tmp/mustarrd-frontend.log"
-  echo "Backend URL: http://localhost:8001"
+  echo "Backend URL: http://localhost:5172"
   echo "Frontend URL: http://localhost:5173"
 }
 

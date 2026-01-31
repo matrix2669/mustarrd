@@ -7,11 +7,11 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api/downloads/ws': {
-        target: 'ws://localhost:8001',
+        target: 'ws://localhost:5172',
         ws: true,
       },
       '/api': {
-        target: 'http://localhost:8001',
+        target: 'http://localhost:5172',
         changeOrigin: true,
       },
     },
