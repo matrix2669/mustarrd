@@ -16,6 +16,7 @@ import {
   Select,
   Badge,
   useMantineColorScheme,
+  useMantineTheme,
 } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -32,23 +33,6 @@ import {
 } from '@tabler/icons-react'
 
 import { settingsApi } from '../api'
-
-const accordionStyles = (theme) => ({
-  item: {
-    border: `1px solid ${
-      theme.colorScheme === 'dark' ? theme.colors.dark[4] : theme.colors.gray[3]
-    }`,
-    borderRadius: theme.radius.md,
-    overflow: 'hidden',
-    backgroundColor: theme.colorScheme === 'dark' ? theme.colors.dark[8] : theme.white,
-  },
-  control: {
-    backgroundColor: theme.colorScheme === 'dark' ? theme.colors.dark[7] : theme.colors.gray[0],
-  },
-  panel: {
-    backgroundColor: theme.colorScheme === 'dark' ? theme.colors.dark[8] : theme.white,
-  },
-})
 
 function TemplateSection({ label, template, variables, example, onChange }) {
   return (
@@ -78,6 +62,21 @@ export default function Settings() {
   const [formData, setFormData] = useState(null)
   const [hasChanges, setHasChanges] = useState(false)
   const { colorScheme, setColorScheme } = useMantineColorScheme()
+  const theme = useMantineTheme()
+
+  const accordionStyles = {
+    item: {
+      borderRadius: theme.radius.md,
+      border: `1px solid ${colorScheme === 'dark' ? theme.colors.dark[6] : theme.colors.gray[5]}`,
+      backgroundColor: colorScheme === 'dark' ? theme.colors.dark[7] : theme.colors.gray[1],
+    },
+    control: {
+      borderRadius: theme.radius.md,
+    },
+    panel: {
+      borderTop: `1px solid ${colorScheme === 'dark' ? theme.colors.dark[6] : theme.colors.gray[3]}`,
+    },
+  }
 
   // Fetch settings
   const { data: settings, isLoading, error } = useQuery({
