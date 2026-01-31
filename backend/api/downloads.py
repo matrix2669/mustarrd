@@ -1,6 +1,6 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
-from pydantic import BaseModel
+from pydantic import BaseModel, conint
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import Optional
@@ -24,6 +24,8 @@ class DownloadCreate(BaseModel):
     channel_name: str
     program: dict  # EPG program data
     custom_filename: Optional[str] = None
+    pre_padding_minutes: Optional[conint(ge=0)] = 0
+    post_padding_minutes: Optional[conint(ge=0)] = 0
 
 
 class FilenamePreview(BaseModel):
@@ -148,9 +150,22 @@ async def create_download(
         program_type = epg_service.detect_program_type(data.program, channel)
         filename = file_namer.generate_filename(data.program, channel, program_type)
 
+    if duration_minutes <= 0:
+        raise HTTPException(status_code=400, detail="Invalid program duration")
+
+    pre_padding = int(data.pre_padding_minutes or 0)
+    post_padding = int(data.post_padding_minutes or 0)
+    padded_start_utc = program_start_utc
+    padded_duration = duration_minutes
+    if pre_padding:
+        padded_start_utc = program_start_utc - timedelta(minutes=pre_padding)
+        padded_duration += pre_padding
+    if post_padding:
+        padded_duration += post_padding
+
     # Build timeshift URL using UTC time
     client = XtreamClient(account.server_url, account.username, account.password)
-    source_url = client.build_timeshift_url(data.channel_id, program_start_utc, duration_minutes)
+    source_url = client.build_timeshift_url(data.channel_id, padded_start_utc, padded_duration)
 
     # Create download record
     download = Download(
@@ -160,7 +175,7 @@ async def create_download(
         program_title=data.program.get("title", "Unknown"),
         program_start=program_start,
         program_end=program_end,
-        duration_minutes=duration_minutes,
+        duration_minutes=padded_duration,
         source_url=source_url,
         output_path=os.path.join(download_folder, filename),
         status=DownloadStatus.PENDING.value,

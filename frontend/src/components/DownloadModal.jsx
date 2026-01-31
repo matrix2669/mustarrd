@@ -9,6 +9,10 @@ import {
   Badge,
   Loader,
   Alert,
+  Accordion,
+  NumberInput,
+  useMantineColorScheme,
+  useMantineTheme,
 } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
@@ -45,10 +49,30 @@ export default function DownloadModal({ opened, onClose, program, channel, accou
   const [filename, setFilename] = useState('')
   const [detectedType, setDetectedType] = useState('other')
   const [isLoadingPreview, setIsLoadingPreview] = useState(false)
+  const [prePadding, setPrePadding] = useState(0)
+  const [postPadding, setPostPadding] = useState(0)
+  const { colorScheme } = useMantineColorScheme()
+  const theme = useMantineTheme()
+
+  const accordionStyles = {
+    item: {
+      borderRadius: theme.radius.md,
+      border: `1px solid ${colorScheme === 'dark' ? theme.colors.dark[6] : theme.colors.gray[5]}`,
+      backgroundColor: colorScheme === 'dark' ? theme.colors.dark[7] : theme.colors.gray[1],
+    },
+    control: {
+      borderRadius: theme.radius.md,
+    },
+    panel: {
+      borderTop: `1px solid ${colorScheme === 'dark' ? theme.colors.dark[6] : theme.colors.gray[3]}`,
+    },
+  }
 
   // Get filename preview when modal opens
   useEffect(() => {
     if (opened && program && channel && accountId) {
+      setPrePadding(0)
+      setPostPadding(0)
       setIsLoadingPreview(true)
       downloadsApi
         .previewFilename({
@@ -100,6 +124,8 @@ export default function DownloadModal({ opened, onClose, program, channel, accou
       channel_name: channel.name,
       program: program,
       custom_filename: filename ? `${filename}.ts` : null,
+      pre_padding_minutes: prePadding,
+      post_padding_minutes: postPadding,
     })
   }
 
@@ -110,6 +136,8 @@ export default function DownloadModal({ opened, onClose, program, channel, accou
   const startTime = dayjs(program.start_time)
   const endTime = dayjs(program.end_time)
   const TypeIcon = typeIcons[detectedType] || IconFile
+  const totalDuration = (program.duration_minutes || 0) + prePadding + postPadding
+  const adjustedStart = startTime.subtract(prePadding, 'minute')
 
   return (
     <Modal
@@ -145,6 +173,36 @@ export default function DownloadModal({ opened, onClose, program, channel, accou
             <Text size="sm">{program.description}</Text>
           </Alert>
         )}
+
+        <Accordion variant="separated" styles={accordionStyles}>
+          <Accordion.Item value="offsets">
+            <Accordion.Control>Recording Offsets</Accordion.Control>
+            <Accordion.Panel>
+              <Stack gap="sm">
+                <NumberInput
+                  label="Minutes before start"
+                  description="Start recording early"
+                  min={0}
+                  max={120}
+                  value={prePadding}
+                  onChange={(val) => setPrePadding(typeof val === 'number' ? val : 0)}
+                />
+                <NumberInput
+                  label="Minutes after end"
+                  description="Keep recording after the program ends"
+                  min={0}
+                  max={120}
+                  value={postPadding}
+                  onChange={(val) => setPostPadding(typeof val === 'number' ? val : 0)}
+                />
+                <Text size="sm" c="dimmed">
+                  Recording starts at {adjustedStart.format('MMM D, YYYY h:mm A')} and runs for{' '}
+                  {totalDuration} minutes.
+                </Text>
+              </Stack>
+            </Accordion.Panel>
+          </Accordion.Item>
+        </Accordion>
 
         <Stack gap="xs">
           <Text fw={500}>Filename</Text>
