@@ -5,7 +5,6 @@ import {
   Burger,
   Group,
   NavLink as MantineNavLink,
-  Title,
   useMantineColorScheme,
   ActionIcon,
   Badge,
@@ -26,6 +25,7 @@ import Browse from './pages/Browse'
 import Downloads from './pages/Downloads'
 import Settings from './pages/Settings'
 import { downloadsApi, createDownloadWebSocket } from './api'
+import mustarrdLogo from './assets/mustarrdlogo.png'
 
 function App() {
   const [opened, { toggle }] = useDisclosure()
@@ -80,7 +80,11 @@ function App() {
         <Group h="100%" px="md" justify="space-between">
           <Group>
             <Burger opened={opened} onClick={toggle} hiddenFrom="sm" size="sm" />
-            <Title order={3}>Catchup DVR</Title>
+            <img
+              src={mustarrdLogo}
+              alt="Mustarrd"
+              style={{ width: 288, height: 'auto' }}
+            />
           </Group>
           <ActionIcon
             variant="subtle"
