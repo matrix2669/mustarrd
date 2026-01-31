@@ -15,6 +15,7 @@ import {
   Switch,
   Select,
   Badge,
+  useMantineColorScheme,
 } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -27,9 +28,27 @@ import {
   IconCheck,
   IconX,
   IconDownload,
+  IconMoon,
 } from '@tabler/icons-react'
 
 import { settingsApi } from '../api'
+
+const accordionStyles = (theme) => ({
+  item: {
+    border: `1px solid ${
+      theme.colorScheme === 'dark' ? theme.colors.dark[4] : theme.colors.gray[3]
+    }`,
+    borderRadius: theme.radius.md,
+    overflow: 'hidden',
+    backgroundColor: theme.colorScheme === 'dark' ? theme.colors.dark[7] : theme.white,
+  },
+  control: {
+    backgroundColor: theme.colorScheme === 'dark' ? theme.colors.dark[6] : theme.colors.gray[0],
+  },
+  panel: {
+    backgroundColor: theme.colorScheme === 'dark' ? theme.colors.dark[7] : theme.white,
+  },
+})
 
 function TemplateSection({ label, template, variables, example, onChange }) {
   return (
@@ -58,6 +77,7 @@ export default function Settings() {
   const queryClient = useQueryClient()
   const [formData, setFormData] = useState(null)
   const [hasChanges, setHasChanges] = useState(false)
+  const { colorScheme, setColorScheme } = useMantineColorScheme()
 
   // Fetch settings
   const { data: settings, isLoading, error } = useQuery({
@@ -258,7 +278,7 @@ export default function Settings() {
             </Group>
           )}
 
-          <Accordion variant="separated">
+          <Accordion variant="separated" styles={accordionStyles}>
             <Accordion.Item value="transcode">
               <Accordion.Control>
                 <Group gap="xs">
@@ -437,7 +457,7 @@ export default function Settings() {
             </Text>
           </Alert>
 
-          <Accordion variant="separated">
+          <Accordion variant="separated" styles={accordionStyles}>
             <Accordion.Item value="tv">
               <Accordion.Control>TV Shows</Accordion.Control>
               <Accordion.Panel>
@@ -498,6 +518,21 @@ export default function Settings() {
               </Accordion.Panel>
             </Accordion.Item>
           </Accordion>
+        </Stack>
+      </Card>
+
+      <Card shadow="sm" padding="lg" radius="md" withBorder>
+        <Stack gap="md">
+          <Group gap="xs">
+            <IconMoon size={20} />
+            <Text fw={500}>Appearance</Text>
+          </Group>
+
+          <Switch
+            label="Enable Dark Mode"
+            checked={colorScheme === 'dark'}
+            onChange={(e) => setColorScheme(e.currentTarget.checked ? 'dark' : 'light')}
+          />
         </Stack>
       </Card>
     </Stack>
