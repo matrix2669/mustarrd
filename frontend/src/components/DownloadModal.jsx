@@ -49,8 +49,8 @@ export default function DownloadModal({ opened, onClose, program, channel, accou
   const [filename, setFilename] = useState('')
   const [detectedType, setDetectedType] = useState('other')
   const [isLoadingPreview, setIsLoadingPreview] = useState(false)
-  const [prePadding, setPrePadding] = useState(0)
-  const [postPadding, setPostPadding] = useState(0)
+  const [prePadding, setPrePadding] = useState(1)
+  const [postPadding, setPostPadding] = useState(5)
   const { colorScheme } = useMantineColorScheme()
   const theme = useMantineTheme()
 
@@ -71,8 +71,8 @@ export default function DownloadModal({ opened, onClose, program, channel, accou
   // Get filename preview when modal opens
   useEffect(() => {
     if (opened && program && channel && accountId) {
-      setPrePadding(0)
-      setPostPadding(0)
+      setPrePadding(1)
+      setPostPadding(5)
       setIsLoadingPreview(true)
       downloadsApi
         .previewFilename({
