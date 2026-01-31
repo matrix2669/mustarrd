@@ -75,10 +75,13 @@ function DaySection({ date, programs, onProgramClick }) {
 
   // Sort programs by start time
   const sortedPrograms = useMemo(() => {
-    return [...programs].sort((a, b) =>
-      dayjs(a.start_time).valueOf() - dayjs(b.start_time).valueOf()
+    const visible = isToday
+      ? programs.filter((p) => dayjs(p.end_time).isBefore(now))
+      : programs
+    return [...visible].sort((a, b) =>
+      dayjs(b.start_time).valueOf() - dayjs(a.start_time).valueOf()
     )
-  }, [programs])
+  }, [programs, isToday])
 
   return (
     <Stack gap="xs">
@@ -87,7 +90,7 @@ function DaySection({ date, programs, onProgramClick }) {
           {isToday ? 'Today' : date.format('ddd, MMM D')}
         </Text>
         <Badge size="xs" variant="light">
-          {programs.length} programs
+          {sortedPrograms.length} programs
         </Badge>
       </Group>
 

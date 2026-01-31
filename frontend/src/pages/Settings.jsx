@@ -212,12 +212,16 @@ export default function Settings() {
           />
 
           <NumberInput
-            label="EPG Time Offset (minutes)"
+            label="EPG Time Offset (hours)"
             description="Adjust guide times if your provider's schedule is offset"
-            min={-720}
-            max={720}
-            value={formData.epg_offset_minutes || 0}
-            onChange={(val) => handleChange('epg_offset_minutes', val)}
+            min={-12}
+            max={12}
+            step={1}
+            value={(formData.epg_offset_minutes || 0) / 60}
+            onChange={(val) => {
+              const hours = typeof val === 'number' ? val : 0
+              handleChange('epg_offset_minutes', hours * 60)
+            }}
           />
         </Stack>
       </Card>
