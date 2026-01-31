@@ -229,84 +229,6 @@ export default function Settings() {
       <Card shadow="sm" padding="lg" radius="md" withBorder>
         <Stack gap="md">
           <Group gap="xs">
-            <IconFile size={20} />
-            <Text fw={500}>Filename Templates</Text>
-          </Group>
-
-          <Alert icon={<IconInfoCircle size={16} />} variant="light">
-            <Text size="sm">
-              Customize how downloaded files are named. Use the variables shown below each field.
-              Files will automatically get the .ts extension.
-            </Text>
-          </Alert>
-
-          <Accordion variant="separated">
-            <Accordion.Item value="tv">
-              <Accordion.Control>TV Shows</Accordion.Control>
-              <Accordion.Panel>
-                {templateInfo?.tv_show && (
-                  <TemplateSection
-                    label="TV Show Template"
-                    template={formData.tv_template}
-                    variables={templateInfo.tv_show.variables}
-                    example={templateInfo.tv_show.example}
-                    onChange={(val) => handleChange('tv_template', val)}
-                  />
-                )}
-              </Accordion.Panel>
-            </Accordion.Item>
-
-            <Accordion.Item value="movie">
-              <Accordion.Control>Movies</Accordion.Control>
-              <Accordion.Panel>
-                {templateInfo?.movie && (
-                  <TemplateSection
-                    label="Movie Template"
-                    template={formData.movie_template}
-                    variables={templateInfo.movie.variables}
-                    example={templateInfo.movie.example}
-                    onChange={(val) => handleChange('movie_template', val)}
-                  />
-                )}
-              </Accordion.Panel>
-            </Accordion.Item>
-
-            <Accordion.Item value="sports">
-              <Accordion.Control>Sports</Accordion.Control>
-              <Accordion.Panel>
-                {templateInfo?.sports && (
-                  <TemplateSection
-                    label="Sports Template"
-                    template={formData.sports_template}
-                    variables={templateInfo.sports.variables}
-                    example={templateInfo.sports.example}
-                    onChange={(val) => handleChange('sports_template', val)}
-                  />
-                )}
-              </Accordion.Panel>
-            </Accordion.Item>
-
-            <Accordion.Item value="default">
-              <Accordion.Control>Default (Other Content)</Accordion.Control>
-              <Accordion.Panel>
-                {templateInfo?.default && (
-                  <TemplateSection
-                    label="Default Template"
-                    template={formData.default_template}
-                    variables={templateInfo.default.variables}
-                    example={templateInfo.default.example}
-                    onChange={(val) => handleChange('default_template', val)}
-                  />
-                )}
-              </Accordion.Panel>
-            </Accordion.Item>
-          </Accordion>
-        </Stack>
-      </Card>
-
-      <Card shadow="sm" padding="lg" radius="md" withBorder>
-        <Stack gap="md">
-          <Group gap="xs">
             <IconWand size={20} />
             <Text fw={500}>Post-Processing</Text>
           </Group>
@@ -349,7 +271,7 @@ export default function Settings() {
               <Accordion.Panel>
                 <Stack gap="md">
                   <Switch
-                    label="Enable transcoding"
+                    label="Enable Transcoding"
                     description="Convert downloaded .ts files to another format"
                     checked={formData.transcode_enabled || false}
                     onChange={(e) => handleChange('transcode_enabled', e.currentTarget.checked)}
@@ -358,45 +280,6 @@ export default function Settings() {
 
                   {formData.transcode_enabled && (
                     <>
-                      <Select
-                        label="Output Format"
-                        data={[
-                          { value: 'mp4', label: 'MP4 (H.264 + AAC)' },
-                          { value: 'mkv', label: 'MKV (best compatibility)' },
-                          { value: 'ts', label: 'TS (keep original)' },
-                        ]}
-                        value={formData.transcode_format || 'mkv'}
-                        onChange={(val) => handleChange('transcode_format', val)}
-                      />
-
-                      <Select
-                        label="Hardware Acceleration"
-                        description="Use GPU for faster encoding"
-                        data={toolsStatus?.hardware_accels?.map(hw => ({
-                          value: hw.id,
-                          label: hw.name,
-                          disabled: !hw.available,
-                        })) || [{ value: 'cpu', label: 'CPU (Software)' }]}
-                        value={formData.hw_accel || 'cpu'}
-                        onChange={(val) => handleChange('hw_accel', val)}
-                        disabled={formData.remux_only}
-                      />
-
-                      <Select
-                        label="Quality Preset"
-                        data={toolsStatus?.quality_presets?.map(q => ({
-                          value: q.id,
-                          label: q.name,
-                        })) || [
-                          { value: 'fast', label: 'Fast' },
-                          { value: 'balanced', label: 'Balanced' },
-                          { value: 'quality', label: 'Quality' },
-                        ]}
-                        value={formData.transcode_quality || 'balanced'}
-                        onChange={(val) => handleChange('transcode_quality', val)}
-                        disabled={formData.remux_only}
-                      />
-
                       <Switch
                         label="Remux only (no re-encode)"
                         description="Faster and lossless; improves seeking without re-encoding"
@@ -409,6 +292,47 @@ export default function Settings() {
                         checked={formData.delete_original_after_transcode !== false}
                         onChange={(e) => handleChange('delete_original_after_transcode', e.currentTarget.checked)}
                       />
+
+                      <Select
+                        label="Output Format"
+                        data={[
+                          { value: 'mp4', label: 'MP4 (H.264 + AAC)' },
+                          { value: 'mkv', label: 'MKV (best compatibility)' },
+                          { value: 'ts', label: 'TS (keep original)' },
+                        ]}
+                        value={formData.transcode_format || 'mkv'}
+                        onChange={(val) => handleChange('transcode_format', val)}
+                      />
+
+                      {!formData.remux_only && (
+                        <>
+                          <Select
+                            label="Output Hardware"
+                            description="Use GPU for faster encoding"
+                            data={toolsStatus?.hardware_accels?.map(hw => ({
+                              value: hw.id,
+                              label: hw.name,
+                              disabled: !hw.available,
+                            })) || [{ value: 'cpu', label: 'CPU (Software)' }]}
+                            value={formData.hw_accel || 'cpu'}
+                            onChange={(val) => handleChange('hw_accel', val)}
+                          />
+
+                          <Select
+                            label="Quality Preset"
+                            data={toolsStatus?.quality_presets?.map(q => ({
+                              value: q.id,
+                              label: q.name,
+                            })) || [
+                              { value: 'fast', label: 'Fast' },
+                              { value: 'balanced', label: 'Balanced' },
+                              { value: 'quality', label: 'Quality' },
+                            ]}
+                            value={formData.transcode_quality || 'balanced'}
+                            onChange={(val) => handleChange('transcode_quality', val)}
+                          />
+                        </>
+                      )}
                     </>
                   )}
 
@@ -493,6 +417,84 @@ export default function Settings() {
                     </Alert>
                   )}
                 </Stack>
+              </Accordion.Panel>
+            </Accordion.Item>
+          </Accordion>
+        </Stack>
+      </Card>
+
+      <Card shadow="sm" padding="lg" radius="md" withBorder>
+        <Stack gap="md">
+          <Group gap="xs">
+            <IconFile size={20} />
+            <Text fw={500}>Filename Templates</Text>
+          </Group>
+
+          <Alert icon={<IconInfoCircle size={16} />} variant="light">
+            <Text size="sm">
+              Customize how downloaded files are named. Use the variables shown below each field.
+              Files will automatically get the .ts extension.
+            </Text>
+          </Alert>
+
+          <Accordion variant="separated">
+            <Accordion.Item value="tv">
+              <Accordion.Control>TV Shows</Accordion.Control>
+              <Accordion.Panel>
+                {templateInfo?.tv_show && (
+                  <TemplateSection
+                    label="TV Show Template"
+                    template={formData.tv_template}
+                    variables={templateInfo.tv_show.variables}
+                    example={templateInfo.tv_show.example}
+                    onChange={(val) => handleChange('tv_template', val)}
+                  />
+                )}
+              </Accordion.Panel>
+            </Accordion.Item>
+
+            <Accordion.Item value="movie">
+              <Accordion.Control>Movies</Accordion.Control>
+              <Accordion.Panel>
+                {templateInfo?.movie && (
+                  <TemplateSection
+                    label="Movie Template"
+                    template={formData.movie_template}
+                    variables={templateInfo.movie.variables}
+                    example={templateInfo.movie.example}
+                    onChange={(val) => handleChange('movie_template', val)}
+                  />
+                )}
+              </Accordion.Panel>
+            </Accordion.Item>
+
+            <Accordion.Item value="sports">
+              <Accordion.Control>Sports</Accordion.Control>
+              <Accordion.Panel>
+                {templateInfo?.sports && (
+                  <TemplateSection
+                    label="Sports Template"
+                    template={formData.sports_template}
+                    variables={templateInfo.sports.variables}
+                    example={templateInfo.sports.example}
+                    onChange={(val) => handleChange('sports_template', val)}
+                  />
+                )}
+              </Accordion.Panel>
+            </Accordion.Item>
+
+            <Accordion.Item value="default">
+              <Accordion.Control>Default (Other Content)</Accordion.Control>
+              <Accordion.Panel>
+                {templateInfo?.default && (
+                  <TemplateSection
+                    label="Default Template"
+                    template={formData.default_template}
+                    variables={templateInfo.default.variables}
+                    example={templateInfo.default.example}
+                    onChange={(val) => handleChange('default_template', val)}
+                  />
+                )}
               </Accordion.Panel>
             </Accordion.Item>
           </Accordion>
