@@ -70,17 +70,15 @@ function ProgramBlock({ program, onClick, isPast, isCurrent, elementId }) {
   )
 }
 
-function DaySection({ date, programs, onProgramClick, showFuture }) {
+function DaySection({ date, programs, onProgramClick }) {
   const now = dayjs()
-  const isToday = date.isSame(now, 'day')
 
   // Sort programs by start time
   const sortedPrograms = useMemo(() => {
-    const visible = showFuture ? programs : programs.filter((p) => dayjs(p.end_time).isBefore(now))
-    return [...visible].sort((a, b) =>
+    return [...programs].sort((a, b) =>
       dayjs(b.start_time).valueOf() - dayjs(a.start_time).valueOf()
     )
-  }, [programs, showFuture, now])
+  }, [programs])
 
   return (
     <Stack gap="xs">
@@ -121,11 +119,19 @@ export default function EPGGrid({ epgData, onProgramClick, showFuture = false })
   const scrollAreaRef = useRef(null)
   const now = dayjs()
 
+  const visiblePrograms = useMemo(() => {
+    if (!epgData) return epgData
+    if (showFuture) return epgData
+    return epgData.filter((program) => dayjs(program.end_time).isBefore(now))
+  }, [epgData, showFuture, now])
+
   // Group programs by day
   const programsByDay = useMemo(() => {
     const grouped = {}
 
-    epgData.forEach((program) => {
+    if (!visiblePrograms) return []
+
+    visiblePrograms.forEach((program) => {
       if (!program.start_time) return
 
       const date = dayjs(program.start_time).startOf('day')
@@ -142,7 +148,7 @@ export default function EPGGrid({ epgData, onProgramClick, showFuture = false })
 
     // Sort days
     return Object.values(grouped).sort((a, b) => b.date.valueOf() - a.date.valueOf())
-  }, [epgData])
+  }, [visiblePrograms])
 
   const scrollTargetId = useMemo(() => {
     let target = null
@@ -188,7 +194,7 @@ export default function EPGGrid({ epgData, onProgramClick, showFuture = false })
     }
   }, [scrollTargetId])
 
-  if (!epgData || epgData.length === 0) {
+  if (!visiblePrograms || visiblePrograms.length === 0) {
     return (
       <Stack align="center" justify="center" h={200}>
         <IconClock size={48} opacity={0.3} />
@@ -198,7 +204,7 @@ export default function EPGGrid({ epgData, onProgramClick, showFuture = false })
   }
 
   // Count downloadable programs
-  const downloadableCount = epgData.filter(
+  const downloadableCount = visiblePrograms.filter(
     (p) => p.has_archive && dayjs(p.end_time).isBefore(dayjs())
   ).length
 
@@ -225,7 +231,6 @@ export default function EPGGrid({ epgData, onProgramClick, showFuture = false })
                 date={date}
                 programs={programs}
                 onProgramClick={onProgramClick}
-                showFuture={showFuture}
               />
             </Box>
           ))}
