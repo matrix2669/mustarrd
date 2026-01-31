@@ -27,6 +27,9 @@ class EPGService:
             return False
         return (datetime.utcnow() - cached_at).total_seconds() < self._cache_ttl
 
+    def clear_cache(self):
+        self._cache = {}
+
     async def _get_client(self, session: AsyncSession, account_id: int) -> XtreamClient:
         result = await session.execute(
             select(XtreamAccount).where(XtreamAccount.id == account_id)

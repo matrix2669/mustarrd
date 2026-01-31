@@ -17,6 +17,7 @@ from database import get_session
 from config import ensure_config_files, settings as app_settings
 from models import AppSettings
 from services.download_manager import download_manager
+from services.epg_service import epg_service
 from services.post_processor import post_processor
 
 
@@ -143,6 +144,8 @@ async def update_settings(
     for field, value in update_dict.items():
         if value is None and field in NON_NULLABLE_FIELDS:
             continue
+        if field == "epg_offset_minutes" and value is not None:
+            value = int(value)
         setattr(settings, field, value)
 
     # If comskip is enabled, ensure transcoding is on.
@@ -157,6 +160,9 @@ async def update_settings(
     # Update download manager if max concurrent changed
     if update_data.max_concurrent_downloads is not None:
         download_manager.set_max_concurrent(update_data.max_concurrent_downloads)
+
+    if "epg_offset_minutes" in update_dict:
+        epg_service.clear_cache()
 
     return settings.to_dict()
 
