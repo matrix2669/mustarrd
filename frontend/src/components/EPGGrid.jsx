@@ -72,6 +72,7 @@ function ProgramBlock({ program, onClick, isPast, isCurrent, elementId }) {
 
 function DaySection({ date, programs, onProgramClick }) {
   const now = dayjs()
+  const isToday = date.isSame(now, 'day')
 
   // Sort programs by start time
   const sortedPrograms = useMemo(() => {
