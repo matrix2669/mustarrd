@@ -18,7 +18,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpostproc-dev \
   && rm -rf /var/lib/apt/lists/*
 
-RUN git clone --depth 1 https://github.com/erikkaashoek/Comskip . \
+RUN git clone --depth 1 --branch fancybits https://github.com/fancybits/Comskip . \
   && ./autogen.sh \
   && ./configure \
   && make
