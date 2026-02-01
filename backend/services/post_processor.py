@@ -254,8 +254,13 @@ class PostProcessor:
                 "-rc", "vbr_latency",
             ])
         elif hw_accel == HardwareAccel.INTEL:
+            qsv_preset_map = {
+                "fast": "fast",
+                "balanced": "medium",
+                "quality": "slow",
+            }
             args.extend([
-                "-preset", "faster" if q["hw_quality"] == "speed" else "balanced",
+                "-preset", qsv_preset_map.get(quality, "medium"),
                 "-global_quality", "23",
             ])
         elif hw_accel == HardwareAccel.VAAPI:
