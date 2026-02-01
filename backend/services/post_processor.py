@@ -19,7 +19,6 @@ class HardwareAccel(str, Enum):
     APPLE_SILICON = "videotoolbox"  # macOS VideoToolbox (M1/M2/etc)
     NVIDIA = "nvenc"  # NVIDIA NVENC
     AMD = "amf"  # AMD AMF
-    INTEL = "qsv"  # Intel QuickSync
     VAAPI = "vaapi"  # Linux VA-API (Intel/AMD)
 
 
@@ -40,10 +39,6 @@ ENCODER_MAP = {
     HardwareAccel.AMD: {
         "h264": "h264_amf",
         "hevc": "hevc_amf",
-    },
-    HardwareAccel.INTEL: {
-        "h264": "h264_qsv",
-        "hevc": "hevc_qsv",
     },
     HardwareAccel.VAAPI: {
         "h264": "h264_vaapi",
@@ -192,15 +187,6 @@ class PostProcessor:
                 "available": True,
             })
 
-        # Check Intel QuickSync
-        if "h264_qsv" in encoders:
-            available.append({
-                "id": HardwareAccel.INTEL.value,
-                "name": "Intel (QuickSync)",
-                "description": "Hardware acceleration for Intel CPUs/GPUs",
-                "available": True,
-            })
-
         # Check VA-API (Linux)
         if platform.system() == "Linux" and "h264_vaapi" in encoders:
             available.append({
@@ -252,16 +238,6 @@ class PostProcessor:
             args.extend([
                 "-quality", q["hw_quality"],
                 "-rc", "vbr_latency",
-            ])
-        elif hw_accel == HardwareAccel.INTEL:
-            qsv_preset_map = {
-                "fast": "fast",
-                "balanced": "medium",
-                "quality": "slow",
-            }
-            args.extend([
-                "-preset", qsv_preset_map.get(quality, "medium"),
-                "-global_quality", "23",
             ])
         elif hw_accel == HardwareAccel.VAAPI:
             args.extend([

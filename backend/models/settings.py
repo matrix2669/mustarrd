@@ -32,7 +32,7 @@ class AppSettings(Base):
     # Post-processing options
     transcode_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     transcode_format: Mapped[str] = mapped_column(String(10), default="mkv")  # ts, mp4, mkv
-    hw_accel: Mapped[str] = mapped_column(String(20), default="cpu")  # cpu, videotoolbox, nvenc, amf, qsv, vaapi
+    hw_accel: Mapped[str] = mapped_column(String(20), default="cpu")  # cpu, videotoolbox, nvenc, amf, vaapi
     transcode_quality: Mapped[str] = mapped_column(String(20), default="balanced")  # fast, balanced, quality
     delete_original_after_transcode: Mapped[bool] = mapped_column(Boolean, default=True)
     remux_only: Mapped[bool] = mapped_column(Boolean, default=True)
