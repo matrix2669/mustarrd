@@ -42,7 +42,7 @@ async def init_db():
                     "sports_template": "VARCHAR(500) NOT NULL DEFAULT '{title} - {date}'",
                     "default_template": "VARCHAR(500) NOT NULL DEFAULT '{channel} - {title} - {date}'",
                     "max_concurrent_downloads": "INTEGER NOT NULL DEFAULT 2",
-                    "transcode_enabled": "BOOLEAN NOT NULL DEFAULT 0",
+                    "transcode_enabled": "BOOLEAN NOT NULL DEFAULT 1",
                     "transcode_format": "VARCHAR(10) NOT NULL DEFAULT 'mkv'",
                     "hw_accel": "VARCHAR(20) NOT NULL DEFAULT 'cpu'",
                     "transcode_quality": "VARCHAR(20) NOT NULL DEFAULT 'balanced'",

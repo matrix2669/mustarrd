@@ -30,7 +30,7 @@ class AppSettings(Base):
     max_concurrent_downloads: Mapped[int] = mapped_column(Integer, default=2)
 
     # Post-processing options
-    transcode_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    transcode_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     transcode_format: Mapped[str] = mapped_column(String(10), default="mkv")  # ts, mp4, mkv
     hw_accel: Mapped[str] = mapped_column(String(20), default="cpu")  # cpu, videotoolbox, nvenc, amf, qsv, vaapi
     transcode_quality: Mapped[str] = mapped_column(String(20), default="balanced")  # fast, balanced, quality
