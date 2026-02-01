@@ -3,7 +3,6 @@ import os
 import shutil
 import platform
 import subprocess
-from pathlib import Path
 from typing import Optional, Callable, List, Dict
 from enum import Enum
 
@@ -60,43 +59,6 @@ class PostProcessor:
         self._comskip_path = shutil.which("comskip")
         self._available_encoders: Optional[List[str]] = None
 
-    def _repo_bin_dirs(self) -> List[Path]:
-        """Return repo-local tools/bin paths (arch-specific first) if they exist."""
-        try:
-            root = Path(__file__).resolve().parents[2]
-        except Exception:
-            return []
-        base = root / "tools" / "bin"
-        if not base.exists():
-            return []
-
-        arch = platform.machine().lower()
-        arch_map = {
-            "x86_64": "linux-x86_64",
-            "amd64": "linux-x86_64",
-            "aarch64": "linux-arm64",
-            "arm64": "linux-arm64",
-        }
-        candidates = []
-        system = platform.system()
-        if system == "Linux":
-            arch_dir = arch_map.get(arch)
-            if arch_dir:
-                candidates.append(base / arch_dir)
-            candidates.append(base)
-        elif system == "Darwin":
-            mac_map = {
-                "arm64": "macos-arm64",
-                "aarch64": "macos-arm64",
-                "x86_64": "macos-x86_64",
-                "amd64": "macos-x86_64",
-            }
-            arch_dir = mac_map.get(arch)
-            if arch_dir:
-                candidates.append(base / arch_dir)
-            candidates.append(base)
-        return [p for p in candidates if p.exists()]
-
     def _resolve_ffmpeg_path(self) -> Optional[str]:
         """Resolve ffmpeg path on demand to handle PATH changes."""
         candidates = []
@@ -110,14 +72,9 @@ class PostProcessor:
         if system_ffmpeg:
             candidates.append(system_ffmpeg)
         candidates.extend([
-            "/opt/homebrew/bin/ffmpeg",
             "/usr/local/bin/ffmpeg",
             "/usr/bin/ffmpeg",
         ])
-
-        if platform.system() == "Linux":
-            for bin_dir in self._repo_bin_dirs():
-                candidates.append(str(bin_dir / "ffmpeg"))
 
         for path in candidates:
             if not path:
@@ -140,10 +97,6 @@ class PostProcessor:
         system_comskip = shutil.which("comskip")
         if system_comskip:
             candidates.append(system_comskip)
-
-        if platform.system() == "Linux":
-            for bin_dir in self._repo_bin_dirs():
-                candidates.append(str(bin_dir / "comskip"))
 
         for path in candidates:
             if not path:

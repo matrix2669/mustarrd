@@ -68,7 +68,6 @@ export const settingsApi = {
   update: (data) => request('/settings', { method: 'PUT', body: data }),
   getTemplates: () => request('/settings/templates'),
   getTools: () => request('/settings/tools'),
-  installFfmpegMacos: () => request('/settings/install-ffmpeg-macos', { method: 'POST' }),
 }
 
 // WebSocket for download progress

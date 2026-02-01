@@ -71,8 +71,6 @@ On first run, `comskip.ini` is copied into `./config/comskip.ini` and set as the
 Timezone display can be set via environment variable:
 `CATCHUP_TIMEZONE` (e.g., `America/Los_Angeles`).
 
-macOS users can install ffmpeg via the Settings page (downloads from osxexperts.net).
-
 #### Quick Start (Docker)
 
 ```bash
@@ -96,6 +94,7 @@ Note: Docker uses absolute paths inside the container:
 ### Tools (ffmpeg + comskip)
 
 Docker builds install ffmpeg via apt and compile comskip from source in the backend image.
+If you run the backend locally (non-Docker), install ffmpeg and comskip manually.
 
 ## Configuration
 

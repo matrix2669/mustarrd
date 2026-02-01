@@ -1,17 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import Optional
-import os
-import platform
-import tempfile
-import zipfile
-import hashlib
-import urllib.request
-import asyncio
-import subprocess
-from pathlib import Path
 
 from database import get_session
 from config import ensure_config_files, settings as app_settings
@@ -65,37 +56,6 @@ NON_NULLABLE_FIELDS = {
     "show_future_programs",
 }
 
-
-MACOS_FFMPEG_BUILDS = {
-    "arm64": {
-        "ffmpeg": {
-            "url": "https://www.osxexperts.net/ffmpeg80arm.zip",
-            "sha256": "f5d3a7de3c926c932e3959031823d13ae0edc7f85b083f35fb66e2fdf7d9dcc4",
-        },
-        "ffprobe": {
-            "url": "https://www.osxexperts.net/ffprobe80arm.zip",
-            "sha256": "fd4c41f9b6a5a8bdcb7f5155d56565a2e0b7f0f4c4039ccf4b8cff1f0a0dad3b",
-        },
-        "ffplay": {
-            "url": "https://www.osxexperts.net/ffplay80arm.zip",
-            "sha256": "e6a70e5b003613b10a4c6872c857b41f8c52c9f638d5a26a2c1f1f195f96c1a1",
-        },
-    },
-    "x86_64": {
-        "ffmpeg": {
-            "url": "https://www.osxexperts.net/ffmpeg80intel.zip",
-            "sha256": "7f96a9c3b9f9d68d54279cadbde60f506075f5c7e0c29d8f5a5b2e15d227f9e7",
-        },
-        "ffprobe": {
-            "url": "https://www.osxexperts.net/ffprobe80intel.zip",
-            "sha256": "f86ac56c8a2a7b9d1c99b9f8eab4c78858e77f916cc1d3a6fd0b7bcf030f1e63",
-        },
-        "ffplay": {
-            "url": "https://www.osxexperts.net/ffplay80intel.zip",
-            "sha256": "7007f1d1142fbca2dc8f0bd9b45a7b1b8f66f888a5b58d8f1d8b7e5f95a7f5ce",
-        },
-    },
-}
 
 
 @router.get("")
@@ -169,66 +129,6 @@ async def update_settings(
     return settings.to_dict()
 
 
-@router.post("/install-ffmpeg-macos")
-async def install_ffmpeg_macos():
-    if platform.system() != "Darwin":
-        raise HTTPException(status_code=400, detail="macOS only")
-
-    machine = platform.machine().lower()
-    if machine not in MACOS_FFMPEG_BUILDS:
-        raise HTTPException(status_code=400, detail=f"Unsupported macOS arch: {machine}")
-
-    repo_root = Path(__file__).resolve().parents[2]
-    target_dir = repo_root / "tools" / "bin" / ("macos-arm64" if machine == "arm64" else "macos-x86_64")
-    target_dir.mkdir(parents=True, exist_ok=True)
-
-    def download_and_install():
-        for name, info in MACOS_FFMPEG_BUILDS[machine].items():
-            with urllib.request.urlopen(info["url"]) as response:
-                data = response.read()
-            digest = hashlib.sha256(data).hexdigest()
-            if digest.lower() != info["sha256"].lower():
-                raise Exception(f"SHA256 mismatch for {name}")
-
-            with tempfile.TemporaryDirectory() as tmpdir:
-                zip_path = Path(tmpdir) / f"{name}.zip"
-                zip_path.write_bytes(data)
-                with zipfile.ZipFile(zip_path, "r") as zf:
-                    zf.extractall(tmpdir)
-
-                extracted = None
-                for candidate in Path(tmpdir).rglob(name):
-                    if candidate.is_file():
-                        extracted = candidate
-                        break
-                if not extracted:
-                    raise Exception(f"{name} binary not found in zip")
-
-                dest = target_dir / name
-                dest.write_bytes(extracted.read_bytes())
-                os.chmod(dest, 0o755)
-
-                # Remove quarantine
-                subprocess.run(["xattr", "-dr", "com.apple.quarantine", str(dest)], check=False)
-                subprocess.run(["xattr", "-cr", str(dest)], check=False)
-
-                # Apple Silicon requires signing
-                if machine == "arm64":
-                    subprocess.run(["codesign", "-s", "-", str(dest)], check=False)
-
-        return {
-            "installed": True,
-            "path": str(target_dir),
-        }
-
-    try:
-        result = await asyncio.to_thread(download_and_install)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-    return result
-
-
 @router.get("/templates")
 async def get_template_variables():
     """Get available template variables for filename customization."""
@@ -272,28 +172,16 @@ async def get_template_variables():
 @router.get("/tools")
 async def get_tools_status():
     """Check availability of post-processing tools."""
-    system = platform.system()
-    machine = platform.machine().lower()
-    macos_supported = system == "Darwin" and machine in MACOS_FFMPEG_BUILDS
     return {
         "ffmpeg": {
             "available": post_processor.ffmpeg_available,
             "description": "Required for transcoding to MP4/MKV formats",
-            "install_hint": "brew install ffmpeg (macOS) or apt install ffmpeg (Linux)",
+            "install_hint": "Included in the Docker image; install ffmpeg if running locally.",
         },
         "comskip": {
             "available": post_processor.comskip_available,
             "description": "Commercial detection and removal",
-            "install_hint": "See https://github.com/erikkaashoek/Comskip for installation",
-        },
-        "platform": {
-            "system": system,
-            "machine": machine,
-        },
-        "macos_ffmpeg": {
-            "supported": macos_supported,
-            "version": "8.0",
-            "source": "osxexperts.net",
+            "install_hint": "Included in the Docker image; build comskip if running locally.",
         },
         "transcode_formats": ["ts", "mp4", "mkv"],
         "hardware_accels": post_processor.get_available_hardware_accels(),

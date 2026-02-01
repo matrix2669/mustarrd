@@ -298,17 +298,6 @@ class DownloadManager:
 
         if settings.comskip_path:
             post_processor.set_comskip_path(settings.comskip_path)
-            try:
-                if os.name == "posix" and os.uname().sysname == "Linux":
-                    from pathlib import Path
-                    comskip_dir = Path(settings.comskip_path).resolve().parent
-                    for name in ("ffmpeg", "ffmpeg.exe"):
-                        ffmpeg_candidate = comskip_dir / name
-                        if ffmpeg_candidate.is_file() and os.access(ffmpeg_candidate, os.X_OK):
-                            post_processor.set_ffmpeg_path(str(ffmpeg_candidate))
-                            break
-            except Exception:
-                pass
 
         # Get hardware acceleration setting
         try:
