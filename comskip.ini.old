@@ -1,5 +1,5 @@
 ; See comskip.txt in the distribution zip file for many settable parameters, read manual.html, tuning.html and debugwindow.html for how to tune and debug comskip
-detect_method=107			;1=black frame, 2=logo, 4=scene change, 8=fuzzy logic, 16=closed captions, 32=aspect ration, 64=silence, 128=cutscenes, 255=all
+detect_method=43			;1=black frame, 2=logo, 4=scene change, 8=fuzzy logic, 16=closed captions, 32=aspect ration, 64=silence, 128=cutscenes, 255=all
 validate_silence=1			; Default, set to 0 to force using this clues if selected above.
 validate_uniform=1			; Default, set to 0 to force using this clues (like pure white frames) if blackframe is selected above.
 validate_scenechange=1		; Default, set to 0 to force using this clues if selected above.
@@ -40,7 +40,7 @@ ms_audio_delay=5
 volume_slip=40
 skip_b_frames=0				; Set to 1 to force Comskip to skip frames for higher processing speed.
 max_repair_size=200			; Will repair maximum 200 missing MPEG frames in the timeline, set to 0 to disable repairing for players that don't use PTS. 
-disable_heuristics=4			; bit pattern for disabling heuristics: +1 disables heuristics 1, +2 disables heuristics 2, +4 disables heuristics 3, 255 disables all heuristics
+disable_heuristics=4		bit pattern for disabling heuristics, adding 1 disables heristics 1, adding 2 disables heristics 2, adding 4 disables heristics 3, 255  disables all heuristics 
 delete_logo_file=1			; set to 1 if you want comskip to tidy up after finishing
 output_framearray=0			; create a big excel file for detailed analysis, set to 0 to disable
 output_data=0				; create a dump of the user data channel, used for CC and XDS (such as V-Chip info). Can be use together with output_framearray to remote debug CC decoding
@@ -76,8 +76,11 @@ mpeg2schnitt_options="mpeg2schnitt.exe /S /E /R25  /Z %2 %1"
 avisynth_options="LoadPlugin(\"MPEG2Dec3.dll\") \nMPEG2Source(\"%s\")\n"
 dvrcut_options="dvrcut \"%s.dvr-ms\" \"%s_clean.dvr-ms\" "
 windowtitle="Comskip - %s"
-always_keep_first_seconds=0
+always_keep_first_seconds=30
 always_keep_last_seconds=60
-thread_count=1				; Number of threads used when decoding the video (1-16). Setting too high can slow processing.
-lowres=10					; Enables resolution reduction (0-10). 10 chooses automatically. Default is 0.
-;This only works for certain types of video encoding, may not work for h.264 encoded video and may deliver bad results when used with hardware_decode=1
+thread_count=2 (1-16)
+;Number of threads used when decoding the video, default not added, default value 2
+;;Increasing the thread count speeds up the processing on CPU's with more cores then the current thread count. Setting the number to higher then the amount of cores makes processing slower. Setting the thread_count to 1 disables multi-threaded decoding, useful in case comskip crashes when decoding the video.
+lowres=10 (0-10)
+;Enables resolution reduction, setting to 10 makes comskip choose the best value automatically, default not added, default value 0
+;;This only works for certain types of video encoding, may not work for h.264 encoded video and may deliver bad results when used with hardware_decode=1
