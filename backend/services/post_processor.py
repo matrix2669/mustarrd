@@ -514,7 +514,7 @@ class PostProcessor:
 
         if not segments:
             # No commercials, just transcode if needed
-            return await self.transcode(
+            output = await self.transcode(
                 input_path,
                 output_format,
                 hw_accel,
@@ -523,9 +523,11 @@ class PostProcessor:
                 remove_original=remove_original,
                 remux_only=remux_only
             )
+            self._cleanup_comskip_outputs(input_path, edl_path)
+            return output
 
         input_file = Path(input_path)
-        output_path = input_file.with_stem(f"{input_file.stem}_clean").with_suffix(f".{output_format.value}")
+        output_path = input_file.with_stem(f"{input_file.stem}_nocommercials").with_suffix(f".{output_format.value}")
 
         # Get video duration
         duration = await self._get_duration(input_path)
@@ -534,7 +536,7 @@ class PostProcessor:
         keep_segments = self._invert_segments(segments, duration)
 
         if not keep_segments:
-            return await self.transcode(
+            output = await self.transcode(
                 input_path,
                 output_format,
                 hw_accel,
@@ -543,6 +545,8 @@ class PostProcessor:
                 remove_original=remove_original,
                 remux_only=remux_only
             )
+            self._cleanup_comskip_outputs(input_path, edl_path)
+            return output
 
         # Create concat file for ffmpeg
         concat_file = input_file.with_suffix(".concat.txt")
@@ -623,10 +627,36 @@ class PostProcessor:
             if concat_file.exists():
                 os.remove(concat_file)
 
+        self._cleanup_comskip_outputs(input_path, edl_path)
+
         if remove_original:
             os.remove(input_path)
 
         return str(output_path)
+
+    def _cleanup_comskip_outputs(self, input_path: str, edl_path: str) -> None:
+        """Remove comskip output artifacts."""
+        try:
+            input_file = Path(input_path)
+            candidates = [
+                input_file.with_suffix(".edl"),
+                input_file.with_suffix(".txt"),
+                input_file.with_suffix(".log"),
+                input_file.with_suffix(".logo"),
+                input_file.with_suffix(".csv"),
+                input_file.with_suffix(".vdr"),
+                input_file.with_suffix(".xml"),
+                input_file.with_suffix(".srt"),
+                input_file.with_suffix(".ass"),
+                input_file.with_suffix(".vtt"),
+            ]
+            if edl_path:
+                candidates.append(Path(edl_path))
+            for path in candidates:
+                if path.exists():
+                    os.remove(path)
+        except Exception:
+            pass
 
     def _parse_edl(self, edl_path: str) -> list:
         """Parse EDL file and return list of (start, end, type) tuples."""

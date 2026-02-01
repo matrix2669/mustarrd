@@ -367,6 +367,11 @@ export default function Settings() {
 
                   {formData.comskip_enabled && (
                     <>
+                      <Text size="xs" c="dimmed">
+                        Turning this on will re-encode the stream. Configure Output Format and Quality in the
+                        Transcoding section.
+                      </Text>
+
                       <Switch
                         label="Remove commercials"
                         description="Cut commercials from the video (vs just marking them)"
