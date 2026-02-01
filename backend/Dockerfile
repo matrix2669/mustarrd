@@ -34,6 +34,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     vainfo \
     libva2 \
     libva-drm2 \
+    i965-va-driver \
+    intel-media-va-driver \
+    libigdgmm12 \
     mesa-va-drivers \
     gosu \
   && rm -rf /var/lib/apt/lists/*
