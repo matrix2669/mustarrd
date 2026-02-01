@@ -1,4 +1,4 @@
-FROM python:3.11-slim AS comskip-builder
+FROM python:3.11-bookworm AS comskip-builder
 
 WORKDIR /tmp/comskip
 
@@ -23,7 +23,7 @@ RUN git clone --depth 1 --branch fancybits https://github.com/fancybits/Comskip 
   && ./configure \
   && make
 
-FROM python:3.11-slim
+FROM python:3.11-bookworm
 
 WORKDIR /app/backend
 
