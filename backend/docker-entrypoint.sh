@@ -20,4 +20,9 @@ fi
 
 chown -R "${PUID}:${PGID}" /app/config /app/downloads 2>/dev/null || true
 
+if [[ -f /app/comskip.ini && ! -f /app/config/comskip.ini ]]; then
+  cp /app/comskip.ini /app/config/comskip.ini
+  chown "${PUID}:${PGID}" /app/config/comskip.ini 2>/dev/null || true
+fi
+
 exec gosu "${PUID}:${PGID}" "$@"
