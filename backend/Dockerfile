@@ -1,4 +1,4 @@
-FROM python:3.11-slim AS comskip-builder
+FROM python:3.11-slim-bookworm AS comskip-builder
 
 WORKDIR /tmp/comskip
 
@@ -23,21 +23,14 @@ RUN git clone --depth 1 --branch fancybits https://github.com/fancybits/Comskip 
   && ./configure \
   && make
 
-FROM python:3.11-slim
+FROM python:3.11-slim-bookworm
 
 WORKDIR /app/backend
 
+# Enable non-free repositories for Intel VA-API packages (Debian bookworm)
+RUN sed -i 's/ main$/ main contrib non-free non-free-firmware/' /etc/apt/sources.list
+
 # Runtime deps
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
-    gnupg \
-    wget \
-  && rm -rf /var/lib/apt/lists/*
-
-# Intel graphics repo for VA-API drivers (Debian bookworm)
-RUN wget -qO - https://repositories.intel.com/graphics/intel-graphics.key | gpg --dearmor -o /usr/share/keyrings/intel-graphics.gpg \
-  && echo "deb [signed-by=/usr/share/keyrings/intel-graphics.gpg] https://repositories.intel.com/graphics/debian bookworm main" > /etc/apt/sources.list.d/intel-graphics.list
-
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     libargtable2-0 \
