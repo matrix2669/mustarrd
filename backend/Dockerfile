@@ -28,7 +28,11 @@ FROM python:3.11-slim-bookworm
 WORKDIR /app/backend
 
 # Enable non-free repositories for Intel VA-API packages (Debian bookworm)
-RUN sed -i 's/ main$/ main contrib non-free non-free-firmware/' /etc/apt/sources.list
+RUN if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
+      sed -i 's/Components: main/Components: main contrib non-free non-free-firmware/' /etc/apt/sources.list.d/debian.sources; \
+    else \
+      sed -i 's/ main$/ main contrib non-free non-free-firmware/' /etc/apt/sources.list; \
+    fi
 
 # Runtime deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
