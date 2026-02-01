@@ -3,6 +3,7 @@ import os
 import shutil
 import platform
 import subprocess
+import shlex
 from pathlib import Path
 from typing import Optional, Callable, List, Dict
 from enum import Enum
@@ -241,8 +242,8 @@ class PostProcessor:
             ])
         elif hw_accel == HardwareAccel.VAAPI:
             args.extend([
-                "-vaapi_device", "/dev/dri/renderD128",
                 "-vf", "format=nv12,hwupload",
+                "-qp", "23",
             ])
 
         return args
@@ -370,11 +371,13 @@ class PostProcessor:
             return str(input_path)
 
         # Build ffmpeg command
-        cmd = [
-            self._ffmpeg_path,
+        cmd = [self._ffmpeg_path]
+        if hw_accel == HardwareAccel.VAAPI:
+            cmd.extend(["-vaapi_device", "/dev/dri/renderD128"])
+        cmd.extend([
             "-i", str(input_path),
             "-y",  # Overwrite output
-        ]
+        ])
 
         if output_format in [OutputFormat.MP4, OutputFormat.MKV]:
             if remux_only:
@@ -396,7 +399,7 @@ class PostProcessor:
 
         await self._notify_log(
             log_callback,
-            f"ffmpeg cmd: {' '.join(str(c) for c in cmd)}"
+            f"ffmpeg cmd: {' '.join(shlex.quote(str(c)) for c in cmd)}"
         )
 
         # Run ffmpeg with progress
@@ -569,12 +572,14 @@ class PostProcessor:
                     f.write(f"file '{temp_path}'\n")
 
             # Concat and encode
-            cmd = [
-                self._ffmpeg_path,
+            cmd = [self._ffmpeg_path]
+            if hw_accel == HardwareAccel.VAAPI:
+                cmd.extend(["-vaapi_device", "/dev/dri/renderD128"])
+            cmd.extend([
                 "-f", "concat",
                 "-safe", "0",
                 "-i", str(concat_file),
-            ]
+            ])
 
             if output_format in [OutputFormat.MP4, OutputFormat.MKV]:
                 cmd.extend(self._get_encoder_args(hw_accel))
@@ -589,7 +594,7 @@ class PostProcessor:
                 await self._notify_progress(progress_callback, 40.0 + (p * 0.6))
             await self._notify_log(
                 log_callback,
-                f"ffmpeg concat cmd: {' '.join(str(c) for c in cmd)}"
+                f"ffmpeg concat cmd: {' '.join(shlex.quote(str(c)) for c in cmd)}"
             )
             returncode, stderr = await self._run_ffmpeg_with_progress(
                 cmd,
