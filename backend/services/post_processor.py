@@ -295,6 +295,11 @@ class PostProcessor:
         if platform.system() == "Linux":
             # Ensure VA-API driver selection is available for child processes.
             env.setdefault("LIBVA_DRIVER_NAME", "iHD")
+            env.setdefault(
+                "LIBVA_DRIVERS_PATH",
+                "/usr/local/lib/x86_64-linux-gnu/dri:/usr/local/lib/aarch64-linux-gnu/dri:"
+                "/usr/lib/x86_64-linux-gnu/dri:/usr/lib/aarch64-linux-gnu/dri",
+            )
         try:
             process = await asyncio.create_subprocess_exec(
                 *cmd,
@@ -406,6 +411,12 @@ class PostProcessor:
             log_callback,
             f"ffmpeg cmd: {' '.join(shlex.quote(str(c)) for c in cmd)}"
         )
+        if platform.system() == "Linux":
+            await self._notify_log(
+                log_callback,
+                f"ffmpeg env: LIBVA_DRIVER_NAME={env.get('LIBVA_DRIVER_NAME')} "
+                f"LIBVA_DRIVERS_PATH={env.get('LIBVA_DRIVERS_PATH')}"
+            )
 
         # Run ffmpeg with progress
         duration = await self._get_duration(input_path)
