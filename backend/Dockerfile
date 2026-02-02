@@ -39,6 +39,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libva2 \
     libva-drm2 \
     libdrm2 \
+    libxcb-shm0 \
     mesa-va-drivers \
     gosu \
   && if [ "$(dpkg --print-architecture)" = "amd64" ]; then \
