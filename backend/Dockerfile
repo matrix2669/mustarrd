@@ -34,6 +34,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-venv \
     python3-pip \
+    libavcodec60 \
+    libavformat60 \
+    libavutil58 \
+    libswscale7 \
+    libswresample4 \
+    libpostproc57 \
     libargtable2-0 \
     vainfo \
     libva2 \
