@@ -39,7 +39,32 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libva2 \
     libva-drm2 \
     libdrm2 \
+    libasound2t64 \
+    libedit2 \
+    libelf1 \
+    libexpat1 \
+    libglib2.0-0 \
+    libgomp1 \
+    libllvm18 \
+    libpciaccess0 \
+    libv4l-0 \
+    libwayland-client0 \
+    libx11-6 \
+    libx11-xcb1 \
+    libxcb-dri2-0 \
+    libxcb-dri3-0 \
+    libxcb-present0 \
+    libxcb-randr0 \
+    libxcb-shape0 \
     libxcb-shm0 \
+    libxcb-sync1 \
+    libxcb-xfixes0 \
+    libxcb1 \
+    libxext6 \
+    libxfixes3 \
+    libxshmfence1 \
+    libxml2 \
+    ocl-icd-libopencl1 \
     mesa-va-drivers \
     gosu \
   && if [ "$(dpkg --print-architecture)" = "amd64" ]; then \
