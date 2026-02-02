@@ -433,10 +433,16 @@ class PostProcessor:
         if hw_accel == HardwareAccel.VAAPI:
             cmd = self._prepend_vaapi_env(cmd)
         if platform.system() == "Linux":
+            driver_name = os.environ.get("LIBVA_DRIVER_NAME", "iHD")
+            drivers_path = os.environ.get(
+                "LIBVA_DRIVERS_PATH",
+                "/usr/local/lib/x86_64-linux-gnu/dri:/usr/local/lib/aarch64-linux-gnu/dri:"
+                "/usr/lib/x86_64-linux-gnu/dri:/usr/lib/aarch64-linux-gnu/dri",
+            )
             await self._notify_log(
                 log_callback,
-                f"ffmpeg env: LIBVA_DRIVER_NAME={env.get('LIBVA_DRIVER_NAME')} "
-                f"LIBVA_DRIVERS_PATH={env.get('LIBVA_DRIVERS_PATH')}"
+                f"ffmpeg env: LIBVA_DRIVER_NAME={driver_name} "
+                f"LIBVA_DRIVERS_PATH={drivers_path}"
             )
 
         # Run ffmpeg with progress
@@ -555,9 +561,22 @@ class PostProcessor:
 
         # Get video duration
         duration = await self._get_duration(input_path)
+        await self._notify_log(
+            log_callback,
+            f"Commercial removal: duration={duration:.3f}s"
+        )
+        if duration <= 0:
+            await self._notify_log(
+                log_callback,
+                "Commercial removal: ffprobe duration unavailable; last segment will run to EOF."
+            )
 
         # Build keep segments (inverse of commercial segments)
         keep_segments = self._invert_segments(segments, duration)
+        await self._notify_log(
+            log_callback,
+            f"Commercial removal: keep segments={keep_segments}"
+        )
 
         if not keep_segments:
             output = await self.transcode(
@@ -587,15 +606,25 @@ class PostProcessor:
                 temp_path = input_file.with_stem(f"{input_file.stem}_seg{i}").with_suffix(".ts")
                 temp_files.append(temp_path)
 
-                cmd = [
-                    self._ffmpeg_path,
-                    "-i", str(input_path),
-                    "-ss", str(start),
-                    "-to", str(end),
-                    "-c", "copy",
-                    "-y",
-                    str(temp_path)
-                ]
+                omit_to = False
+                if duration <= 0 or i == segment_count - 1:
+                    if duration <= 0 or end >= (duration - 0.01) or end <= start:
+                        omit_to = True
+                if end <= start and not omit_to:
+                    raise Exception(
+                        f"Invalid keep segment (end <= start): start={start}, end={end}, "
+                        f"duration={duration}"
+                    )
+
+                cmd = [self._ffmpeg_path, "-i", str(input_path), "-ss", str(start)]
+                if not omit_to:
+                    cmd.extend(["-to", str(end)])
+                cmd.extend(["-c", "copy", "-y", str(temp_path)])
+
+                await self._notify_log(
+                    log_callback,
+                    f"ffmpeg segment cmd: {' '.join(shlex.quote(str(c)) for c in cmd)}"
+                )
 
                 process = await asyncio.create_subprocess_exec(
                     *cmd,
@@ -636,7 +665,7 @@ class PostProcessor:
 
             cmd.extend(["-progress", "pipe:1", "-nostats", "-y", str(output_path)])
 
-            kept_duration = sum(end - start for start, end in keep_segments)
+            kept_duration = sum(max(0.0, end - start) for start, end in keep_segments)
             async def mapped_callback(p: float):
                 await self._notify_progress(progress_callback, 40.0 + (p * 0.6))
             await self._notify_log(
