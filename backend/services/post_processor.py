@@ -291,11 +291,16 @@ class PostProcessor:
         progress_callback: Optional[Callable[[float], None]] = None
     ) -> tuple[int, bytes]:
         """Run ffmpeg and emit progress updates using -progress output."""
+        env = os.environ.copy()
+        if platform.system() == "Linux":
+            # Ensure VA-API driver selection is available for child processes.
+            env.setdefault("LIBVA_DRIVER_NAME", "iHD")
         try:
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                stderr=asyncio.subprocess.PIPE,
+                env=env
             )
         except FileNotFoundError as e:
             raise Exception(f"ffmpeg not found at {cmd[0]}") from e
