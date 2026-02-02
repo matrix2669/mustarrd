@@ -345,6 +345,14 @@ class PostProcessor:
 
         return process.returncode or 0, b"".join(stderr_chunks)
 
+    def _prepend_vaapi_env(self, cmd: List[str]) -> List[str]:
+        """Run ffmpeg with an explicit LIBVA_DRIVER_NAME prefix for VA-API."""
+        if platform.system() != "Linux":
+            return cmd
+        if not cmd:
+            return cmd
+        return ["/usr/bin/env", "LIBVA_DRIVER_NAME=iHD", *cmd]
+
     async def transcode(
         self,
         input_path: str,
@@ -411,6 +419,8 @@ class PostProcessor:
             log_callback,
             f"ffmpeg cmd: {' '.join(shlex.quote(str(c)) for c in cmd)}"
         )
+        if hw_accel == HardwareAccel.VAAPI:
+            cmd = self._prepend_vaapi_env(cmd)
         if platform.system() == "Linux":
             await self._notify_log(
                 log_callback,
@@ -612,6 +622,8 @@ class PostProcessor:
                 log_callback,
                 f"ffmpeg concat cmd: {' '.join(shlex.quote(str(c)) for c in cmd)}"
             )
+            if hw_accel == HardwareAccel.VAAPI:
+                cmd = self._prepend_vaapi_env(cmd)
             returncode, stderr = await self._run_ffmpeg_with_progress(
                 cmd,
                 kept_duration,
