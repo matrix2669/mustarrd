@@ -51,9 +51,12 @@ ENV \
     LD_LIBRARY_PATH="/usr/local/lib:/usr/local/lib/x86_64-linux-gnu:/usr/local/lib/aarch64-linux-gnu" \
     CATCHUP_FFMPEG_PATH="/usr/local/bin/ffmpegwrapper.sh"
 
-# Install dependencies
+# Install dependencies in a venv (PEP 668 safe)
+ENV VENV_PATH="/opt/venv"
+RUN python3 -m venv "$VENV_PATH"
+ENV PATH="$VENV_PATH/bin:$PATH"
 COPY backend/requirements.txt /app/backend/requirements.txt
-RUN pip3 install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application + tools
 COPY backend /app/backend
