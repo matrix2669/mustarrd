@@ -53,4 +53,4 @@ if [[ -f /app/comskip.ini && ! -f /app/config/comskip.ini ]]; then
   chown "${PUID}:${PGID}" /app/config/comskip.ini 2>/dev/null || true
 fi
 
-exec gosu "${PUID}:${PGID}" "$@"
+exec gosu "${APP_USER}" "$@"
