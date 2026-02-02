@@ -75,7 +75,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV \
     LIBVA_DRIVERS_PATH="/usr/local/lib/x86_64-linux-gnu/dri:/usr/local/lib/aarch64-linux-gnu/dri:/usr/lib/x86_64-linux-gnu/dri:/usr/lib/aarch64-linux-gnu/dri" \
     LD_LIBRARY_PATH="/usr/local/lib:/usr/local/lib/x86_64-linux-gnu:/usr/local/lib/aarch64-linux-gnu" \
-    CATCHUP_FFMPEG_PATH="/usr/local/bin/ffmpegwrapper.sh"
+    CATCHUP_FFMPEG_PATH="/usr/local/bin/ffmpeg"
 
 # Install dependencies in a venv (PEP 668 safe)
 ENV VENV_PATH="/opt/venv"
