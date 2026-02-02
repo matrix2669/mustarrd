@@ -16,6 +16,7 @@ services:
       - CATCHUP_DATABASE_URL=sqlite+aiosqlite:////app/config/catchup_dvr.db
       - CATCHUP_DEFAULT_DOWNLOAD_FOLDER=/app/downloads
       - CATCHUP_TIMEZONE=America/Los_Angeles
+      - LIBVA_DRIVER_NAME=iHD
       - TZ=America/Los_Angeles
       - PUID=1000
       - PGID=1000

@@ -5,6 +5,8 @@ PUID="${PUID:-1000}"
 PGID="${PGID:-1000}"
 APP_USER="appuser"
 APP_GROUP="appgroup"
+LIBVA_DRIVER_NAME="${LIBVA_DRIVER_NAME:-iHD}"
+export LIBVA_DRIVER_NAME
 
 ensure_group() {
   local name="$1"
