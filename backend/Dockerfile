@@ -29,14 +29,6 @@ FROM ghcr.io/linuxserver/baseimage-ubuntu:noble
 
 WORKDIR /app/backend
 
-# Enable non-free repositories for Intel VA-API packages (Debian bookworm)
-RUN rm -f /etc/apt/sources.list.d/debian.sources \
-  && printf '%s\n' \
-    'deb http://deb.debian.org/debian bookworm main contrib non-free non-free-firmware' \
-    'deb http://deb.debian.org/debian bookworm-updates main contrib non-free non-free-firmware' \
-    'deb http://deb.debian.org/debian-security bookworm-security main contrib non-free non-free-firmware' \
-    > /etc/apt/sources.list
-
 # Runtime deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
@@ -55,8 +47,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && rm -rf /var/lib/apt/lists/*
 
 ENV \
-    LIBVA_DRIVERS_PATH="/usr/local/lib/x86_64-linux-gnu/dri" \
-    LD_LIBRARY_PATH="/usr/local/lib:/usr/local/lib/x86_64-linux-gnu" \
+    LIBVA_DRIVERS_PATH="/usr/local/lib/x86_64-linux-gnu/dri:/usr/local/lib/aarch64-linux-gnu/dri:/usr/lib/x86_64-linux-gnu/dri:/usr/lib/aarch64-linux-gnu/dri" \
+    LD_LIBRARY_PATH="/usr/local/lib:/usr/local/lib/x86_64-linux-gnu:/usr/local/lib/aarch64-linux-gnu" \
     CATCHUP_FFMPEG_PATH="/usr/local/bin/ffmpegwrapper.sh"
 
 # Install dependencies
@@ -78,12 +70,8 @@ RUN chmod +x /usr/local/bin/comskip
 # Copy ffmpeg + drivers from LinuxServer ffmpeg image
 COPY --from=lsffmpeg /usr/local/bin/ffmpeg /usr/local/bin/ffmpeg
 COPY --from=lsffmpeg /usr/local/bin/ffprobe /usr/local/bin/ffprobe
-COPY --from=lsffmpeg /usr/local/lib /usr/local/lib
-COPY --from=lsffmpeg /usr/local/lib/x86_64-linux-gnu /usr/local/lib/x86_64-linux-gnu
-COPY --from=lsffmpeg /usr/local/lib/x86_64-linux-gnu/dri /usr/local/lib/x86_64-linux-gnu/dri
-COPY --from=lsffmpeg /usr/local/lib/mfx /usr/local/lib/mfx
-COPY --from=lsffmpeg /usr/local/lib/libmfx-gen /usr/local/lib/libmfx-gen
-COPY --from=lsffmpeg /usr/local/share/vulkan /usr/local/share/vulkan
+COPY --from=lsffmpeg /usr/local/lib/ /usr/local/lib/
+COPY --from=lsffmpeg /usr/local/share/ /usr/local/share/
 
 # Ensure repo-provided tools are executable if present
 RUN chmod +x /app/tools/bin/*/ffmpeg /app/tools/bin/*/ffprobe /app/tools/bin/*/comskip 2>/dev/null || true
