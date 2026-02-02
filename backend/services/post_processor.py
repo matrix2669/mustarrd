@@ -284,6 +284,17 @@ class PostProcessor:
         if asyncio.iscoroutine(result):
             await result
 
+    def _write_ffmpeg_log(self, base_path: str, tag: str, stderr: bytes) -> Optional[str]:
+        """Write ffmpeg stderr to a log file next to the media file."""
+        if not stderr:
+            return None
+        try:
+            path = Path(base_path).with_suffix(f".{tag}.ffmpeg.log")
+            path.write_bytes(stderr)
+            return str(path)
+        except Exception:
+            return None
+
     async def _run_ffmpeg_with_progress(
         self,
         cmd: List[str],
@@ -432,6 +443,9 @@ class PostProcessor:
         duration = await self._get_duration(input_path)
         returncode, stderr = await self._run_ffmpeg_with_progress(cmd, duration, progress_callback)
         if returncode != 0:
+            log_path = self._write_ffmpeg_log(str(input_path), "transcode", stderr)
+            if log_path:
+                await self._notify_log(log_callback, f"ffmpeg log saved: {log_path}")
             raise Exception(f"ffmpeg failed: {stderr.decode(errors='ignore')}")
 
         # Remove original if requested
@@ -588,7 +602,14 @@ class PostProcessor:
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE
                 )
-                await process.communicate()
+                _, seg_stderr = await process.communicate()
+                if process.returncode != 0:
+                    log_path = self._write_ffmpeg_log(str(input_path), f"seg{i}", seg_stderr or b"")
+                    if log_path:
+                        await self._notify_log(log_callback, f"ffmpeg log saved: {log_path}")
+                    raise Exception(
+                        f"ffmpeg segment extraction failed: {seg_stderr.decode(errors='ignore')}"
+                    )
                 if progress_callback and segment_count > 0:
                     await self._notify_progress(progress_callback, (i + 1) / segment_count * 40.0)
 
@@ -631,6 +652,9 @@ class PostProcessor:
             )
 
             if returncode != 0:
+                log_path = self._write_ffmpeg_log(str(input_path), "concat", stderr)
+                if log_path:
+                    await self._notify_log(log_callback, f"ffmpeg log saved: {log_path}")
                 raise Exception(f"ffmpeg concat failed: {stderr.decode(errors='ignore')}")
 
         finally:
