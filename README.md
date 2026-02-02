@@ -96,6 +96,28 @@ Note: Docker uses absolute paths inside the container:
 Docker builds install ffmpeg via apt and compile comskip from source in the backend image.
 If you run the backend locally (non-Docker), install ffmpeg and comskip manually.
 
+### QA Smoke Tests (ffmpeg/comskip pipeline)
+
+For quick validation of ffmpeg + commercial removal on a known sample:
+
+```bash
+./scripts/qa/run_smoketests.sh
+```
+
+This generates a short synthetic video + EDL in `./data/qa/`, then runs the
+commercial-removal pipeline on CPU and VA-API (if `/dev/dri/renderD128` exists).
+You can run a standalone VA-API driver check with:
+
+```bash
+./scripts/qa/smoke_ffmpeg_vaapi.sh
+```
+
+To exercise comskip directly, run:
+
+```bash
+./scripts/qa/smoke_comskip.sh ./data/qa/sample_with_ads.mp4 ./config/comskip.ini
+```
+
 ## Configuration
 
 Environment variables (can be set in `.env` file in backend directory):

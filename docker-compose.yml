@@ -6,9 +6,9 @@ services:
     volumes:
       - ./config:/app/config
       - ./downloads:/app/downloads
-    # Uncomment for Intel/AMD iGPU acceleration on Linux (VA-API/QSV)
-    # devices:
-    #   - /dev/dri:/dev/dri
+    # Intel/AMD iGPU acceleration on Linux (VA-API/QSV)
+    devices:
+      - /dev/dri:/dev/dri
     # group_add:
     #   - render
     #   - video

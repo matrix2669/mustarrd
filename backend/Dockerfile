@@ -1,4 +1,4 @@
-FROM python:3.11-slim-bookworm AS comskip-builder
+FROM ghcr.io/linuxserver/baseimage-ubuntu:noble AS comskip-builder
 
 WORKDIR /tmp/comskip
 
@@ -23,7 +23,9 @@ RUN git clone --depth 1 --branch fancybits https://github.com/fancybits/Comskip 
   && ./configure \
   && make
 
-FROM python:3.11-slim-bookworm
+FROM lscr.io/linuxserver/ffmpeg:latest AS lsffmpeg
+
+FROM ghcr.io/linuxserver/baseimage-ubuntu:noble
 
 WORKDIR /app/backend
 
@@ -37,11 +39,14 @@ RUN rm -f /etc/apt/sources.list.d/debian.sources \
 
 # Runtime deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg \
+    python3 \
+    python3-venv \
+    python3-pip \
     libargtable2-0 \
     vainfo \
     libva2 \
     libva-drm2 \
+    libdrm2 \
     mesa-va-drivers \
     gosu \
   && if [ "$(dpkg --print-architecture)" = "amd64" ]; then \
@@ -49,12 +54,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
      fi \
   && rm -rf /var/lib/apt/lists/*
 
+ENV \
+    LIBVA_DRIVERS_PATH="/usr/local/lib/x86_64-linux-gnu/dri" \
+    LD_LIBRARY_PATH="/usr/local/lib:/usr/local/lib/x86_64-linux-gnu" \
+    CATCHUP_FFMPEG_PATH="/usr/local/bin/ffmpegwrapper.sh"
+
 # Install dependencies
 COPY backend/requirements.txt /app/backend/requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip3 install --no-cache-dir -r requirements.txt
 
 # Copy application + tools
 COPY backend /app/backend
+COPY backend/ffmpegwrapper.sh /usr/local/bin/ffmpegwrapper.sh
+COPY scripts /app/scripts
 COPY backend/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 COPY tools /app/tools
 COPY comskip.ini /app/comskip.ini
@@ -63,8 +75,20 @@ COPY comskip.ini /app/comskip.ini
 COPY --from=comskip-builder /tmp/comskip/comskip /usr/local/bin/comskip
 RUN chmod +x /usr/local/bin/comskip
 
+# Copy ffmpeg + drivers from LinuxServer ffmpeg image
+COPY --from=lsffmpeg /usr/local/bin/ffmpeg /usr/local/bin/ffmpeg
+COPY --from=lsffmpeg /usr/local/bin/ffprobe /usr/local/bin/ffprobe
+COPY --from=lsffmpeg /usr/local/lib /usr/local/lib
+COPY --from=lsffmpeg /usr/local/lib/x86_64-linux-gnu /usr/local/lib/x86_64-linux-gnu
+COPY --from=lsffmpeg /usr/local/lib/x86_64-linux-gnu/dri /usr/local/lib/x86_64-linux-gnu/dri
+COPY --from=lsffmpeg /usr/local/lib/mfx /usr/local/lib/mfx
+COPY --from=lsffmpeg /usr/local/lib/libmfx-gen /usr/local/lib/libmfx-gen
+COPY --from=lsffmpeg /usr/local/share/vulkan /usr/local/share/vulkan
+
 # Ensure repo-provided tools are executable if present
 RUN chmod +x /app/tools/bin/*/ffmpeg /app/tools/bin/*/ffprobe /app/tools/bin/*/comskip 2>/dev/null || true
+RUN chmod +x /app/scripts/qa/*.sh 2>/dev/null || true
+RUN chmod +x /usr/local/bin/ffmpegwrapper.sh
 
 # Create data directories
 RUN mkdir -p /app/downloads /app/config \
