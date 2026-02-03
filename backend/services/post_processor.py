@@ -506,20 +506,18 @@ class PostProcessor:
             stderr=asyncio.subprocess.PIPE
         )
 
-        percent_pattern = re.compile(r"(\d{1,3})%%")
+        percent_pattern = re.compile(r"(\d{1,3})%{1,2}")
         last_percent: Optional[int] = None
 
         async def read_stream(stream: asyncio.StreamReader):
             nonlocal last_percent
+            tail = ""
             while True:
-                line = await stream.readline()
-                if not line:
+                chunk = await stream.read(1024)
+                if not chunk:
                     break
-                text = line.decode(errors="ignore").strip()
-                if not text:
-                    continue
-                match = percent_pattern.search(text)
-                if match:
+                text = tail + chunk.decode(errors="ignore")
+                for match in percent_pattern.finditer(text):
                     try:
                         percent = int(match.group(1))
                     except ValueError:
@@ -528,6 +526,7 @@ class PostProcessor:
                         last_percent = percent
                         await self._notify_log(log_callback, f"Comskip progress: {percent}%")
                         await self._notify_progress(progress_callback, float(percent))
+                tail = text[-16:]
 
         await asyncio.gather(read_stream(process.stdout), read_stream(process.stderr))
         await process.wait()
