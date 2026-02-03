@@ -357,6 +357,14 @@ class PostProcessor:
 
         return process.returncode or 0, b"".join(stderr_chunks)
 
+    def _with_error_tolerant_flags(self, cmd: List[str]) -> List[str]:
+        """Add ffmpeg flags to continue through corrupt data when possible."""
+        if not cmd:
+            return cmd
+        if "-fflags" in cmd or "-err_detect" in cmd:
+            return cmd
+        return [cmd[0], "-fflags", "+discardcorrupt", "-err_detect", "ignore_err", *cmd[1:]]
+
     def _prepend_vaapi_env(self, cmd: List[str]) -> List[str]:
         """Run ffmpeg with an explicit LIBVA_DRIVER_NAME prefix for VA-API."""
         if platform.system() != "Linux":
@@ -408,6 +416,7 @@ class PostProcessor:
             "-i", str(input_path),
             "-y",  # Overwrite output
         ])
+        cmd = self._with_error_tolerant_flags(cmd)
 
         if output_format in [OutputFormat.MP4, OutputFormat.MKV]:
             if remux_only:
@@ -646,6 +655,7 @@ class PostProcessor:
                 if not omit_to:
                     cmd.extend(["-to", str(end)])
                 cmd.extend(["-c", "copy", "-y", str(temp_path)])
+                cmd = self._with_error_tolerant_flags(cmd)
 
                 await self._notify_log(
                     log_callback,
@@ -682,6 +692,7 @@ class PostProcessor:
                 "-safe", "0",
                 "-i", str(concat_file),
             ])
+            cmd = self._with_error_tolerant_flags(cmd)
 
             if output_format in [OutputFormat.MP4, OutputFormat.MKV]:
                 cmd.extend(self._get_encoder_args(hw_accel))
