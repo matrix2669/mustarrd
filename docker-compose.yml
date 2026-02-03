@@ -5,7 +5,9 @@ services:
       - "4177:8000"
     volumes:
       - ./config:/app/config
+      # Change these paths to store working files or completed outputs elsewhere.
       - ./downloads:/app/downloads
+      - ./completed:/app/completed
     # Intel/AMD iGPU acceleration on Linux (VA-API/QSV)
     devices:
       - /dev/dri:/dev/dri
@@ -15,6 +17,7 @@ services:
     environment:
       - CATCHUP_DATABASE_URL=sqlite+aiosqlite:////app/config/catchup_dvr.db
       - CATCHUP_DEFAULT_DOWNLOAD_FOLDER=/app/downloads
+      - CATCHUP_DEFAULT_COMPLETED_FOLDER=/app/completed
       - CATCHUP_TIMEZONE=America/Los_Angeles
       - LIBVA_DRIVER_NAME=iHD
       - TZ=America/Los_Angeles

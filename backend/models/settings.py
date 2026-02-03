@@ -8,6 +8,7 @@ class AppSettings(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     download_folder: Mapped[str] = mapped_column(String(1000), default="./data/downloads")
+    completed_folder: Mapped[str] = mapped_column(String(1000), default="./data/completed")
 
     # Naming templates
     tv_template: Mapped[str] = mapped_column(
@@ -48,6 +49,7 @@ class AppSettings(Base):
         return {
             "id": self.id,
             "download_folder": self.download_folder,
+            "completed_folder": self.completed_folder,
             "tv_template": self.tv_template,
             "movie_template": self.movie_template,
             "sports_template": self.sports_template,

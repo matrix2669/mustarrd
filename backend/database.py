@@ -37,6 +37,7 @@ async def init_db():
                 existing = {row[1] for row in rows}
                 required_columns = {
                     "download_folder": "VARCHAR(1000) NOT NULL DEFAULT './data/downloads'",
+                    "completed_folder": "VARCHAR(1000) NOT NULL DEFAULT './data/completed'",
                     "tv_template": "VARCHAR(500) NOT NULL DEFAULT '{show} - S{season:02d}E{episode:02d} - {title}'",
                     "movie_template": "VARCHAR(500) NOT NULL DEFAULT '{title} ({year})'",
                     "sports_template": "VARCHAR(500) NOT NULL DEFAULT '{title} - {date}'",

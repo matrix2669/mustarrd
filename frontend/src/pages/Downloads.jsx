@@ -220,6 +220,11 @@ function DownloadCard({ download, onCancel, onRetry, onDelete }) {
             </Text>
           </Tooltip>
         )}
+        {download.status === 'completed' && download.error_message && (
+          <Alert color="yellow" variant="light" p="xs">
+            <Text size="xs">{download.error_message}</Text>
+          </Alert>
+        )}
 
         {download.status === 'failed' && download.error_message && (
           <Alert color="red" variant="light" p="xs">

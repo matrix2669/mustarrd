@@ -46,7 +46,7 @@ if [[ -e /dev/dri/card0 ]]; then
   usermod -aG video "${APP_USER}"
 fi
 
-chown -R "${PUID}:${PGID}" /app/config /app/downloads 2>/dev/null || true
+chown -R "${PUID}:${PGID}" /app/config /app/downloads /app/completed 2>/dev/null || true
 
 if [[ -f /app/comskip.ini && ! -f /app/config/comskip.ini ]]; then
   cp /app/comskip.ini /app/config/comskip.ini

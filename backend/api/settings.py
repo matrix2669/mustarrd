@@ -17,6 +17,7 @@ router = APIRouter()
 
 class SettingsUpdate(BaseModel):
     download_folder: Optional[str] = None
+    completed_folder: Optional[str] = None
     tv_template: Optional[str] = None
     movie_template: Optional[str] = None
     sports_template: Optional[str] = None
@@ -39,6 +40,7 @@ class SettingsUpdate(BaseModel):
 
 NON_NULLABLE_FIELDS = {
     "download_folder",
+    "completed_folder",
     "tv_template",
     "movie_template",
     "sports_template",
@@ -73,6 +75,11 @@ async def get_settings(session: AsyncSession = Depends(get_session)):
 
     if not settings.download_folder or settings.download_folder.startswith("./data"):
         settings.download_folder = app_settings.default_download_folder
+        session.add(settings)
+        await session.commit()
+        await session.refresh(settings)
+    if not settings.completed_folder or settings.completed_folder.startswith("./data"):
+        settings.completed_folder = app_settings.default_completed_folder
         session.add(settings)
         await session.commit()
         await session.refresh(settings)

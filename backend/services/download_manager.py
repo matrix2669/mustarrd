@@ -2,12 +2,15 @@ import asyncio
 import aiohttp
 import aiofiles
 import os
+import shutil
+from pathlib import Path
 from datetime import datetime
 from typing import Optional, Callable, Dict, Set, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 
 from models import Download, DownloadStatus, AppSettings
+from config import settings as app_settings
 from database import async_session_maker
 
 
@@ -208,9 +211,28 @@ class DownloadManager:
                 )
 
                 # Run post-processing if enabled
-                final_path = await self._post_process(download.output_path, download_id, session)
-                if final_path != download.output_path:
-                    download.output_path = final_path
+                original_path = download.output_path
+                settings_result = await session.execute(select(AppSettings))
+                settings = settings_result.scalar_one_or_none()
+                final_path, warnings = await self._post_process(
+                    download.output_path,
+                    download_id,
+                    session,
+                    settings
+                )
+                completed_folder = self._resolve_completed_folder(settings)
+                final_path = self._select_final_path(original_path, final_path)
+                completed_path = self._move_to_completed(final_path, completed_folder)
+                download.output_path = completed_path
+                if warnings:
+                    download.error_message = f"Completed with warnings: {'; '.join(warnings)}"
+                else:
+                    download.error_message = None
+                self._cleanup_working_files(
+                    original_path,
+                    completed_path,
+                    keep_logs=bool(warnings)
+                )
 
                 # Mark as completed
                 download.status = DownloadStatus.COMPLETED.value
@@ -247,6 +269,64 @@ class DownloadManager:
                     DownloadStatus.FAILED.value,
                     error=str(e)
                 )
+
+    def _resolve_completed_folder(self, settings: Optional[AppSettings]) -> str:
+        if settings and settings.completed_folder and not settings.completed_folder.startswith("./data"):
+            return settings.completed_folder
+        return app_settings.default_completed_folder
+
+    def _select_final_path(self, original_path: str, final_path: str) -> str:
+        if final_path and os.path.exists(final_path):
+            return final_path
+        if os.path.exists(original_path):
+            return original_path
+        raise Exception("No output file available to move to completed folder.")
+
+    def _move_to_completed(self, path: str, completed_folder: str) -> str:
+        os.makedirs(completed_folder, exist_ok=True)
+        dest = os.path.join(completed_folder, os.path.basename(path))
+        if os.path.abspath(path) == os.path.abspath(dest):
+            return path
+        shutil.move(path, dest)
+        return dest
+
+    def _cleanup_working_files(self, original_path: str, completed_path: str, keep_logs: bool) -> None:
+        try:
+            original_file = Path(original_path)
+            base_dir = original_file.parent
+            stem = original_file.stem
+
+            if original_path != completed_path and original_file.exists():
+                original_file.unlink()
+
+            patterns = [
+                f"{stem}_seg*.ts",
+                f"{stem}.concat.txt",
+                f"{stem}_nocommercials.*",
+                f"{stem}.edl",
+                f"{stem}.txt",
+                f"{stem}.logo",
+                f"{stem}.csv",
+                f"{stem}.vdr",
+                f"{stem}.xml",
+                f"{stem}.srt",
+                f"{stem}.ass",
+                f"{stem}.vtt",
+            ]
+            if not keep_logs:
+                patterns.extend([
+                    f"{stem}.log",
+                    f"{stem}.*.ffmpeg.log",
+                ])
+
+            for pattern in patterns:
+                for path in base_dir.glob(pattern):
+                    try:
+                        path.unlink()
+                    except Exception:
+                        continue
+        except Exception:
+            pass
 
     async def _download_file(
         self,
@@ -307,16 +387,20 @@ class DownloadManager:
                                 download_progress=progress
                             )
 
-    async def _post_process(self, file_path: str, download_id: int, session: AsyncSession) -> str:
+    async def _post_process(
+        self,
+        file_path: str,
+        download_id: int,
+        session: AsyncSession,
+        settings: Optional[AppSettings] = None
+    ) -> tuple[str, list[str]]:
         """Run post-processing on downloaded file (transcoding, commercial removal)."""
         from services.post_processor import post_processor, OutputFormat, HardwareAccel
 
-        # Get settings
-        result = await session.execute(select(AppSettings))
-        settings = result.scalar_one_or_none()
+        warnings: list[str] = []
 
         if not settings:
-            return file_path
+            return file_path, warnings
 
         current_path = file_path
 
@@ -336,7 +420,7 @@ class DownloadManager:
         will_transcode = settings.transcode_enabled and post_processor.ffmpeg_available
 
         if not will_comskip and not will_transcode:
-            return current_path
+            return current_path, warnings
 
         async def log_callback(message: str):
             await self._broadcast_log(download_id, message)
@@ -444,6 +528,7 @@ class DownloadManager:
                     await log_callback("Comskip: no commercials detected.")
             except Exception as e:
                 await log_callback(f"Comskip error: {e}")
+                warnings.append(f"Comskip failed: {e}")
                 print(f"Comskip error (continuing anyway): {e}")
 
         # Transcode if enabled (and not already done by commercial removal)
@@ -472,9 +557,10 @@ class DownloadManager:
                 await log_callback(f"Transcoding complete: {current_path}")
             except Exception as e:
                 await log_callback(f"Transcode error: {e}")
+                warnings.append(f"Transcode failed: {e}")
                 print(f"Transcode error (continuing anyway): {e}")
 
-        return current_path
+        return current_path, warnings
 
     async def cancel_download(self, download_id: int) -> bool:
         """Cancel a download."""

@@ -200,6 +200,13 @@ export default function Settings() {
             onChange={(e) => handleChange('download_folder', e.target.value)}
             leftSection={<IconFolder size={16} />}
           />
+          <TextInput
+            label="Completed Folder"
+            description="Where finished files will be moved"
+            value={formData.completed_folder}
+            onChange={(e) => handleChange('completed_folder', e.target.value)}
+            leftSection={<IconFolder size={16} />}
+          />
 
           <NumberInput
             label="Max Concurrent Downloads"

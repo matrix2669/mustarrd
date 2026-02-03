@@ -14,6 +14,7 @@ class Settings(BaseSettings):
 
     # Downloads
     default_download_folder: str = "./data/downloads"
+    default_completed_folder: str = "./data/completed"
     max_concurrent_downloads: int = 2
 
     # EPG Cache
@@ -49,6 +50,7 @@ def ensure_config_files() -> Path:
     return config_dir
 
 
-# Ensure config + download directories exist
+# Ensure config + data directories exist
 Path(settings.default_download_folder).mkdir(parents=True, exist_ok=True)
+Path(settings.default_completed_folder).mkdir(parents=True, exist_ok=True)
 ensure_config_files()

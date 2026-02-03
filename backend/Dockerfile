@@ -114,7 +114,7 @@ RUN chmod +x /app/scripts/qa/*.sh 2>/dev/null || true
 RUN chmod +x /usr/local/bin/ffmpegwrapper.sh
 
 # Create data directories
-RUN mkdir -p /app/downloads /app/config \
+RUN mkdir -p /app/downloads /app/completed /app/config \
   && chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # Expose port
