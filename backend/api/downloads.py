@@ -42,7 +42,7 @@ async def list_downloads(session: AsyncSession = Depends(get_session)):
         select(Download).order_by(Download.created_at.desc())
     )
     downloads = result.scalars().all()
-    return [d.to_dict() for d in downloads]
+    return [download_manager.merge_progress_snapshot(d.to_dict()) for d in downloads]
 
 
 @router.get("/queue")

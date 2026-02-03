@@ -3,7 +3,7 @@ import aiohttp
 import aiofiles
 import os
 from datetime import datetime
-from typing import Optional, Callable, Dict, Set
+from typing import Optional, Callable, Dict, Set, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 
@@ -18,6 +18,7 @@ class DownloadManager:
         self._cancelled: Set[int] = set()
         self._progress_callbacks: Dict[int, Callable] = {}
         self._websocket_connections: Set = set()
+        self._stage_progress: Dict[int, Dict[str, Any]] = {}
         self._max_concurrent = 2
         self._running = False
 
@@ -39,6 +40,13 @@ class DownloadManager:
             "status": status,
             **extra
         }
+        snapshot = self._stage_progress.get(download_id, {})
+        for key, value in message.items():
+            if key in ("type", "download_id"):
+                continue
+            if value is not None:
+                snapshot[key] = value
+        self._stage_progress[download_id] = snapshot
 
         dead_connections = set()
         for ws in self._websocket_connections:
@@ -49,6 +57,19 @@ class DownloadManager:
 
         # Clean up dead connections
         self._websocket_connections -= dead_connections
+        if status in [
+            DownloadStatus.COMPLETED.value,
+            DownloadStatus.FAILED.value,
+            DownloadStatus.CANCELLED.value
+        ]:
+            self._stage_progress.pop(download_id, None)
+
+    def merge_progress_snapshot(self, data: dict) -> dict:
+        """Merge in-memory progress fields into a download dict."""
+        snapshot = self._stage_progress.get(data.get("id"))
+        if not snapshot:
+            return data
+        return {**data, **snapshot}
 
     async def _broadcast_log(self, download_id: int, message: str, level: str = "info"):
         """Broadcast a log line to all connected WebSocket clients."""
@@ -513,7 +534,7 @@ class DownloadManager:
                     ])
                 ).order_by(Download.created_at)
             )
-            return [d.to_dict() for d in result.scalars().all()]
+            return [self.merge_progress_snapshot(d.to_dict()) for d in result.scalars().all()]
 
     async def get_history(self) -> list:
         """Get completed and failed downloads."""
@@ -527,7 +548,7 @@ class DownloadManager:
                     ])
                 ).order_by(Download.created_at.desc())
             )
-            return [d.to_dict() for d in result.scalars().all()]
+            return [self.merge_progress_snapshot(d.to_dict()) for d in result.scalars().all()]
 
 
 # Global instance
