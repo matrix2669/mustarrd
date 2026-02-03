@@ -76,6 +76,19 @@ function getStatusBadge(status) {
 function DownloadCard({ download, onCancel, onRetry, onDelete }) {
   const isActive = ['pending', 'downloading', 'processing'].includes(download.status)
   const canRetry = ['failed', 'cancelled'].includes(download.status)
+  const downloadProgress = typeof download.download_progress === 'number'
+    ? download.download_progress
+    : (download.status === 'processing' ? 100 : (download.progress ?? 0))
+  const comskipProgress = typeof download.comskip_progress === 'number' ? download.comskip_progress : null
+  const transcodeProgress = typeof download.transcode_progress === 'number' ? download.transcode_progress : null
+  const comskipIndeterminate = Boolean(download.comskip_indeterminate)
+  const transcodeIndeterminate = Boolean(download.transcode_indeterminate)
+
+  const formatStagePercent = (value, indeterminate = false) => {
+    if (indeterminate) return '...'
+    if (typeof value !== 'number') return '—'
+    return `${value.toFixed(1)}%`
+  }
 
   return (
     <Card shadow="sm" padding="md" radius="md" withBorder>
@@ -138,24 +151,48 @@ function DownloadCard({ download, onCancel, onRetry, onDelete }) {
         </Group>
 
         {['downloading', 'processing'].includes(download.status) && (
-          <Stack gap={4}>
-            <ProgressBar
-              progress={download.progress}
-              color={download.status === 'processing' ? 'teal' : 'blue'}
-              indeterminate={download.indeterminate}
-            />
+          <Stack gap={6}>
             <Group justify="space-between">
-              {download.status === 'downloading' && (
-                <Text size="xs" c="dimmed">
-                  {formatBytes(download.downloaded_bytes)} / {formatBytes(download.file_size)}
-                </Text>
-              )}
-              {!download.indeterminate && (
-                <Text size="xs" c="dimmed">
-                  {download.progress?.toFixed(1)}%
-                </Text>
-              )}
+              <Text size="xs" c="dimmed">Download</Text>
+              <Text size="xs" c="dimmed">
+                {formatStagePercent(downloadProgress, download.indeterminate && download.status === 'downloading')}
+              </Text>
             </Group>
+            <ProgressBar
+              progress={downloadProgress}
+              color="blue"
+              indeterminate={download.indeterminate && download.status === 'downloading'}
+            />
+            {download.status === 'downloading' && (
+              <Text size="xs" c="dimmed">
+                {formatBytes(download.downloaded_bytes)} / {formatBytes(download.file_size)}
+              </Text>
+            )}
+
+            <Group justify="space-between">
+              <Text size="xs" c="dimmed">Commercial Detect</Text>
+              <Text size="xs" c="dimmed">
+                {formatStagePercent(comskipProgress, comskipIndeterminate)}
+              </Text>
+            </Group>
+            <ProgressBar
+              progress={comskipProgress ?? 0}
+              color="orange"
+              indeterminate={comskipIndeterminate}
+            />
+
+            <Group justify="space-between">
+              <Text size="xs" c="dimmed">Re-encode</Text>
+              <Text size="xs" c="dimmed">
+                {formatStagePercent(transcodeProgress, transcodeIndeterminate)}
+              </Text>
+            </Group>
+            <ProgressBar
+              progress={transcodeProgress ?? 0}
+              color="teal"
+              indeterminate={transcodeIndeterminate}
+            />
+
             {download.status === 'processing' && (
               <Text size="xs" c="dimmed">
                 {download.message || 'Processing...'}
@@ -213,12 +250,18 @@ export default function Downloads() {
         setLocalProgress((prev) => ({
           ...prev,
           [data.download_id]: {
-            progress: data.progress,
-            status: data.status,
-            downloaded_bytes: data.downloaded_bytes,
-            file_size: data.file_size,
-            message: data.message,
-            indeterminate: data.indeterminate,
+            ...(prev[data.download_id] || {}),
+            progress: data.progress ?? prev[data.download_id]?.progress,
+            status: data.status ?? prev[data.download_id]?.status,
+            downloaded_bytes: data.downloaded_bytes ?? prev[data.download_id]?.downloaded_bytes,
+            file_size: data.file_size ?? prev[data.download_id]?.file_size,
+            message: data.message ?? prev[data.download_id]?.message,
+            indeterminate: data.indeterminate ?? prev[data.download_id]?.indeterminate,
+            download_progress: data.download_progress ?? prev[data.download_id]?.download_progress,
+            comskip_progress: data.comskip_progress ?? prev[data.download_id]?.comskip_progress,
+            transcode_progress: data.transcode_progress ?? prev[data.download_id]?.transcode_progress,
+            comskip_indeterminate: data.comskip_indeterminate ?? prev[data.download_id]?.comskip_indeterminate,
+            transcode_indeterminate: data.transcode_indeterminate ?? prev[data.download_id]?.transcode_indeterminate,
           },
         }))
 

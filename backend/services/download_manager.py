@@ -74,7 +74,8 @@ class DownloadManager:
         download_id: int,
         progress: float,
         message: Optional[str] = None,
-        indeterminate: bool = False
+        indeterminate: bool = False,
+        **extra
     ):
         """Update processing status/progress and broadcast to clients."""
         await session.execute(
@@ -92,7 +93,8 @@ class DownloadManager:
             progress,
             DownloadStatus.PROCESSING.value,
             message=message,
-            indeterminate=indeterminate
+            indeterminate=indeterminate,
+            **extra
         )
 
     async def queue_download(self, download: Download) -> Download:
@@ -280,7 +282,8 @@ class DownloadManager:
                                 progress,
                                 DownloadStatus.DOWNLOADING.value,
                                 downloaded_bytes=downloaded,
-                                file_size=total_size
+                                file_size=total_size,
+                                download_progress=progress
                             )
 
     async def _post_process(self, file_path: str, download_id: int, session: AsyncSession) -> str:
@@ -322,16 +325,38 @@ class DownloadManager:
         if settings.transcode_enabled and not post_processor.ffmpeg_available:
             await log_callback("Transcoding enabled but ffmpeg not available; skipping transcode.")
 
-        await self._update_processing(session, download_id, 0, "Starting post-processing...")
+        download_progress = 100.0
+        comskip_progress: Optional[float] = None
+        transcode_progress: Optional[float] = None
+        comskip_indeterminate = False
+        transcode_indeterminate = False
+
+        async def broadcast_processing(progress: float, message: Optional[str], indeterminate: bool = False):
+            await self._update_processing(
+                session,
+                download_id,
+                progress,
+                message,
+                indeterminate=indeterminate,
+                download_progress=download_progress,
+                comskip_progress=comskip_progress,
+                transcode_progress=transcode_progress,
+                comskip_indeterminate=comskip_indeterminate,
+                transcode_indeterminate=transcode_indeterminate
+            )
+
+        await broadcast_processing(0, "Starting post-processing...")
         await log_callback("Post-processing started.")
         last_progress = -1.0
         current_message = None
 
-        async def progress_callback(p: float):
+        async def transcode_progress_callback(p: float):
             nonlocal last_progress
+            nonlocal transcode_progress
             if p - last_progress >= 1 or p >= 100:
                 last_progress = p
-                await self._update_processing(session, download_id, p, current_message)
+                transcode_progress = p
+                await broadcast_processing(p, current_message, indeterminate=transcode_indeterminate)
 
         # log_callback defined above to also persist logs
 
@@ -341,7 +366,9 @@ class DownloadManager:
         if will_comskip:
             try:
                 current_message = "Detecting commercials..."
-                await self._update_processing(session, download_id, 1, current_message, indeterminate=True)
+                comskip_progress = 0.0
+                comskip_indeterminate = True
+                await broadcast_processing(comskip_progress, current_message, indeterminate=True)
                 await log_callback("Comskip: detecting commercials.")
 
                 if settings.comskip_path:
@@ -351,16 +378,29 @@ class DownloadManager:
                 if ffmpeg_path:
                     await log_callback(f"ffmpeg resolved: {ffmpeg_path}")
 
+                async def comskip_progress_callback(p: float):
+                    nonlocal comskip_progress, comskip_indeterminate
+                    comskip_progress = p
+                    comskip_indeterminate = False
+                    await broadcast_processing(comskip_progress, current_message, indeterminate=False)
+
                 edl_path = await post_processor.detect_commercials(
                     current_path,
                     settings.comskip_ini_path,
-                    log_callback=log_callback
+                    log_callback=log_callback,
+                    progress_callback=comskip_progress_callback
                 )
+                if comskip_progress is None or comskip_progress < 100:
+                    comskip_progress = 100.0
+                comskip_indeterminate = False
+                await broadcast_processing(comskip_progress, current_message, indeterminate=False)
 
                 if edl_path and settings.remove_commercials:
                     output_format = OutputFormat(settings.transcode_format) if settings.transcode_enabled else OutputFormat.TS
                     current_message = f"Removing commercials + transcoding to {output_format.value} (using {hw_accel.value})..."
-                    await self._update_processing(session, download_id, 5, current_message)
+                    transcode_progress = 0.0
+                    transcode_indeterminate = False
+                    await broadcast_processing(transcode_progress, current_message)
                     await log_callback(
                         f"Comskip: commercials detected. Removing commercials and outputting {output_format.value}."
                     )
@@ -371,7 +411,7 @@ class DownloadManager:
                         output_format,
                         hw_accel=hw_accel,
                         remove_original=settings.delete_original_after_transcode,
-                        progress_callback=progress_callback,
+                        progress_callback=transcode_progress_callback,
                         log_callback=log_callback,
                         remux_only=False
                     )
@@ -390,7 +430,9 @@ class DownloadManager:
             try:
                 accel_name = hw_accel.value if hw_accel != HardwareAccel.CPU else "CPU"
                 current_message = f"Transcoding to {settings.transcode_format} (using {accel_name})..."
-                await self._update_processing(session, download_id, 5, current_message)
+                transcode_progress = 0.0
+                transcode_indeterminate = False
+                await broadcast_processing(transcode_progress, current_message)
                 await log_callback(
                     f"Transcoding started: {settings.transcode_format} with {accel_name}."
                 )
@@ -401,7 +443,7 @@ class DownloadManager:
                     output_format,
                     hw_accel=hw_accel,
                     quality=quality,
-                    progress_callback=progress_callback,
+                    progress_callback=transcode_progress_callback,
                     log_callback=log_callback,
                     remove_original=settings.delete_original_after_transcode,
                     remux_only=remux_only

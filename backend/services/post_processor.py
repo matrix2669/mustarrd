@@ -4,6 +4,7 @@ import shutil
 import platform
 import subprocess
 import shlex
+import re
 from pathlib import Path
 from typing import Optional, Callable, List, Dict
 from enum import Enum
@@ -464,7 +465,8 @@ class PostProcessor:
         self,
         input_path: str,
         ini_path: Optional[str] = None,
-        log_callback: Optional[Callable[[str], None]] = None
+        log_callback: Optional[Callable[[str], None]] = None,
+        progress_callback: Optional[Callable[[float], None]] = None
     ) -> Optional[str]:
         """
         Run Comskip to detect commercials and generate EDL file.
@@ -472,6 +474,7 @@ class PostProcessor:
         Args:
             input_path: Path to video file
             ini_path: Optional path to comskip.ini config file
+            progress_callback: Optional callback for progress updates
 
         Returns:
             Path to the EDL file, or None if no commercials detected
@@ -503,7 +506,31 @@ class PostProcessor:
             stderr=asyncio.subprocess.PIPE
         )
 
-        await process.communicate()
+        percent_pattern = re.compile(r"(\d{1,3})%%")
+        last_percent: Optional[int] = None
+
+        async def read_stream(stream: asyncio.StreamReader):
+            nonlocal last_percent
+            while True:
+                line = await stream.readline()
+                if not line:
+                    break
+                text = line.decode(errors="ignore").strip()
+                if not text:
+                    continue
+                match = percent_pattern.search(text)
+                if match:
+                    try:
+                        percent = int(match.group(1))
+                    except ValueError:
+                        continue
+                    if 0 <= percent <= 100 and percent != last_percent:
+                        last_percent = percent
+                        await self._notify_log(log_callback, f"Comskip progress: {percent}%")
+                        await self._notify_progress(progress_callback, float(percent))
+
+        await asyncio.gather(read_stream(process.stdout), read_stream(process.stderr))
+        await process.wait()
 
         # Check for EDL file (Edit Decision List)
         edl_path = input_file.with_suffix(".edl")
