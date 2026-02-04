@@ -1,3 +1,4 @@
+![Mustarrd Logo](https://github.com/razzamatazm/mustarrd/blob/main/frontend/src/assets/mustarrdlogo.png "Mustarrd Logo")
 # Mustarrd - The IPTV Catchup DVR
 
 A web application that connects to Xtream Codes IPTV servers, displays past EPG programs, and directly download catchup/timeshift content with smart file naming.
