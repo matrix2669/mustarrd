@@ -1,6 +1,6 @@
-# Catchup DVR
+# Mustarrd - The IPTV Catchup DVR
 
-A web application that connects to Xtream Codes IPTV servers, displays past EPG programs, and downloads catchup/timeshift content with smart file naming.
+A web application that connects to Xtream Codes IPTV servers, displays past EPG programs, and directly download catchup/timeshift content with smart file naming.
 
 ## Features
 
@@ -8,23 +8,11 @@ A web application that connects to Xtream Codes IPTV servers, displays past EPG 
 - **EPG Browser**: Browse channels and view past EPG data with catchup availability
 - **Smart Downloads**: Automatically generate filenames based on content type (TV shows, movies, sports, etc.)
 - **Download Queue**: Manage concurrent downloads with progress tracking
+- **Commercial Removal**: Uses Comskip to remove commercials for shows.
+- **GPU and CPU Re-encoding**: Convert your program to MKV and get steadier playback and seeking.
 - **Real-time Updates**: WebSocket-based progress updates for downloads
 - **Customizable Templates**: Configure filename templates for different content types
 
-## Technology Stack
-
-### Backend
-- FastAPI - Async web framework
-- SQLAlchemy - Database ORM
-- SQLite - Lightweight database
-- aiohttp - Async HTTP client
-- aiofiles - Async file operations
-
-### Frontend
-- React + Vite - Build tooling
-- Mantine UI - Component library
-- React Query - Data fetching/caching
-- Day.js - Date manipulation
 
 ## Quick Start
 
@@ -155,38 +143,7 @@ The app automatically detects content types and generates appropriate filenames:
 | Movie | Movie category keywords | `The Matrix (1999).ts` |
 | Default | Everything else | `ESPN - SportsCenter - 2026-01-28.ts` |
 
-## API Reference
 
-### Accounts
-- `GET /api/accounts` - List accounts
-- `POST /api/accounts` - Create account
-- `PUT /api/accounts/{id}` - Update account
-- `DELETE /api/accounts/{id}` - Delete account
-- `POST /api/accounts/{id}/test` - Test connection
-
-### Channels & EPG
-- `GET /api/accounts/{id}/categories` - List categories
-- `GET /api/accounts/{id}/channels` - List channels
-- `GET /api/accounts/{id}/channels/{channel_id}/epg` - Get EPG
-- `GET /api/accounts/{id}/channels/{channel_id}/catchup` - Get catchup programs
-
-### Downloads
-- `GET /api/downloads` - List all downloads
-- `POST /api/downloads` - Queue download
-- `DELETE /api/downloads/{id}` - Cancel/remove download
-- `POST /api/downloads/{id}/retry` - Retry failed download
-- `WS /api/downloads/ws` - Real-time progress updates
-
-### Settings
-- `GET /api/settings` - Get settings
-- `PUT /api/settings` - Update settings
-
-## Timeshift URL Format
-
-The app generates timeshift URLs in this format:
-```
-{server}/timeshift/{username}/{password}/{duration_minutes}/{YYYY-MM-DD:HH-MM}/{channel_id}.ts
-```
 
 ## License
 
