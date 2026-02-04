@@ -73,12 +73,12 @@ async def get_settings(session: AsyncSession = Depends(get_session)):
         await session.commit()
         await session.refresh(settings)
 
-    if not settings.download_folder or settings.download_folder.startswith("./data"):
+    if not settings.download_folder:
         settings.download_folder = app_settings.default_download_folder
         session.add(settings)
         await session.commit()
         await session.refresh(settings)
-    if not settings.completed_folder or settings.completed_folder.startswith("./data"):
+    if not settings.completed_folder:
         settings.completed_folder = app_settings.default_completed_folder
         session.add(settings)
         await session.commit()

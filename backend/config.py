@@ -1,6 +1,5 @@
 from pydantic_settings import BaseSettings
 from pathlib import Path
-import os
 import shutil
 
 
@@ -11,11 +10,11 @@ class Settings(BaseSettings):
     timezone: str = "UTC"
 
     # Database
-    database_url: str = "sqlite+aiosqlite:///./data/catchup_dvr.db"
+    database_url: str = "sqlite+aiosqlite:////app/config/catchup_dvr.db"
 
     # Downloads
-    default_download_folder: str = "./data/downloads"
-    default_completed_folder: str = "./data/completed"
+    default_download_folder: str = "/app/downloads"
+    default_completed_folder: str = "/app/completed"
     max_concurrent_downloads: int = 2
 
     # EPG Cache
@@ -27,19 +26,6 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
-
-
-def _maybe_use_container_defaults() -> None:
-    """Prefer container paths when running in Docker and env vars are unset."""
-    if os.environ.get("CATCHUP_DEFAULT_DOWNLOAD_FOLDER") is None:
-        if Path("/.dockerenv").exists() or Path("/app/downloads").exists():
-            settings.default_download_folder = "/app/downloads"
-    if os.environ.get("CATCHUP_DEFAULT_COMPLETED_FOLDER") is None:
-        if Path("/.dockerenv").exists() or Path("/app/completed").exists():
-            settings.default_completed_folder = "/app/completed"
-
-
-_maybe_use_container_defaults()
 
 def _get_config_dir() -> Path:
     db_url = settings.database_url

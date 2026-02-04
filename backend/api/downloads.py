@@ -109,7 +109,7 @@ async def create_download(
     # Get settings for download folder
     settings_result = await session.execute(select(AppSettings))
     settings = settings_result.scalar_one_or_none()
-    if settings and settings.download_folder and not settings.download_folder.startswith("./data"):
+    if settings and settings.download_folder:
         download_folder = settings.download_folder
     else:
         download_folder = app_settings.default_download_folder
