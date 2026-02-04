@@ -29,6 +29,8 @@ class AppSettings(Base):
     )
 
     max_concurrent_downloads: Mapped[int] = mapped_column(Integer, default=2)
+    default_pre_padding_minutes: Mapped[int] = mapped_column(Integer, default=1)
+    default_post_padding_minutes: Mapped[int] = mapped_column(Integer, default=5)
 
     # Post-processing options
     transcode_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -55,6 +57,8 @@ class AppSettings(Base):
             "sports_template": self.sports_template,
             "default_template": self.default_template,
             "max_concurrent_downloads": self.max_concurrent_downloads,
+            "default_pre_padding_minutes": self.default_pre_padding_minutes,
+            "default_post_padding_minutes": self.default_post_padding_minutes,
             "transcode_enabled": self.transcode_enabled,
             "transcode_format": self.transcode_format,
             "hw_accel": self.hw_accel,

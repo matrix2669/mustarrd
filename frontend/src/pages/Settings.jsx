@@ -218,6 +218,24 @@ export default function Settings() {
           />
 
           <NumberInput
+            label="Default Minutes Before Start"
+            description="Start recordings early by default"
+            min={0}
+            max={120}
+            value={formData.default_pre_padding_minutes}
+            onChange={(val) => handleChange('default_pre_padding_minutes', val)}
+          />
+
+          <NumberInput
+            label="Default Minutes After End"
+            description="Keep recordings running after the program ends by default"
+            min={0}
+            max={120}
+            value={formData.default_post_padding_minutes}
+            onChange={(val) => handleChange('default_post_padding_minutes', val)}
+          />
+
+          <NumberInput
             label="EPG Time Offset (hours)"
             description="Adjust guide times if your provider's schedule is offset"
             min={-12}

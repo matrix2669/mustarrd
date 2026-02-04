@@ -15,7 +15,7 @@ import {
   useMantineTheme,
 } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   IconDownload,
   IconClock,
@@ -26,7 +26,7 @@ import {
 } from '@tabler/icons-react'
 import dayjs from 'dayjs'
 
-import { downloadsApi } from '../api'
+import { downloadsApi, settingsApi } from '../api'
 
 const typeIcons = {
   tv_show: IconVideo,
@@ -51,6 +51,7 @@ export default function DownloadModal({ opened, onClose, program, channel, accou
   const [isLoadingPreview, setIsLoadingPreview] = useState(false)
   const [prePadding, setPrePadding] = useState(1)
   const [postPadding, setPostPadding] = useState(5)
+  const [offsetsDirty, setOffsetsDirty] = useState(false)
   const { colorScheme } = useMantineColorScheme()
   const theme = useMantineTheme()
 
@@ -68,11 +69,30 @@ export default function DownloadModal({ opened, onClose, program, channel, accou
     },
   }
 
+  const { data: settings } = useQuery({
+    queryKey: ['settings'],
+    queryFn: settingsApi.get,
+  })
+
+  useEffect(() => {
+    if (opened) {
+      setOffsetsDirty(false)
+    }
+  }, [opened])
+
+  useEffect(() => {
+    if (!opened || offsetsDirty) {
+      return
+    }
+    const defaultPre = settings?.default_pre_padding_minutes ?? 1
+    const defaultPost = settings?.default_post_padding_minutes ?? 5
+    setPrePadding(defaultPre)
+    setPostPadding(defaultPost)
+  }, [opened, offsetsDirty, settings])
+
   // Get filename preview when modal opens
   useEffect(() => {
     if (opened && program && channel && accountId) {
-      setPrePadding(1)
-      setPostPadding(5)
       setIsLoadingPreview(true)
       downloadsApi
         .previewFilename({
@@ -185,7 +205,10 @@ export default function DownloadModal({ opened, onClose, program, channel, accou
                   min={0}
                   max={120}
                   value={prePadding}
-                  onChange={(val) => setPrePadding(typeof val === 'number' ? val : 0)}
+                  onChange={(val) => {
+                    setOffsetsDirty(true)
+                    setPrePadding(typeof val === 'number' ? val : 0)
+                  }}
                 />
                 <NumberInput
                   label="Minutes after end"
@@ -193,7 +216,10 @@ export default function DownloadModal({ opened, onClose, program, channel, accou
                   min={0}
                   max={120}
                   value={postPadding}
-                  onChange={(val) => setPostPadding(typeof val === 'number' ? val : 0)}
+                  onChange={(val) => {
+                    setOffsetsDirty(true)
+                    setPostPadding(typeof val === 'number' ? val : 0)
+                  }}
                 />
                 <Text size="sm" c="dimmed">
                   Recording starts at {adjustedStart.format('MMM D, YYYY h:mm A')} and runs for{' '}

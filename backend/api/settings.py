@@ -23,6 +23,8 @@ class SettingsUpdate(BaseModel):
     sports_template: Optional[str] = None
     default_template: Optional[str] = None
     max_concurrent_downloads: Optional[int] = None
+    default_pre_padding_minutes: Optional[int] = None
+    default_post_padding_minutes: Optional[int] = None
     # Post-processing
     transcode_enabled: Optional[bool] = None
     transcode_format: Optional[str] = None
@@ -46,6 +48,8 @@ NON_NULLABLE_FIELDS = {
     "sports_template",
     "default_template",
     "max_concurrent_downloads",
+    "default_pre_padding_minutes",
+    "default_post_padding_minutes",
     "transcode_enabled",
     "transcode_format",
     "hw_accel",
@@ -84,6 +88,18 @@ async def get_settings(session: AsyncSession = Depends(get_session)):
         await session.commit()
         await session.refresh(settings)
 
+    if settings.default_pre_padding_minutes is None:
+        settings.default_pre_padding_minutes = 1
+        session.add(settings)
+        await session.commit()
+        await session.refresh(settings)
+
+    if settings.default_post_padding_minutes is None:
+        settings.default_post_padding_minutes = 5
+        session.add(settings)
+        await session.commit()
+        await session.refresh(settings)
+
     config_dir = ensure_config_files()
     default_ini = config_dir / "comskip.ini"
     if settings.comskip_ini_path is None and default_ini.exists():
@@ -114,6 +130,8 @@ async def update_settings(
         if value is None and field in NON_NULLABLE_FIELDS:
             continue
         if field == "epg_offset_minutes" and value is not None:
+            value = int(value)
+        if field in {"default_pre_padding_minutes", "default_post_padding_minutes"} and value is not None:
             value = int(value)
         setattr(settings, field, value)
 
