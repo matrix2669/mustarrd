@@ -4,23 +4,22 @@ services:
     ports:
       - "4177:8000"
     volumes:
+      # App config + database (SQLite)
       - ./config:/app/config
-      # Change these paths to store working files or completed outputs elsewhere.
+      # Working download folder (in-progress + temp files)
       - ./downloads:/app/downloads
+      # Final completed output folder (change host path to your media location)
       - ./completed:/app/completed
     # Intel/AMD iGPU acceleration on Linux (VA-API/QSV)
     devices:
-      - /dev/dri:/dev/dri
-    # group_add:
-    #   - render
-    #   - video
+      - /dev/dri:/dev/dri # For Intel Integrated GPU Transcoding
     environment:
-      - CATCHUP_DATABASE_URL=sqlite+aiosqlite:////app/config/catchup_dvr.db
-      - CATCHUP_DEFAULT_DOWNLOAD_FOLDER=/app/downloads
-      - CATCHUP_DEFAULT_COMPLETED_FOLDER=/app/completed
-      - CATCHUP_TIMEZONE=America/Los_Angeles
-      - LIBVA_DRIVER_NAME=iHD
+      - LIBVA_DRIVER_NAME=iHD # Use i965 if iHD fails on older Intel iGPUs.
+      # App timezone used for EPG display (defaults to UTC if unset).
+      # - CATCHUP_TIMEZONE=America/Los_Angeles
+      # Container/system timezone (used for logs, cron-like tools, etc.).
       - TZ=America/Los_Angeles
+      # Match host user/group IDs to avoid permission issues on mounted volumes.
       - PUID=1000
       - PGID=1000
     restart: unless-stopped

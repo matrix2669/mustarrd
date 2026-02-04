@@ -58,14 +58,16 @@ Access the app at http://localhost:3000
 
 #### Docker volumes
 
-For docker-compose, you only need two host folders:
+For docker-compose, you only need three host folders:
 
 ```
 ./config      -> /app/config
 ./downloads   -> /app/downloads
+./completed   -> /app/completed
 ```
 
-The database is stored at `./config/catchup_dvr.db` and downloads at `./downloads/`.
+The database is stored at `./config/catchup_dvr.db`, working downloads at `./downloads/`,
+and finished files are moved to `./completed/`.
 On first run, `comskip.ini` is copied into `./config/comskip.ini` and set as the default.
 
 Timezone display can be set via environment variable:
@@ -76,7 +78,7 @@ Timezone display can be set via environment variable:
 ```bash
 git clone https://github.com/razzamatazm/mustarrd.git
 cd mustarrd
-mkdir -p config downloads
+mkdir -p config downloads completed
 docker-compose up -d
 ```
 
@@ -84,12 +86,12 @@ docker-compose up -d
 
 ```bash
 curl -O https://raw.githubusercontent.com/razzamatazm/mustarrd/main/docker-compose.yml
-mkdir -p config downloads
+mkdir -p config downloads completed
 docker compose up -d
 ```
 
 Note: Docker uses absolute paths inside the container:
-`/app/config` and `/app/downloads`.
+`/app/config`, `/app/downloads`, and `/app/completed`.
 
 ### Tools (ffmpeg + comskip)
 
@@ -118,16 +120,31 @@ To exercise comskip directly, run:
 ./scripts/qa/smoke_comskip.sh ./data/qa/sample_with_ads.mp4 ./config/comskip.ini
 ```
 
+To cut keep segments from an existing `.edl` and create a concat list:
+
+```bash
+./scripts/qa/edl_cut.sh "/app/downloads/Robot Chicken - S08E15.ts" "/app/downloads/Robot Chicken - S08E15.edl"
+```
+
+To concat + encode the keep segments with VA-API:
+
+```bash
+./scripts/qa/concat_encode_vaapi.sh "/app/downloads/Robot Chicken - S08E15.concat.txt" "/app/downloads/Robot Chicken - S08E15_nocommercials.mkv"
+```
+
 ## Configuration
 
 Environment variables (can be set in `.env` file in backend directory):
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `CATCHUP_DATABASE_URL` | SQLite database URL | `sqlite+aiosqlite:///./data/catchup_dvr.db` |
-| `CATCHUP_DEFAULT_DOWNLOAD_FOLDER` | Download location | `./data/downloads` |
+| `CATCHUP_DATABASE_URL` | SQLite database URL | `sqlite+aiosqlite:////app/config/catchup_dvr.db` |
+| `CATCHUP_DEFAULT_DOWNLOAD_FOLDER` | Download location | `/app/downloads` |
+| `CATCHUP_DEFAULT_COMPLETED_FOLDER` | Completed location | `/app/completed` |
 | `CATCHUP_MAX_CONCURRENT_DOWNLOADS` | Max simultaneous downloads | `2` |
 | `CATCHUP_DEBUG` | Enable debug mode | `false` |
+
+If you run the backend locally (non-Docker), set these paths to your local folders.
 
 ## Usage
 
