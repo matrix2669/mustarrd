@@ -1,9 +1,9 @@
 import { useMemo, useRef, useEffect } from 'react'
 import { Stack, Text, Group, Badge, ScrollArea, Box } from '@mantine/core'
-import { IconClock, IconDownload } from '@tabler/icons-react'
+import { IconClock, IconDownload, IconCalendar } from '@tabler/icons-react'
 import dayjs from 'dayjs'
 
-function ProgramBlock({ program, onClick, isPast, isCurrent, elementId }) {
+function ProgramBlock({ program, onClick, isPast, isCurrent, isDownloadable, isSchedulable, elementId }) {
   const startTime = dayjs(program.start_time)
   const endTime = dayjs(program.end_time)
 
@@ -15,7 +15,9 @@ function ProgramBlock({ program, onClick, isPast, isCurrent, elementId }) {
     ? 'var(--mantine-color-dark-5)'
     : 'var(--mantine-color-dark-6)'
 
-  const isDownloadable = isPast && program.has_archive
+  const isClickable = isDownloadable || isSchedulable
+  const actionIcon = isDownloadable ? IconDownload : isSchedulable ? IconCalendar : null
+  const ActionIcon = actionIcon
 
   return (
     <Box
@@ -24,14 +26,18 @@ function ProgramBlock({ program, onClick, isPast, isCurrent, elementId }) {
         padding: '8px 12px',
         borderRadius: 6,
         backgroundColor,
-        cursor: isDownloadable ? 'pointer' : 'default',
-        border: isDownloadable ? '1px solid var(--mantine-color-blue-6)' : '1px solid transparent',
+        cursor: isClickable ? 'pointer' : 'default',
+        border: isDownloadable
+          ? '1px solid var(--mantine-color-blue-6)'
+          : isSchedulable
+          ? '1px solid var(--mantine-color-teal-6)'
+          : '1px solid transparent',
         opacity: isPast && !program.has_archive ? 0.5 : 1,
         transition: 'transform 0.1s, box-shadow 0.1s',
       }}
-      onClick={() => isDownloadable && onClick(program)}
+      onClick={() => isClickable && onClick(program, { action: isDownloadable ? 'download' : 'schedule' })}
       onMouseEnter={(e) => {
-        if (isDownloadable) {
+        if (isClickable) {
           e.currentTarget.style.transform = 'scale(1.02)'
           e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.3)'
         }
@@ -46,8 +52,8 @@ function ProgramBlock({ program, onClick, isPast, isCurrent, elementId }) {
           <Text size="sm" fw={500} truncate style={{ flex: 1 }}>
             {program.title}
           </Text>
-          {isDownloadable && (
-            <IconDownload size={14} style={{ flexShrink: 0 }} opacity={0.7} />
+          {ActionIcon && (
+            <ActionIcon size={14} style={{ flexShrink: 0 }} opacity={0.7} />
           )}
         </Group>
 
@@ -98,6 +104,8 @@ function DaySection({ date, programs, onProgramClick }) {
           const end = dayjs(program.end_time)
           const isPast = end.isBefore(now)
           const isCurrent = start.isBefore(now) && end.isAfter(now)
+          const isDownloadable = isPast && program.has_archive
+          const isSchedulable = !isPast
           const elementId = `epg-program-${program.epg_id || program.id || idx}`
 
           return (
@@ -107,6 +115,8 @@ function DaySection({ date, programs, onProgramClick }) {
               onClick={onProgramClick}
               isPast={isPast}
               isCurrent={isCurrent}
+              isDownloadable={isDownloadable}
+              isSchedulable={isSchedulable}
               elementId={elementId}
             />
           )
@@ -208,6 +218,9 @@ export default function EPGGrid({ epgData, onProgramClick, showFuture = false })
   const downloadableCount = visiblePrograms.filter(
     (p) => p.has_archive && dayjs(p.end_time).isBefore(dayjs())
   ).length
+  const schedulableCount = visiblePrograms.filter(
+    (p) => dayjs(p.end_time).isAfter(dayjs())
+  ).length
 
   return (
     <Stack gap="md" style={{ height: '100%' }}>
@@ -215,13 +228,18 @@ export default function EPGGrid({ epgData, onProgramClick, showFuture = false })
         <Text size="sm" c="dimmed">
           Showing {epgData.length} programs
         </Text>
-        <Badge variant="light" color="blue" leftSection={<IconDownload size={12} />}>
-          {downloadableCount} available for download
-        </Badge>
+        <Group gap="xs">
+          <Badge variant="light" color="blue" leftSection={<IconDownload size={12} />}>
+            {downloadableCount} available
+          </Badge>
+          <Badge variant="light" color="teal" leftSection={<IconCalendar size={12} />}>
+            {schedulableCount} upcoming
+          </Badge>
+        </Group>
       </Group>
 
       <Text size="xs" c="dimmed">
-        Click on highlighted programs to download. Blue border indicates catchup is available.
+        Click past programs with a blue border to download. Click upcoming programs to schedule.
       </Text>
 
       <ScrollArea style={{ flex: 1 }} ref={scrollAreaRef}>

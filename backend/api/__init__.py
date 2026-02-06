@@ -1,3 +1,3 @@
-from . import accounts, channels, downloads, settings
+from . import accounts, channels, downloads, settings, schedules, vod
 
-__all__ = ["accounts", "channels", "downloads", "settings"]
+__all__ = ["accounts", "channels", "downloads", "settings", "schedules", "vod"]

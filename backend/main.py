@@ -7,7 +7,7 @@ import os
 
 from config import settings
 from database import init_db
-from api import accounts, channels, downloads, settings as settings_api
+from api import accounts, channels, downloads, settings as settings_api, schedules, vod
 
 
 @asynccontextmanager
@@ -15,18 +15,18 @@ async def lifespan(app: FastAPI):
     # Startup
     await init_db()
 
-    # Initialize download manager background task
+    # Initialize background tasks
     from services.download_manager import download_manager
-    task = asyncio.create_task(download_manager.process_queue())
+    from services.scheduled_manager import scheduled_manager
+    download_task = asyncio.create_task(download_manager.process_queue())
+    schedule_task = asyncio.create_task(scheduled_manager.process_queue())
 
     yield
 
     # Shutdown
-    task.cancel()
-    try:
-        await task
-    except asyncio.CancelledError:
-        pass
+    download_task.cancel()
+    schedule_task.cancel()
+    await asyncio.gather(download_task, schedule_task, return_exceptions=True)
 
 
 app = FastAPI(
@@ -49,6 +49,8 @@ app.add_middleware(
 app.include_router(accounts.router, prefix="/api/accounts", tags=["accounts"])
 app.include_router(channels.router, prefix="/api", tags=["channels"])
 app.include_router(downloads.router, prefix="/api/downloads", tags=["downloads"])
+app.include_router(schedules.router, prefix="/api/schedules", tags=["schedules"])
+app.include_router(vod.router, prefix="/api/vod", tags=["vod"])
 app.include_router(settings_api.router, prefix="/api/settings", tags=["settings"])
 
 

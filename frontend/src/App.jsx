@@ -13,6 +13,7 @@ import {
   IconServer,
   IconSearch,
   IconDownload,
+  IconCalendar,
   IconSettings,
 } from '@tabler/icons-react'
 import { useQuery } from '@tanstack/react-query'
@@ -20,6 +21,7 @@ import { useQuery } from '@tanstack/react-query'
 import Accounts from './pages/Accounts'
 import Browse from './pages/Browse'
 import Downloads from './pages/Downloads'
+import Scheduled from './pages/Scheduled'
 import Settings from './pages/Settings'
 import { downloadsApi, createDownloadWebSocket } from './api'
 import mustarrdLogo from './assets/mustarrdlogo.png'
@@ -63,6 +65,7 @@ function App() {
       to: '/downloads',
       badge: activeDownloads > 0 ? activeDownloads : null,
     },
+    { icon: IconCalendar, label: 'Scheduled', to: '/scheduled' },
     { icon: IconSettings, label: 'Settings', to: '/settings' },
   ]
 
@@ -109,6 +112,7 @@ function App() {
           <Route path="/accounts" element={<Accounts />} />
           <Route path="/browse" element={<Browse />} />
           <Route path="/downloads" element={<Downloads />} />
+          <Route path="/scheduled" element={<Scheduled />} />
           <Route path="/settings" element={<Settings />} />
         </Routes>
       </AppShell.Main>

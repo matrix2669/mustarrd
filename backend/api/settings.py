@@ -23,6 +23,7 @@ class SettingsUpdate(BaseModel):
     sports_template: Optional[str] = None
     default_template: Optional[str] = None
     max_concurrent_downloads: Optional[int] = None
+    min_free_space_gb: Optional[int] = None
     default_pre_padding_minutes: Optional[int] = None
     default_post_padding_minutes: Optional[int] = None
     # Post-processing
@@ -48,6 +49,7 @@ NON_NULLABLE_FIELDS = {
     "sports_template",
     "default_template",
     "max_concurrent_downloads",
+    "min_free_space_gb",
     "default_pre_padding_minutes",
     "default_post_padding_minutes",
     "transcode_enabled",
@@ -94,6 +96,12 @@ async def get_settings(session: AsyncSession = Depends(get_session)):
         await session.commit()
         await session.refresh(settings)
 
+    if settings.min_free_space_gb is None:
+        settings.min_free_space_gb = 25
+        session.add(settings)
+        await session.commit()
+        await session.refresh(settings)
+
     if settings.default_post_padding_minutes is None:
         settings.default_post_padding_minutes = 5
         session.add(settings)
@@ -132,6 +140,8 @@ async def update_settings(
         if field == "epg_offset_minutes" and value is not None:
             value = int(value)
         if field in {"default_pre_padding_minutes", "default_post_padding_minutes"} and value is not None:
+            value = int(value)
+        if field == "min_free_space_gb" and value is not None:
             value = int(value)
         setattr(settings, field, value)
 

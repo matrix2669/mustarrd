@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import {
   Title,
   Select,
@@ -14,13 +14,23 @@ import {
   Box,
   Image,
   Tabs,
+  Button,
 } from '@mantine/core'
 import { useQuery } from '@tanstack/react-query'
-import { IconSearch, IconAlertCircle, IconVideo, IconClock } from '@tabler/icons-react'
+import {
+  IconSearch,
+  IconAlertCircle,
+  IconVideo,
+  IconClock,
+  IconPlayerPlay,
+} from '@tabler/icons-react'
 
-import { accountsApi, channelsApi, settingsApi } from '../api'
+import { accountsApi, channelsApi, settingsApi, vodApi } from '../api'
 import EPGGrid from '../components/EPGGrid'
 import DownloadModal from '../components/DownloadModal'
+import ScheduleModal from '../components/ScheduleModal'
+import MovieModal from '../components/VodMovieModal'
+import SeriesModal from '../components/VodSeriesModal'
 
 function ChannelList({ channels, selectedChannel, onSelectChannel, isLoading }) {
   const [search, setSearch] = useState('')
@@ -102,12 +112,175 @@ function ChannelList({ channels, selectedChannel, onSelectChannel, isLoading }) 
   )
 }
 
+function CategoryList({ categories, selectedCategory, onSelectCategory, isLoading, label }) {
+  const [search, setSearch] = useState('')
+
+  const filtered = useMemo(() => {
+    if (!categories) return []
+    if (!search) return categories
+    const searchLower = search.toLowerCase()
+    return categories.filter((cat) => cat.category_name?.toLowerCase().includes(searchLower))
+  }, [categories, search])
+
+  if (isLoading) {
+    return (
+      <Stack align="center" justify="center" h={200}>
+        <Loader />
+      </Stack>
+    )
+  }
+
+  return (
+    <Stack gap="xs" style={{ height: '100%' }}>
+      <TextInput
+        placeholder={`Search ${label || 'categories'}...`}
+        leftSection={<IconSearch size={16} />}
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+      />
+      <ScrollArea style={{ flex: 1 }}>
+        <Stack gap={4}>
+          <Card
+            padding="xs"
+            radius="sm"
+            withBorder
+            style={{
+              cursor: 'pointer',
+              backgroundColor: selectedCategory == null ? 'var(--mantine-color-blue-light)' : undefined,
+            }}
+            onClick={() => onSelectCategory(null)}
+          >
+            <Text size="sm" fw={500}>
+              All Categories
+            </Text>
+          </Card>
+          {filtered.map((category) => (
+            <Card
+              key={category.category_id}
+              padding="xs"
+              radius="sm"
+              withBorder
+              style={{
+                cursor: 'pointer',
+                backgroundColor:
+                  selectedCategory === category.category_id
+                    ? 'var(--mantine-color-blue-light)'
+                    : undefined,
+              }}
+              onClick={() => onSelectCategory(category.category_id)}
+            >
+              <Text size="sm" fw={500} truncate>
+                {category.category_name}
+              </Text>
+            </Card>
+          ))}
+          {filtered.length === 0 && (
+            <Text c="dimmed" ta="center" py="md">
+              No categories found
+            </Text>
+          )}
+        </Stack>
+      </ScrollArea>
+    </Stack>
+  )
+}
+
+function VodGrid({ items, onSelect, isLoading, searchPlaceholder, emptyLabel, icon: Icon }) {
+  const [search, setSearch] = useState('')
+
+  const filteredItems = useMemo(() => {
+    if (!items) return []
+    if (!search) return items
+    const searchLower = search.toLowerCase()
+    return items.filter((item) => item.name?.toLowerCase().includes(searchLower))
+  }, [items, search])
+
+  if (isLoading) {
+    return (
+      <Stack align="center" justify="center" h={300}>
+        <Loader />
+      </Stack>
+    )
+  }
+
+  return (
+    <Stack gap="xs" style={{ height: '100%' }}>
+      <TextInput
+        placeholder={searchPlaceholder}
+        leftSection={<IconSearch size={16} />}
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+      />
+      {filteredItems.length === 0 ? (
+        <Card shadow="sm" padding="xl" radius="md" withBorder>
+          <Stack align="center" gap="md">
+            {Icon && <Icon size={48} opacity={0.3} />}
+            <Text c="dimmed" ta="center">
+              {emptyLabel}
+            </Text>
+          </Stack>
+        </Card>
+      ) : (
+        <ScrollArea style={{ flex: 1 }}>
+          <Stack gap="sm">
+            {filteredItems.map((item) => (
+              <Card
+                key={item.stream_id || item.series_id}
+                padding="sm"
+                radius="md"
+                withBorder
+                style={{ cursor: 'pointer' }}
+                onClick={() => onSelect(item)}
+              >
+                <Group gap="md" wrap="nowrap">
+                  {item.stream_icon || item.cover ? (
+                    <Image
+                      src={item.stream_icon || item.cover}
+                      alt={item.name}
+                      w={64}
+                      h={64}
+                      fit="contain"
+                      fallbackSrc="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg'/>"
+                    />
+                  ) : (
+                    <Box w={64} h={64} bg="dark.5" style={{ borderRadius: 6 }} />
+                  )}
+                  <Stack gap={2} style={{ flex: 1, overflow: 'hidden' }}>
+                    <Text fw={500} truncate>
+                      {item.name}
+                    </Text>
+                    {item.year && (
+                      <Text size="xs" c="dimmed">
+                        {item.year}
+                      </Text>
+                    )}
+                  </Stack>
+                  <Button variant="light" size="xs">
+                    View
+                  </Button>
+                </Group>
+              </Card>
+            ))}
+          </Stack>
+        </ScrollArea>
+      )}
+    </Stack>
+  )
+}
+
 export default function Browse() {
   const [selectedAccountId, setSelectedAccountId] = useState(null)
   const [selectedCategory, setSelectedCategory] = useState(null)
   const [selectedChannel, setSelectedChannel] = useState(null)
   const [downloadProgram, setDownloadProgram] = useState(null)
+  const [scheduleProgram, setScheduleProgram] = useState(null)
   const [programSearch, setProgramSearch] = useState('')
+  const [browseTab, setBrowseTab] = useState('epg')
+  const [vodTab, setVodTab] = useState('movies')
+  const [selectedMovieCategory, setSelectedMovieCategory] = useState(null)
+  const [selectedSeriesCategory, setSelectedSeriesCategory] = useState(null)
+  const [selectedMovie, setSelectedMovie] = useState(null)
+  const [selectedSeries, setSelectedSeries] = useState(null)
 
   // Fetch accounts
   const { data: accounts, isLoading: accountsLoading } = useQuery({
@@ -148,6 +321,42 @@ export default function Browse() {
     queryFn: settingsApi.get,
   })
 
+  const {
+    data: movieCategories = [],
+    isLoading: movieCategoriesLoading,
+  } = useQuery({
+    queryKey: ['vod', 'movies', 'categories', selectedAccountId],
+    queryFn: () => vodApi.getMovieCategories(selectedAccountId),
+    enabled: !!selectedAccountId,
+    retry: false,
+  })
+
+  const {
+    data: seriesCategories = [],
+    isLoading: seriesCategoriesLoading,
+  } = useQuery({
+    queryKey: ['vod', 'series', 'categories', selectedAccountId],
+    queryFn: () => vodApi.getSeriesCategories(selectedAccountId),
+    enabled: !!selectedAccountId,
+    retry: false,
+  })
+
+  const vodAvailable = movieCategories.length > 0 || seriesCategories.length > 0
+
+  const { data: movies = [], isLoading: moviesLoading } = useQuery({
+    queryKey: ['vod', 'movies', selectedAccountId, selectedMovieCategory],
+    queryFn: () => vodApi.getMovies(selectedAccountId, selectedMovieCategory),
+    enabled: !!selectedAccountId && browseTab === 'vod' && vodTab === 'movies' && movieCategories.length > 0,
+    retry: false,
+  })
+
+  const { data: series = [], isLoading: seriesLoading } = useQuery({
+    queryKey: ['vod', 'series', selectedAccountId, selectedSeriesCategory],
+    queryFn: () => vodApi.getSeries(selectedAccountId, selectedSeriesCategory),
+    enabled: !!selectedAccountId && browseTab === 'vod' && vodTab === 'series' && seriesCategories.length > 0,
+    retry: false,
+  })
+
   const filteredEpgData = useMemo(() => {
     if (!epgData) return epgData
     if (!programSearch) return epgData
@@ -159,13 +368,47 @@ export default function Browse() {
     })
   }, [epgData, programSearch])
 
-  const handleProgramClick = (program) => {
+  useEffect(() => {
+    if (!vodAvailable && browseTab === 'vod') {
+      setBrowseTab('epg')
+    }
+  }, [vodAvailable, browseTab])
+
+  useEffect(() => {
+    if (vodTab === 'movies' && movieCategories.length === 0 && seriesCategories.length > 0) {
+      setVodTab('series')
+    }
+    if (vodTab === 'series' && seriesCategories.length === 0 && movieCategories.length > 0) {
+      setVodTab('movies')
+    }
+  }, [vodTab, movieCategories.length, seriesCategories.length])
+
+  useEffect(() => {
+    setSelectedMovieCategory(null)
+    setSelectedSeriesCategory(null)
+    setSelectedMovie(null)
+    setSelectedSeries(null)
+  }, [selectedAccountId])
+
+  const handleProgramClick = (program, meta = {}) => {
+    if (meta.action === 'schedule') {
+      setScheduleProgram(program)
+      return
+    }
     setDownloadProgram(program)
   }
 
   const handleSelectChannel = (channel) => {
     setSelectedChannel(channel)
     setProgramSearch('')
+  }
+
+  const handleSelectMovie = (movie) => {
+    setSelectedMovie(movie)
+  }
+
+  const handleSelectSeries = (seriesItem) => {
+    setSelectedSeries(seriesItem)
   }
 
   const accountOptions = accounts?.map((acc) => ({
@@ -200,7 +443,7 @@ export default function Browse() {
   return (
     <Stack>
       <Group justify="space-between">
-        <Title order={2}>Browse Channels</Title>
+        <Title order={2}>{browseTab === 'vod' ? 'Browse On Demand' : 'Browse EPG'}</Title>
         <Group>
           <Select
             placeholder="Select account"
@@ -209,113 +452,256 @@ export default function Browse() {
             onChange={setSelectedAccountId}
             w={200}
           />
-          <Select
-            placeholder="All categories"
-            data={categoryOptions}
-            value={selectedCategory || ''}
-            onChange={(val) => setSelectedCategory(val || null)}
-            w={200}
-            searchable
-            clearable
-          />
+          {browseTab === 'epg' && (
+            <Select
+              placeholder="All categories"
+              data={categoryOptions}
+              value={selectedCategory || ''}
+              onChange={(val) => setSelectedCategory(val || null)}
+              w={200}
+              searchable
+              clearable
+            />
+          )}
         </Group>
       </Group>
 
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: '300px 1fr',
-          gap: 16,
-          alignItems: 'stretch',
-          height: 'calc(100vh - 220px)',
-        }}
-      >
-        <Card shadow="sm" padding="md" radius="md" withBorder style={{ height: '100%' }}>
-          <Stack gap="xs" style={{ height: '100%' }}>
-            <Group gap="xs">
-              <IconVideo size={18} />
-              <Text fw={500}>Channels</Text>
-              {channels && (
-                <Badge size="sm" variant="light">
-                  {channels.length}
-                </Badge>
-              )}
-            </Group>
-            <ChannelList
-              channels={channels}
-              selectedChannel={selectedChannel}
-              onSelectChannel={handleSelectChannel}
-              isLoading={channelsLoading}
-            />
-          </Stack>
-        </Card>
-
-        <Card shadow="sm" padding="md" radius="md" withBorder style={{ height: '100%' }}>
-          {selectedChannel ? (
-            <Stack style={{ height: '100%' }}>
-              <Group justify="space-between">
-                <Group gap="xs">
-                  {selectedChannel.stream_icon && (
-                    <Image
-                      src={selectedChannel.stream_icon}
-                      alt={selectedChannel.name}
-                      w={32}
-                      h={32}
-                      fit="contain"
-                    />
-                  )}
-                  <Text fw={500}>{selectedChannel.name}</Text>
-                </Group>
-                <Badge variant="light" leftSection={<IconClock size={12} />}>
-                  {selectedChannel.tv_archive_duration || 7} days
-                </Badge>
-              </Group>
-
-              <Tabs defaultValue="timeline" style={{ flex: 1, minHeight: 0 }}>
-                <Tabs.List>
-                  <Tabs.Tab value="timeline">EPG Timeline</Tabs.Tab>
-                </Tabs.List>
-
-                <Tabs.Panel value="timeline" pt="md" style={{ height: '100%' }}>
-                  <TextInput
-                    placeholder="Search shows on this channel..."
-                    leftSection={<IconSearch size={16} />}
-                    value={programSearch}
-                    onChange={(e) => setProgramSearch(e.target.value)}
-                    mb="md"
-                  />
-                  {epgLoading ? (
-                    <Stack align="center" justify="center" h={300}>
-                      <Loader />
-                    </Stack>
-                  ) : filteredEpgData ? (
-                    <EPGGrid
-                      epgData={filteredEpgData}
-                      onProgramClick={handleProgramClick}
-                      showFuture={appSettings?.show_future_programs}
-                    />
-                  ) : (
-                    <Text c="dimmed" ta="center" py="xl">
-                      No EPG data available
-                    </Text>
-                  )}
-                </Tabs.Panel>
-              </Tabs>
-            </Stack>
-          ) : (
-            <Stack align="center" justify="center" h={400}>
-              <IconVideo size={48} opacity={0.3} />
-              <Text c="dimmed">Select a channel to view its EPG</Text>
-            </Stack>
+      <Tabs value={browseTab} onChange={setBrowseTab}>
+        <Tabs.List>
+          <Tabs.Tab value="epg" leftSection={<IconVideo size={14} />}>
+            Browse EPG
+          </Tabs.Tab>
+          {vodAvailable && (
+            <Tabs.Tab value="vod" leftSection={<IconPlayerPlay size={14} />}>
+              On Demand
+            </Tabs.Tab>
           )}
-        </Card>
-      </div>
+        </Tabs.List>
+
+        <Tabs.Panel value="epg" pt="md">
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '300px 1fr',
+              gap: 16,
+              alignItems: 'stretch',
+              height: 'calc(100vh - 260px)',
+            }}
+          >
+            <Card shadow="sm" padding="md" radius="md" withBorder style={{ height: '100%' }}>
+              <Stack gap="xs" style={{ height: '100%' }}>
+                <Group gap="xs">
+                  <IconVideo size={18} />
+                  <Text fw={500}>Channels</Text>
+                  {channels && (
+                    <Badge size="sm" variant="light">
+                      {channels.length}
+                    </Badge>
+                  )}
+                </Group>
+                <ChannelList
+                  channels={channels}
+                  selectedChannel={selectedChannel}
+                  onSelectChannel={handleSelectChannel}
+                  isLoading={channelsLoading}
+                />
+              </Stack>
+            </Card>
+
+            <Card shadow="sm" padding="md" radius="md" withBorder style={{ height: '100%' }}>
+              {selectedChannel ? (
+                <Stack style={{ height: '100%' }}>
+                  <Group justify="space-between">
+                    <Group gap="xs">
+                      {selectedChannel.stream_icon && (
+                        <Image
+                          src={selectedChannel.stream_icon}
+                          alt={selectedChannel.name}
+                          w={32}
+                          h={32}
+                          fit="contain"
+                        />
+                      )}
+                      <Text fw={500}>{selectedChannel.name}</Text>
+                    </Group>
+                    <Badge variant="light" leftSection={<IconClock size={12} />}>
+                      {selectedChannel.tv_archive_duration || 7} days
+                    </Badge>
+                  </Group>
+
+                  <Tabs defaultValue="timeline" style={{ flex: 1, minHeight: 0 }}>
+                    <Tabs.List>
+                      <Tabs.Tab value="timeline">EPG Timeline</Tabs.Tab>
+                    </Tabs.List>
+
+                    <Tabs.Panel value="timeline" pt="md" style={{ height: '100%' }}>
+                      <TextInput
+                        placeholder="Search shows on this channel..."
+                        leftSection={<IconSearch size={16} />}
+                        value={programSearch}
+                        onChange={(e) => setProgramSearch(e.target.value)}
+                        mb="md"
+                      />
+                      {epgLoading ? (
+                        <Stack align="center" justify="center" h={300}>
+                          <Loader />
+                        </Stack>
+                      ) : filteredEpgData ? (
+                        <EPGGrid
+                          epgData={filteredEpgData}
+                          onProgramClick={handleProgramClick}
+                          showFuture={appSettings?.show_future_programs}
+                        />
+                      ) : (
+                        <Text c="dimmed" ta="center" py="xl">
+                          No EPG data available
+                        </Text>
+                      )}
+                    </Tabs.Panel>
+                  </Tabs>
+                </Stack>
+              ) : (
+                <Stack align="center" justify="center" h={400}>
+                  <IconVideo size={48} opacity={0.3} />
+                  <Text c="dimmed">Select a channel to view its EPG</Text>
+                </Stack>
+              )}
+            </Card>
+          </div>
+        </Tabs.Panel>
+
+        {vodAvailable && (
+          <Tabs.Panel value="vod" pt="md">
+            <Tabs value={vodTab} onChange={setVodTab}>
+              <Tabs.List>
+                {movieCategories.length > 0 && (
+                  <Tabs.Tab value="movies" leftSection={<IconPlayerPlay size={14} />}>
+                    Movies
+                  </Tabs.Tab>
+                )}
+                {seriesCategories.length > 0 && (
+                  <Tabs.Tab value="series" leftSection={<IconVideo size={14} />}>
+                    Shows
+                  </Tabs.Tab>
+                )}
+              </Tabs.List>
+
+              <Tabs.Panel value="movies" pt="md">
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '300px 1fr',
+                    gap: 16,
+                    alignItems: 'stretch',
+                    height: 'calc(100vh - 300px)',
+                  }}
+                >
+                  <Card shadow="sm" padding="md" radius="md" withBorder style={{ height: '100%' }}>
+                    <Stack gap="xs" style={{ height: '100%' }}>
+                      <Group gap="xs">
+                        <IconPlayerPlay size={18} />
+                        <Text fw={500}>Movie Categories</Text>
+                        {movieCategories && (
+                          <Badge size="sm" variant="light">
+                            {movieCategories.length}
+                          </Badge>
+                        )}
+                      </Group>
+                      <CategoryList
+                        categories={movieCategories}
+                        selectedCategory={selectedMovieCategory}
+                        onSelectCategory={setSelectedMovieCategory}
+                        isLoading={movieCategoriesLoading}
+                        label="movie categories"
+                      />
+                    </Stack>
+                  </Card>
+
+                  <Card shadow="sm" padding="md" radius="md" withBorder style={{ height: '100%' }}>
+                    <VodGrid
+                      items={movies}
+                      onSelect={handleSelectMovie}
+                      isLoading={moviesLoading}
+                      searchPlaceholder="Search movies..."
+                      emptyLabel="No movies available in this category."
+                      icon={IconPlayerPlay}
+                    />
+                  </Card>
+                </div>
+              </Tabs.Panel>
+
+              <Tabs.Panel value="series" pt="md">
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '300px 1fr',
+                    gap: 16,
+                    alignItems: 'stretch',
+                    height: 'calc(100vh - 300px)',
+                  }}
+                >
+                  <Card shadow="sm" padding="md" radius="md" withBorder style={{ height: '100%' }}>
+                    <Stack gap="xs" style={{ height: '100%' }}>
+                      <Group gap="xs">
+                        <IconVideo size={18} />
+                        <Text fw={500}>Show Categories</Text>
+                        {seriesCategories && (
+                          <Badge size="sm" variant="light">
+                            {seriesCategories.length}
+                          </Badge>
+                        )}
+                      </Group>
+                      <CategoryList
+                        categories={seriesCategories}
+                        selectedCategory={selectedSeriesCategory}
+                        onSelectCategory={setSelectedSeriesCategory}
+                        isLoading={seriesCategoriesLoading}
+                        label="show categories"
+                      />
+                    </Stack>
+                  </Card>
+
+                  <Card shadow="sm" padding="md" radius="md" withBorder style={{ height: '100%' }}>
+                    <VodGrid
+                      items={series}
+                      onSelect={handleSelectSeries}
+                      isLoading={seriesLoading}
+                      searchPlaceholder="Search shows..."
+                      emptyLabel="No shows available in this category."
+                      icon={IconVideo}
+                    />
+                  </Card>
+                </div>
+              </Tabs.Panel>
+            </Tabs>
+          </Tabs.Panel>
+        )}
+      </Tabs>
 
       <DownloadModal
         opened={!!downloadProgram}
         onClose={() => setDownloadProgram(null)}
         program={downloadProgram}
         channel={selectedChannel}
+        accountId={selectedAccountId}
+      />
+      <ScheduleModal
+        opened={!!scheduleProgram}
+        onClose={() => setScheduleProgram(null)}
+        program={scheduleProgram}
+        channel={selectedChannel}
+        accountId={selectedAccountId}
+      />
+      <MovieModal
+        opened={!!selectedMovie}
+        onClose={() => setSelectedMovie(null)}
+        movie={selectedMovie}
+        accountId={selectedAccountId}
+      />
+      <SeriesModal
+        opened={!!selectedSeries}
+        onClose={() => setSelectedSeries(null)}
+        series={selectedSeries}
         accountId={selectedAccountId}
       />
     </Stack>

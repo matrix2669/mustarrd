@@ -221,8 +221,9 @@ class DownloadManager:
                     settings
                 )
                 completed_folder = self._resolve_completed_folder(settings)
+                download_folder = self._resolve_download_folder(settings)
                 final_path = self._select_final_path(original_path, final_path)
-                completed_path = self._move_to_completed(final_path, completed_folder)
+                completed_path = self._move_to_completed(final_path, completed_folder, download_folder)
                 download.output_path = completed_path
                 if warnings:
                     download.error_message = f"Completed with warnings: {'; '.join(warnings)}"
@@ -275,6 +276,11 @@ class DownloadManager:
             return settings.completed_folder
         return app_settings.default_completed_folder
 
+    def _resolve_download_folder(self, settings: Optional[AppSettings]) -> str:
+        if settings and settings.download_folder and not settings.download_folder.startswith("./data"):
+            return settings.download_folder
+        return app_settings.default_download_folder
+
     def _select_final_path(self, original_path: str, final_path: str) -> str:
         if final_path and os.path.exists(final_path):
             return final_path
@@ -282,9 +288,20 @@ class DownloadManager:
             return original_path
         raise Exception("No output file available to move to completed folder.")
 
-    def _move_to_completed(self, path: str, completed_folder: str) -> str:
-        os.makedirs(completed_folder, exist_ok=True)
-        dest = os.path.join(completed_folder, os.path.basename(path))
+    def _move_to_completed(self, path: str, completed_folder: str, download_folder: Optional[str] = None) -> str:
+        if download_folder:
+            try:
+                common = os.path.commonpath([os.path.abspath(path), os.path.abspath(download_folder)])
+            except Exception:
+                common = None
+            if common and os.path.abspath(common) == os.path.abspath(download_folder):
+                rel = os.path.relpath(path, download_folder)
+                dest = os.path.join(completed_folder, rel)
+            else:
+                dest = os.path.join(completed_folder, os.path.basename(path))
+        else:
+            dest = os.path.join(completed_folder, os.path.basename(path))
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
         if os.path.abspath(path) == os.path.abspath(dest):
             return path
         shutil.move(path, dest)

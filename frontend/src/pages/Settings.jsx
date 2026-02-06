@@ -29,6 +29,7 @@ import {
   IconCheck,
   IconX,
   IconMoon,
+  IconCalendar,
 } from '@tabler/icons-react'
 
 import { settingsApi } from '../api'
@@ -246,6 +247,24 @@ export default function Settings() {
               const hours = typeof val === 'number' ? val : 0
               handleChange('epg_offset_minutes', hours * 60)
             }}
+          />
+        </Stack>
+      </Card>
+
+      <Card shadow="sm" padding="lg" radius="md" withBorder>
+        <Stack gap="md">
+          <Group gap="xs">
+            <IconCalendar size={20} />
+            <Text fw={500}>Scheduled Recordings</Text>
+          </Group>
+
+          <NumberInput
+            label="Minimum Free Space (GB)"
+            description="Pause scheduled recordings if free space drops below this amount"
+            min={1}
+            max={10000}
+            value={formData.min_free_space_gb}
+            onChange={(val) => handleChange('min_free_space_gb', val)}
           />
         </Stack>
       </Card>

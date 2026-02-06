@@ -62,6 +62,37 @@ export const downloadsApi = {
   previewFilename: (data) => request('/downloads/preview-filename', { method: 'POST', body: data }),
 }
 
+// Schedules
+export const schedulesApi = {
+  list: () => request('/schedules'),
+  create: (data) => request('/schedules', { method: 'POST', body: data }),
+  cancel: (id) => request(`/schedules/${id}`, { method: 'DELETE' }),
+}
+
+// VOD (On Demand)
+export const vodApi = {
+  getMovieCategories: (accountId) => request(`/vod/movies/categories?account_id=${accountId}`),
+  getMovies: (accountId, categoryId = null) => {
+    const params = new URLSearchParams()
+    params.append('account_id', accountId)
+    if (categoryId) params.append('category_id', categoryId)
+    return request(`/vod/movies?${params}`)
+  },
+  getMovieInfo: (accountId, vodId) =>
+    request(`/vod/movies/${vodId}?account_id=${accountId}`),
+  downloadMovie: (data) => request('/vod/movies/download', { method: 'POST', body: data }),
+  getSeriesCategories: (accountId) => request(`/vod/series/categories?account_id=${accountId}`),
+  getSeries: (accountId, categoryId = null) => {
+    const params = new URLSearchParams()
+    params.append('account_id', accountId)
+    if (categoryId) params.append('category_id', categoryId)
+    return request(`/vod/series?${params}`)
+  },
+  getSeriesInfo: (accountId, seriesId) =>
+    request(`/vod/series/${seriesId}?account_id=${accountId}`),
+  downloadSeries: (data) => request('/vod/series/download', { method: 'POST', body: data }),
+}
+
 // Settings
 export const settingsApi = {
   get: () => request('/settings'),

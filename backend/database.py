@@ -35,6 +35,7 @@ def _ensure_app_settings_columns(conn):
     additions = {
         "default_pre_padding_minutes": "INTEGER DEFAULT 1",
         "default_post_padding_minutes": "INTEGER DEFAULT 5",
+        "min_free_space_gb": "INTEGER DEFAULT 25",
     }
 
     for column_name, column_def in additions.items():

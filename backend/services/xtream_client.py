@@ -80,6 +80,60 @@ class XtreamClient:
             data = await response.json()
             return data.get("epg_listings", [])
 
+    async def get_vod_categories(self) -> list:
+        """Get VOD (movies) categories."""
+        url = self._build_api_url("get_vod_categories")
+        session = await self._get_session()
+        async with session.get(url) as response:
+            if response.status != 200:
+                raise Exception(f"Failed to get VOD categories: HTTP {response.status}")
+            return await response.json()
+
+    async def get_vod_streams(self, category_id: Optional[str] = None) -> list:
+        """Get VOD (movies) streams."""
+        url = self._build_api_url("get_vod_streams", category_id=category_id)
+        session = await self._get_session()
+        async with session.get(url) as response:
+            if response.status != 200:
+                raise Exception(f"Failed to get VOD streams: HTTP {response.status}")
+            return await response.json()
+
+    async def get_vod_info(self, vod_id: str) -> dict:
+        """Get VOD (movie) details."""
+        url = self._build_api_url("get_vod_info", vod_id=vod_id)
+        session = await self._get_session()
+        async with session.get(url) as response:
+            if response.status != 200:
+                raise Exception(f"Failed to get VOD info: HTTP {response.status}")
+            return await response.json()
+
+    async def get_series_categories(self) -> list:
+        """Get series categories."""
+        url = self._build_api_url("get_series_categories")
+        session = await self._get_session()
+        async with session.get(url) as response:
+            if response.status != 200:
+                raise Exception(f"Failed to get series categories: HTTP {response.status}")
+            return await response.json()
+
+    async def get_series(self, category_id: Optional[str] = None) -> list:
+        """Get series list."""
+        url = self._build_api_url("get_series", category_id=category_id)
+        session = await self._get_session()
+        async with session.get(url) as response:
+            if response.status != 200:
+                raise Exception(f"Failed to get series: HTTP {response.status}")
+            return await response.json()
+
+    async def get_series_info(self, series_id: str) -> dict:
+        """Get series details (seasons + episodes)."""
+        url = self._build_api_url("get_series_info", series_id=series_id)
+        session = await self._get_session()
+        async with session.get(url) as response:
+            if response.status != 200:
+                raise Exception(f"Failed to get series info: HTTP {response.status}")
+            return await response.json()
+
     def build_timeshift_url(
         self,
         stream_id: str,
@@ -97,3 +151,13 @@ class XtreamClient:
     def build_stream_url(self, stream_id: str, extension: str = "ts") -> str:
         """Build live stream URL."""
         return f"{self.server_url}/live/{self.username}/{self.password}/{stream_id}.{extension}"
+
+    def build_vod_url(self, vod_id: str, extension: Optional[str] = None) -> str:
+        """Build VOD movie URL."""
+        ext = (extension or "mp4").lstrip(".") or "mp4"
+        return f"{self.server_url}/movie/{self.username}/{self.password}/{vod_id}.{ext}"
+
+    def build_series_url(self, episode_id: str, extension: Optional[str] = None) -> str:
+        """Build VOD series episode URL."""
+        ext = (extension or "mp4").lstrip(".") or "mp4"
+        return f"{self.server_url}/series/{self.username}/{self.password}/{episode_id}.{ext}"

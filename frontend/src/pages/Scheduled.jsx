@@ -1,0 +1,290 @@
+import { useEffect, useState } from 'react'
+import {
+  Title,
+  Card,
+  Group,
+  Text,
+  Stack,
+  Badge,
+  ActionIcon,
+  Menu,
+  Tabs,
+  Loader,
+  Alert,
+  Tooltip,
+} from '@mantine/core'
+import { notifications } from '@mantine/notifications'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import {
+  IconDotsVertical,
+  IconPlayerStop,
+  IconTrash,
+  IconAlertCircle,
+  IconCheck,
+  IconX,
+  IconClock,
+  IconCalendar,
+  IconDownload,
+  IconSettings,
+} from '@tabler/icons-react'
+import dayjs from 'dayjs'
+import duration from 'dayjs/plugin/duration'
+
+import { schedulesApi } from '../api'
+
+dayjs.extend(duration)
+
+function formatDuration(minutes) {
+  const d = dayjs.duration(minutes, 'minutes')
+  const hours = d.hours()
+  const mins = d.minutes()
+  if (hours > 0) {
+    return `${hours}h ${mins}m`
+  }
+  return `${mins}m`
+}
+
+function getStatusBadge(status) {
+  const statusConfig = {
+    scheduled: { color: 'gray', icon: IconCalendar, label: 'Scheduled' },
+    queued: { color: 'blue', icon: IconDownload, label: 'Queued' },
+    downloading: { color: 'blue', icon: IconDownload, label: 'Downloading' },
+    processing: { color: 'teal', icon: IconSettings, label: 'Processing' },
+    completed: { color: 'green', icon: IconCheck, label: 'Completed' },
+    failed: { color: 'red', icon: IconX, label: 'Failed' },
+    cancelled: { color: 'orange', icon: IconX, label: 'Cancelled' },
+    paused_low_space: { color: 'yellow', icon: IconAlertCircle, label: 'Paused (Low Space)' },
+  }
+
+  const config = statusConfig[status] || statusConfig.scheduled
+  const Icon = config.icon
+
+  return (
+    <Badge color={config.color} variant="light" leftSection={<Icon size={12} />}>
+      {config.label}
+    </Badge>
+  )
+}
+
+function ScheduleCard({ schedule, onCancel, onDelete }) {
+  const activeStatuses = ['scheduled', 'queued', 'downloading', 'processing', 'paused_low_space']
+  const isActive = activeStatuses.includes(schedule.status)
+  const canDelete = !isActive
+
+  const startTime = dayjs(schedule.program_start)
+  const endTime = dayjs(schedule.program_end)
+  const availableAt = schedule.available_at ? dayjs(schedule.available_at) : endTime
+  const totalDuration = (schedule.duration_minutes || 0)
+    + (schedule.pre_padding_minutes || 0)
+    + (schedule.post_padding_minutes || 0)
+
+  return (
+    <Card shadow="sm" padding="md" radius="md" withBorder>
+      <Stack gap="xs">
+        <Group justify="space-between" wrap="nowrap">
+          <Stack gap={2} style={{ flex: 1, overflow: 'hidden' }}>
+            <Text fw={500} truncate>
+              {schedule.program_title}
+            </Text>
+            <Text size="sm" c="dimmed" truncate>
+              {schedule.channel_name}
+            </Text>
+          </Stack>
+          <Group gap="xs">
+            {getStatusBadge(schedule.status)}
+            <Menu shadow="md" width={160}>
+              <Menu.Target>
+                <ActionIcon variant="subtle">
+                  <IconDotsVertical size={16} />
+                </ActionIcon>
+              </Menu.Target>
+              <Menu.Dropdown>
+                {isActive && (
+                  <Menu.Item
+                    leftSection={<IconPlayerStop size={14} />}
+                    onClick={() => onCancel(schedule)}
+                  >
+                    Cancel
+                  </Menu.Item>
+                )}
+                {canDelete && (
+                  <Menu.Item
+                    color="red"
+                    leftSection={<IconTrash size={14} />}
+                    onClick={() => onDelete(schedule)}
+                  >
+                    Delete
+                  </Menu.Item>
+                )}
+              </Menu.Dropdown>
+            </Menu>
+          </Group>
+        </Group>
+
+        <Group gap="xs" wrap="nowrap">
+          <Text size="xs" c="dimmed">
+            {startTime.format('MMM D, YYYY h:mm A')}
+          </Text>
+          <Text size="xs" c="dimmed">
+            ({formatDuration(totalDuration)})
+          </Text>
+        </Group>
+
+        <Text size="xs" c="dimmed">
+          Expected start: {availableAt.format('MMM D, YYYY h:mm A')}
+        </Text>
+
+        {schedule.status_message && (
+          <Alert color="yellow" variant="light" p="xs">
+            <Text size="xs">{schedule.status_message}</Text>
+          </Alert>
+        )}
+
+        {schedule.download_status && schedule.download_status === 'completed' && schedule.download_id && (
+          <Tooltip label="Recording completed. View it in Downloads for file details.">
+            <Text size="xs" c="dimmed" truncate>
+              Recording finished. Download ID: {schedule.download_id}
+            </Text>
+          </Tooltip>
+        )}
+      </Stack>
+    </Card>
+  )
+}
+
+export default function Scheduled() {
+  const queryClient = useQueryClient()
+  const [localItems, setLocalItems] = useState([])
+
+  const { data: schedules, isLoading, error } = useQuery({
+    queryKey: ['schedules'],
+    queryFn: schedulesApi.list,
+    refetchInterval: 5000,
+  })
+
+  useEffect(() => {
+    if (schedules) {
+      setLocalItems(schedules)
+    }
+  }, [schedules])
+
+  const cancelMutation = useMutation({
+    mutationFn: (schedule) => schedulesApi.cancel(schedule.id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['schedules'] })
+      notifications.show({
+        title: 'Schedule Cancelled',
+        message: 'The scheduled recording has been cancelled',
+        color: 'orange',
+      })
+    },
+    onError: (error) => {
+      notifications.show({
+        title: 'Error',
+        message: error.message,
+        color: 'red',
+      })
+    },
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (schedule) => schedulesApi.cancel(schedule.id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['schedules'] })
+      notifications.show({
+        title: 'Schedule Deleted',
+        message: 'The schedule has been removed',
+        color: 'green',
+      })
+    },
+  })
+
+  const activeSchedules = localItems?.filter((s) =>
+    ['scheduled', 'queued', 'downloading', 'processing', 'paused_low_space'].includes(s.status)
+  ) || []
+
+  const historySchedules = localItems?.filter((s) =>
+    ['completed', 'failed', 'cancelled'].includes(s.status)
+  ) || []
+
+  if (isLoading) {
+    return (
+      <Stack align="center" justify="center" h={300}>
+        <Loader />
+      </Stack>
+    )
+  }
+
+  if (error) {
+    return (
+      <Alert icon={<IconAlertCircle size={16} />} title="Error" color="red">
+        Failed to load schedules: {error.message}
+      </Alert>
+    )
+  }
+
+  return (
+    <Stack>
+      <Title order={2}>Scheduled Recordings</Title>
+
+      <Tabs defaultValue="upcoming">
+        <Tabs.List>
+          <Tabs.Tab value="upcoming" leftSection={<IconCalendar size={16} />}>
+            Upcoming {activeSchedules.length > 0 && `(${activeSchedules.length})`}
+          </Tabs.Tab>
+          <Tabs.Tab value="history" leftSection={<IconClock size={16} />}>
+            History {historySchedules.length > 0 && `(${historySchedules.length})`}
+          </Tabs.Tab>
+        </Tabs.List>
+
+        <Tabs.Panel value="upcoming" pt="md">
+          {activeSchedules.length === 0 ? (
+            <Card shadow="sm" padding="xl" radius="md" withBorder>
+              <Stack align="center" gap="md">
+                <IconCalendar size={48} opacity={0.3} />
+                <Text c="dimmed" ta="center">
+                  No scheduled recordings yet. Pick an upcoming show in Browse to schedule it.
+                </Text>
+              </Stack>
+            </Card>
+          ) : (
+            <Stack gap="md">
+              {activeSchedules.map((schedule) => (
+                <ScheduleCard
+                  key={schedule.id}
+                  schedule={schedule}
+                  onCancel={(s) => cancelMutation.mutate(s)}
+                  onDelete={(s) => deleteMutation.mutate(s)}
+                />
+              ))}
+            </Stack>
+          )}
+        </Tabs.Panel>
+
+        <Tabs.Panel value="history" pt="md">
+          {historySchedules.length === 0 ? (
+            <Card shadow="sm" padding="xl" radius="md" withBorder>
+              <Stack align="center" gap="md">
+                <IconClock size={48} opacity={0.3} />
+                <Text c="dimmed" ta="center">
+                  No schedule history yet.
+                </Text>
+              </Stack>
+            </Card>
+          ) : (
+            <Stack gap="md">
+              {historySchedules.map((schedule) => (
+                <ScheduleCard
+                  key={schedule.id}
+                  schedule={schedule}
+                  onCancel={(s) => cancelMutation.mutate(s)}
+                  onDelete={(s) => deleteMutation.mutate(s)}
+                />
+              ))}
+            </Stack>
+          )}
+        </Tabs.Panel>
+      </Tabs>
+    </Stack>
+  )
+}
