@@ -9,7 +9,7 @@ from typing import Optional, Callable, Dict, Set, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 
-from models import Download, DownloadStatus, AppSettings
+from models import Download, DownloadStatus, AppSettings, XtreamAccount
 from config import settings as app_settings
 from database import async_session_maker
 
@@ -18,6 +18,8 @@ class DownloadManager:
     def __init__(self):
         self._queue: asyncio.Queue = asyncio.Queue()
         self._active_downloads: Dict[int, asyncio.Task] = {}
+        self._active_account_ids: Dict[int, int] = {}
+        self._account_active_counts: Dict[int, int] = {}
         self._cancelled: Set[int] = set()
         self._progress_callbacks: Dict[int, Callable] = {}
         self._websocket_connections: Set = set()
@@ -33,6 +35,31 @@ class DownloadManager:
 
     def unregister_websocket(self, websocket):
         self._websocket_connections.discard(websocket)
+
+    def _track_active_download(self, download_id: int, account_id: Optional[int]) -> None:
+        if account_id is None:
+            return
+        self._active_account_ids[download_id] = account_id
+        self._account_active_counts[account_id] = self._account_active_counts.get(account_id, 0) + 1
+
+    def _untrack_active_download(self, download_id: int) -> None:
+        account_id = self._active_account_ids.pop(download_id, None)
+        if account_id is None:
+            return
+        remaining = self._account_active_counts.get(account_id, 0) - 1
+        if remaining > 0:
+            self._account_active_counts[account_id] = remaining
+        else:
+            self._account_active_counts.pop(account_id, None)
+
+    def _cleanup_completed_tasks(self) -> None:
+        completed = [
+            did for did, task in self._active_downloads.items()
+            if task.done()
+        ]
+        for did in completed:
+            del self._active_downloads[did]
+            self._untrack_active_download(did)
 
     async def _broadcast_progress(self, download_id: int, progress: float, status: str, **extra):
         """Broadcast progress to all connected WebSocket clients."""
@@ -137,16 +164,11 @@ class DownloadManager:
 
         while self._running:
             try:
+                self._cleanup_completed_tasks()
                 # Wait for active downloads to have space
                 while len(self._active_downloads) >= self._max_concurrent:
                     await asyncio.sleep(0.5)
-                    # Clean up completed tasks
-                    completed = [
-                        did for did, task in self._active_downloads.items()
-                        if task.done()
-                    ]
-                    for did in completed:
-                        del self._active_downloads[did]
+                    self._cleanup_completed_tasks()
 
                 # Get next download from queue
                 try:
@@ -162,9 +184,37 @@ class DownloadManager:
                     self._cancelled.discard(download_id)
                     continue
 
+                self._cleanup_completed_tasks()
+
+                async with async_session_maker() as session:
+                    result = await session.execute(
+                        select(Download).where(Download.id == download_id)
+                    )
+                    download = result.scalar_one_or_none()
+
+                    if not download:
+                        continue
+
+                    account_id = download.account_id
+                    max_connections = None
+                    account_result = await session.execute(
+                        select(XtreamAccount.max_connections).where(
+                            XtreamAccount.id == account_id
+                        )
+                    )
+                    max_connections = account_result.scalar_one_or_none()
+
+                if max_connections is not None and max_connections > 0:
+                    active_for_account = self._account_active_counts.get(account_id, 0)
+                    if active_for_account >= max_connections:
+                        await self._queue.put(download_id)
+                        await asyncio.sleep(0.5)
+                        continue
+
                 # Start download task
                 task = asyncio.create_task(self._execute_download(download_id))
                 self._active_downloads[download_id] = task
+                self._track_active_download(download_id, account_id)
 
             except asyncio.CancelledError:
                 break
