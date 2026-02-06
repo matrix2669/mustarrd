@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useNavigate, unstable_useBlocker as useBlocker } from 'react-router-dom'
 import {
   Title,
   Card,
@@ -17,6 +18,7 @@ import {
   Badge,
   useMantineColorScheme,
   useMantineTheme,
+  Modal,
 } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -61,8 +63,13 @@ export default function Settings() {
   const queryClient = useQueryClient()
   const [formData, setFormData] = useState(null)
   const [hasChanges, setHasChanges] = useState(false)
+  const [leaveModalOpen, setLeaveModalOpen] = useState(false)
+  const [pendingNavigation, setPendingNavigation] = useState(null)
+  const [isSavingAndLeaving, setIsSavingAndLeaving] = useState(false)
+  const navigate = useNavigate()
   const { colorScheme, setColorScheme } = useMantineColorScheme()
   const theme = useMantineTheme()
+  const blocker = useBlocker(hasChanges)
 
   const accordionStyles = {
     item: {
@@ -147,6 +154,72 @@ export default function Settings() {
     setHasChanges(false)
   }
 
+  useEffect(() => {
+    if (blocker.state === 'blocked' && !leaveModalOpen) {
+      setPendingNavigation(blocker.location)
+      setLeaveModalOpen(true)
+    }
+  }, [blocker, leaveModalOpen])
+
+  useEffect(() => {
+    if (!hasChanges) {
+      setLeaveModalOpen(false)
+      setPendingNavigation(null)
+    }
+  }, [hasChanges])
+
+  useEffect(() => {
+    const handleBeforeUnload = (event) => {
+      if (!hasChanges) return
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [hasChanges])
+
+  const navigateToPending = (target) => {
+    if (!target) return
+    navigate({
+      pathname: target.pathname,
+      search: target.search,
+      hash: target.hash,
+    }, { state: target.state })
+  }
+
+  const handleStay = () => {
+    blocker.reset?.()
+    setLeaveModalOpen(false)
+    setPendingNavigation(null)
+  }
+
+  const handleDiscardAndContinue = () => {
+    const target = pendingNavigation
+    blocker.reset?.()
+    setLeaveModalOpen(false)
+    setPendingNavigation(null)
+    setHasChanges(false)
+    navigateToPending(target)
+  }
+
+  const handleSaveAndContinue = async () => {
+    const target = pendingNavigation
+    if (!target) {
+      return
+    }
+    setIsSavingAndLeaving(true)
+    try {
+      await updateMutation.mutateAsync(formData)
+      blocker.reset?.()
+      setLeaveModalOpen(false)
+      setPendingNavigation(null)
+      navigateToPending(target)
+    } catch (error) {
+      setIsSavingAndLeaving(false)
+    }
+    setIsSavingAndLeaving(false)
+  }
+
   if (isLoading) {
     return (
       <Stack align="center" justify="center" h={300}>
@@ -169,6 +242,32 @@ export default function Settings() {
 
   return (
     <Stack>
+      <Modal
+        opened={leaveModalOpen}
+        onClose={handleStay}
+        title="Unsaved changes"
+        centered
+      >
+        <Stack>
+          <Text size="sm">
+            You have unsaved changes. Would you like to save before leaving?
+          </Text>
+          <Group justify="flex-end">
+            <Button variant="subtle" onClick={handleStay}>
+              Stay
+            </Button>
+            <Button variant="default" onClick={handleDiscardAndContinue}>
+              Discard & Continue
+            </Button>
+            <Button
+              onClick={handleSaveAndContinue}
+              loading={isSavingAndLeaving || updateMutation.isPending}
+            >
+              Save & Continue
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
       <Group justify="space-between">
         <Title order={2}>Settings</Title>
         <Group>
