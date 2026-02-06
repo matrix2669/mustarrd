@@ -1,6 +1,6 @@
 from datetime import datetime
 from enum import Enum
-from sqlalchemy import String, Integer, DateTime, Float, ForeignKey, Text
+from sqlalchemy import String, Integer, DateTime, Float, ForeignKey, Text, Boolean
 from sqlalchemy.orm import Mapped, mapped_column
 from database import Base
 
@@ -38,6 +38,7 @@ class Download(Base):
     file_size: Mapped[int] = mapped_column(Integer, default=0)
     downloaded_bytes: Mapped[int] = mapped_column(Integer, default=0)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_vod: Mapped[bool] = mapped_column(Boolean, default=False)
 
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
@@ -60,6 +61,7 @@ class Download(Base):
             "file_size": self.file_size,
             "downloaded_bytes": self.downloaded_bytes,
             "error_message": self.error_message,
+            "is_vod": self.is_vod,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
         }

@@ -210,16 +210,19 @@ class DownloadManager:
                     session
                 )
 
-                # Run post-processing if enabled
+                # Run post-processing if enabled (skip for VOD downloads)
                 original_path = download.output_path
                 settings_result = await session.execute(select(AppSettings))
                 settings = settings_result.scalar_one_or_none()
-                final_path, warnings = await self._post_process(
-                    download.output_path,
-                    download_id,
-                    session,
-                    settings
-                )
+                if download.is_vod:
+                    final_path, warnings = download.output_path, []
+                else:
+                    final_path, warnings = await self._post_process(
+                        download.output_path,
+                        download_id,
+                        session,
+                        settings
+                    )
                 completed_folder = self._resolve_completed_folder(settings)
                 download_folder = self._resolve_download_folder(settings)
                 final_path = self._select_final_path(original_path, final_path)
@@ -357,10 +360,16 @@ class DownloadManager:
 
         async with aiohttp.ClientSession(timeout=timeout) as http_session:
             async with http_session.get(url) as response:
-                if response.status != 200:
+                if response.status not in (200, 206):
                     raise Exception(f"HTTP {response.status}: {response.reason}")
 
                 total_size = response.content_length or 0
+                if response.status == 206:
+                    content_range = response.headers.get("Content-Range")
+                    if content_range and "/" in content_range:
+                        total_part = content_range.split("/")[-1].strip()
+                        if total_part.isdigit():
+                            total_size = int(total_part)
                 downloaded = 0
                 last_progress_update = 0
 

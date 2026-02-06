@@ -4,6 +4,9 @@ from typing import Optional
 from urllib.parse import urljoin
 
 
+VOD_TIMEOUT = aiohttp.ClientTimeout(total=90)
+
+
 class XtreamClient:
     def __init__(self, server_url: str, username: str, password: str):
         self.server_url = server_url.rstrip("/")
@@ -84,7 +87,7 @@ class XtreamClient:
         """Get VOD (movies) categories."""
         url = self._build_api_url("get_vod_categories")
         session = await self._get_session()
-        async with session.get(url) as response:
+        async with session.get(url, timeout=VOD_TIMEOUT) as response:
             if response.status != 200:
                 raise Exception(f"Failed to get VOD categories: HTTP {response.status}")
             return await response.json()
@@ -93,7 +96,7 @@ class XtreamClient:
         """Get VOD (movies) streams."""
         url = self._build_api_url("get_vod_streams", category_id=category_id)
         session = await self._get_session()
-        async with session.get(url) as response:
+        async with session.get(url, timeout=VOD_TIMEOUT) as response:
             if response.status != 200:
                 raise Exception(f"Failed to get VOD streams: HTTP {response.status}")
             return await response.json()
@@ -102,7 +105,7 @@ class XtreamClient:
         """Get VOD (movie) details."""
         url = self._build_api_url("get_vod_info", vod_id=vod_id)
         session = await self._get_session()
-        async with session.get(url) as response:
+        async with session.get(url, timeout=VOD_TIMEOUT) as response:
             if response.status != 200:
                 raise Exception(f"Failed to get VOD info: HTTP {response.status}")
             return await response.json()
@@ -111,7 +114,7 @@ class XtreamClient:
         """Get series categories."""
         url = self._build_api_url("get_series_categories")
         session = await self._get_session()
-        async with session.get(url) as response:
+        async with session.get(url, timeout=VOD_TIMEOUT) as response:
             if response.status != 200:
                 raise Exception(f"Failed to get series categories: HTTP {response.status}")
             return await response.json()
@@ -120,7 +123,7 @@ class XtreamClient:
         """Get series list."""
         url = self._build_api_url("get_series", category_id=category_id)
         session = await self._get_session()
-        async with session.get(url) as response:
+        async with session.get(url, timeout=VOD_TIMEOUT) as response:
             if response.status != 200:
                 raise Exception(f"Failed to get series: HTTP {response.status}")
             return await response.json()
@@ -129,7 +132,7 @@ class XtreamClient:
         """Get series details (seasons + episodes)."""
         url = self._build_api_url("get_series_info", series_id=series_id)
         session = await self._get_session()
-        async with session.get(url) as response:
+        async with session.get(url, timeout=VOD_TIMEOUT) as response:
             if response.status != 200:
                 raise Exception(f"Failed to get series info: HTTP {response.status}")
             return await response.json()

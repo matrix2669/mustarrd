@@ -63,6 +63,7 @@ async def build_movie_download(
         source_url=source_url,
         output_path=output_path,
         status=DownloadStatus.PENDING.value,
+        is_vod=True,
     )
 
 
@@ -116,4 +117,5 @@ async def build_episode_download(
         source_url=source_url,
         output_path=output_path,
         status=DownloadStatus.PENDING.value,
+        is_vod=True,
     )

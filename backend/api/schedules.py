@@ -145,21 +145,23 @@ async def create_schedule(
     epg_id = data.program.get("epg_id")
     program_id = data.program.get("id")
 
+    active_statuses = [
+        ScheduledStatus.SCHEDULED.value,
+        ScheduledStatus.PAUSED_LOW_SPACE.value,
+        ScheduledStatus.QUEUED.value,
+        ScheduledStatus.DOWNLOADING.value,
+        ScheduledStatus.PROCESSING.value,
+    ]
+
     if epg_id:
         existing = await session.execute(
             select(ScheduledRecording).where(
                 ScheduledRecording.account_id == data.account_id,
                 ScheduledRecording.channel_id == data.channel_id,
                 ScheduledRecording.epg_id == epg_id,
-                ScheduledRecording.status.in_(
-                    [
-                        ScheduledStatus.SCHEDULED.value,
-                        ScheduledStatus.PAUSED_LOW_SPACE.value,
-                        ScheduledStatus.QUEUED.value,
-                        ScheduledStatus.DOWNLOADING.value,
-                        ScheduledStatus.PROCESSING.value,
-                    ]
-                )
+                ScheduledRecording.start_timestamp == start_ts,
+                ScheduledRecording.stop_timestamp == stop_ts,
+                ScheduledRecording.status.in_(active_statuses),
             )
         )
         if existing.scalar_one_or_none():
@@ -171,15 +173,8 @@ async def create_schedule(
                 ScheduledRecording.channel_id == data.channel_id,
                 ScheduledRecording.program_id == str(program_id),
                 ScheduledRecording.start_timestamp == start_ts,
-                ScheduledRecording.status.in_(
-                    [
-                        ScheduledStatus.SCHEDULED.value,
-                        ScheduledStatus.PAUSED_LOW_SPACE.value,
-                        ScheduledStatus.QUEUED.value,
-                        ScheduledStatus.DOWNLOADING.value,
-                        ScheduledStatus.PROCESSING.value,
-                    ]
-                )
+                ScheduledRecording.stop_timestamp == stop_ts,
+                ScheduledRecording.status.in_(active_statuses),
             )
         )
         if existing.scalar_one_or_none():

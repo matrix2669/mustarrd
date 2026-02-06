@@ -24,6 +24,7 @@ async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         await conn.run_sync(_ensure_app_settings_columns)
+        await conn.run_sync(_ensure_download_columns)
 
 
 def _ensure_app_settings_columns(conn):
@@ -42,6 +43,23 @@ def _ensure_app_settings_columns(conn):
         if column_name not in existing_columns:
             conn.exec_driver_sql(
                 f"ALTER TABLE app_settings ADD COLUMN {column_name} {column_def}"
+            )
+
+
+def _ensure_download_columns(conn):
+    inspector = inspect(conn)
+    if "downloads" not in inspector.get_table_names():
+        return
+
+    existing_columns = {col["name"] for col in inspector.get_columns("downloads")}
+    additions = {
+        "is_vod": "BOOLEAN DEFAULT 0",
+    }
+
+    for column_name, column_def in additions.items():
+        if column_name not in existing_columns:
+            conn.exec_driver_sql(
+                f"ALTER TABLE downloads ADD COLUMN {column_name} {column_def}"
             )
 
 
