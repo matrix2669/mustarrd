@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { useNavigate, unstable_useBlocker as useBlocker } from 'react-router-dom'
+import { useState, useEffect, useCallback, useContext } from 'react'
+import { UNSAFE_NavigationContext } from 'react-router-dom'
 import {
   Title,
   Card,
@@ -59,6 +59,28 @@ function TemplateSection({ label, template, variables, example, onChange }) {
   )
 }
 
+function useBlocker(blocker, when = true) {
+  const { navigator } = useContext(UNSAFE_NavigationContext)
+
+  useEffect(() => {
+    if (!when) return
+    if (!navigator?.block) return undefined
+
+    const unblock = navigator.block((tx) => {
+      const autoUnblockingTx = {
+        ...tx,
+        retry() {
+          unblock()
+          tx.retry()
+        },
+      }
+      blocker(autoUnblockingTx)
+    })
+
+    return unblock
+  }, [navigator, blocker, when])
+}
+
 export default function Settings() {
   const queryClient = useQueryClient()
   const [formData, setFormData] = useState(null)
@@ -66,10 +88,17 @@ export default function Settings() {
   const [leaveModalOpen, setLeaveModalOpen] = useState(false)
   const [pendingNavigation, setPendingNavigation] = useState(null)
   const [isSavingAndLeaving, setIsSavingAndLeaving] = useState(false)
-  const navigate = useNavigate()
   const { colorScheme, setColorScheme } = useMantineColorScheme()
   const theme = useMantineTheme()
-  const blocker = useBlocker(hasChanges)
+  const blockNavigation = useCallback((tx) => {
+    if (!hasChanges) {
+      tx.retry()
+      return
+    }
+    setPendingNavigation(tx)
+    setLeaveModalOpen(true)
+  }, [hasChanges])
+  useBlocker(blockNavigation, hasChanges)
 
   const accordionStyles = {
     item: {
@@ -155,13 +184,6 @@ export default function Settings() {
   }
 
   useEffect(() => {
-    if (blocker.state === 'blocked' && !leaveModalOpen) {
-      setPendingNavigation(blocker.location)
-      setLeaveModalOpen(true)
-    }
-  }, [blocker, leaveModalOpen])
-
-  useEffect(() => {
     if (!hasChanges) {
       setLeaveModalOpen(false)
       setPendingNavigation(null)
@@ -178,42 +200,30 @@ export default function Settings() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload)
   }, [hasChanges])
 
-  const navigateToPending = (target) => {
-    if (!target) return
-    navigate({
-      pathname: target.pathname,
-      search: target.search,
-      hash: target.hash,
-    }, { state: target.state })
-  }
-
   const handleStay = () => {
-    blocker.reset?.()
     setLeaveModalOpen(false)
     setPendingNavigation(null)
   }
 
   const handleDiscardAndContinue = () => {
-    const target = pendingNavigation
-    blocker.reset?.()
+    const tx = pendingNavigation
     setLeaveModalOpen(false)
     setPendingNavigation(null)
     setHasChanges(false)
-    navigateToPending(target)
+    tx?.retry?.()
   }
 
   const handleSaveAndContinue = async () => {
-    const target = pendingNavigation
-    if (!target) {
+    const tx = pendingNavigation
+    if (!tx) {
       return
     }
     setIsSavingAndLeaving(true)
     try {
       await updateMutation.mutateAsync(formData)
-      blocker.reset?.()
       setLeaveModalOpen(false)
       setPendingNavigation(null)
-      navigateToPending(target)
+      tx.retry()
     } catch (error) {
       setIsSavingAndLeaving(false)
     }
