@@ -30,7 +30,10 @@ FROM ghcr.io/linuxserver/baseimage-ubuntu:noble
 WORKDIR /app/backend
 
 # Runtime deps
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN sed -i 's|http://ports.ubuntu.com/ubuntu-ports|https://ports.ubuntu.com/ubuntu-ports|g' /etc/apt/sources.list \
+  && sed -i 's|http://archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list \
+  && apt-get update -o Acquire::Retries=3 \
+  && apt-get install -y --no-install-recommends \
     python3 \
     python3-venv \
     python3-pip \
@@ -41,17 +44,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libswresample4 \
     libpostproc57 \
     libargtable2-0 \
-    vainfo \
-    libva2 \
-    libva-drm2 \
-    libdrm2 \
-    libasound2t64 \
     libedit2 \
     libelf1 \
     libexpat1 \
     libglib2.0-0 \
     libgomp1 \
-    libllvm18 \
     libpciaccess0 \
     libv4l-0 \
     libwayland-client0 \
@@ -71,10 +68,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxshmfence1 \
     libxml2 \
     ocl-icd-libopencl1 \
-    mesa-va-drivers \
     gosu \
+  && for pkg in vainfo libva2 libva-drm2 libdrm2 libasound2t64 libasound2 libllvm18; do \
+       apt-get install -y --no-install-recommends -o Acquire::Retries=3 "$pkg" || true; \
+     done \
   && if [ "$(dpkg --print-architecture)" = "amd64" ]; then \
-       apt-get install -y --no-install-recommends i965-va-driver intel-media-va-driver libigdgmm12; \
+       for pkg in mesa-va-drivers i965-va-driver intel-media-va-driver libigdgmm12; do \
+         apt-get install -y --no-install-recommends -o Acquire::Retries=3 "$pkg" || true; \
+       done; \
      fi \
   && rm -rf /var/lib/apt/lists/*
 
