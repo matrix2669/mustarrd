@@ -8,6 +8,7 @@ class EPGProgram(Base):
     __tablename__ = "epg_programs"
     __table_args__ = (
         Index("ix_epg_programs_account_channel_start", "account_id", "channel_id", "start_time"),
+        Index("ux_epg_programs_account_epg_id", "account_id", "epg_id", unique=True),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)

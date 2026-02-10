@@ -52,8 +52,11 @@ export const channelsApi = {
 
 // EPG Search
 export const epgApi = {
-  search: (accountId, query, limit = 100) =>
-    request(`/epg/search?account_id=${accountId}&q=${encodeURIComponent(query)}&limit=${limit}`),
+  search: (accountId, query, limit = 100, offset = 0) =>
+    request(
+      `/epg/search?account_id=${accountId}&q=${encodeURIComponent(query)}&limit=${limit}&offset=${offset}`
+    ),
+  status: () => request('/epg/status'),
 }
 
 // Downloads

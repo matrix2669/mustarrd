@@ -5,6 +5,7 @@ from sqlalchemy import select, or_, func
 from database import get_session
 from models import XtreamAccount, AppSettings, EPGProgram
 from services.epg_service import epg_service
+from services.epg_ingest_manager import epg_ingest_manager
 
 
 router = APIRouter()
@@ -15,6 +16,7 @@ async def search_epg(
     account_id: int = Query(..., ge=1),
     q: str = Query(..., min_length=2),
     limit: int = Query(100, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     session: AsyncSession = Depends(get_session),
 ):
     result = await session.execute(
@@ -40,6 +42,12 @@ async def search_epg(
         )
         .order_by(EPGProgram.start_time.desc())
         .limit(limit)
+        .offset(offset)
     )
     programs = result.scalars().all()
     return [epg_service.serialize_program(row, epg_offset_minutes) for row in programs]
+
+
+@router.get("/epg/status")
+async def epg_status():
+    return epg_ingest_manager.get_status()

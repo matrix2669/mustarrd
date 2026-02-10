@@ -25,6 +25,7 @@ async def init_db():
         await conn.run_sync(Base.metadata.create_all)
         await conn.run_sync(_ensure_app_settings_columns)
         await conn.run_sync(_ensure_download_columns)
+        await conn.run_sync(_ensure_epg_program_indexes)
 
 
 def _ensure_app_settings_columns(conn):
@@ -61,6 +62,24 @@ def _ensure_download_columns(conn):
             conn.exec_driver_sql(
                 f"ALTER TABLE downloads ADD COLUMN {column_name} {column_def}"
             )
+
+
+def _ensure_epg_program_indexes(conn):
+    inspector = inspect(conn)
+    if "epg_programs" not in inspector.get_table_names():
+        return
+
+    existing_indexes = {idx["name"] for idx in inspector.get_indexes("epg_programs")}
+    if "ux_epg_programs_account_epg_id" not in existing_indexes:
+        conn.exec_driver_sql(
+            "DELETE FROM epg_programs WHERE rowid NOT IN ("
+            "SELECT MIN(rowid) FROM epg_programs GROUP BY account_id, epg_id"
+            ")"
+        )
+        conn.exec_driver_sql(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_epg_programs_account_epg_id "
+            "ON epg_programs (account_id, epg_id)"
+        )
 
 
 async def get_session() -> AsyncSession:

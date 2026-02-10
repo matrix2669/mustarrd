@@ -5,7 +5,7 @@ from sqlalchemy import select
 from typing import Optional
 
 from database import get_session
-from config import ensure_config_files, settings as app_settings
+from config import ensure_config_files, settings as app_settings, is_docker_env
 from models import AppSettings
 from services.download_manager import download_manager
 from services.epg_service import epg_service
@@ -84,7 +84,27 @@ async def get_settings(session: AsyncSession = Depends(get_session)):
         session.add(settings)
         await session.commit()
         await session.refresh(settings)
+    if is_docker_env() and not settings.download_folder.startswith("/app/"):
+        settings.download_folder = app_settings.default_download_folder
+        session.add(settings)
+        await session.commit()
+        await session.refresh(settings)
+    if not is_docker_env() and settings.download_folder.startswith("/app/"):
+        settings.download_folder = app_settings.default_download_folder
+        session.add(settings)
+        await session.commit()
+        await session.refresh(settings)
     if not settings.completed_folder:
+        settings.completed_folder = app_settings.default_completed_folder
+        session.add(settings)
+        await session.commit()
+        await session.refresh(settings)
+    if is_docker_env() and not settings.completed_folder.startswith("/app/"):
+        settings.completed_folder = app_settings.default_completed_folder
+        session.add(settings)
+        await session.commit()
+        await session.refresh(settings)
+    if not is_docker_env() and settings.completed_folder.startswith("/app/"):
         settings.completed_folder = app_settings.default_completed_folder
         session.add(settings)
         await session.commit()

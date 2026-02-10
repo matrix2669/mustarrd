@@ -1,14 +1,21 @@
 from sqlalchemy import String, Integer, Boolean
 from sqlalchemy.orm import Mapped, mapped_column
 from database import Base
+from config import settings as app_settings
 
 
 class AppSettings(Base):
     __tablename__ = "app_settings"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    download_folder: Mapped[str] = mapped_column(String(1000), default="/app/downloads")
-    completed_folder: Mapped[str] = mapped_column(String(1000), default="/app/completed")
+    download_folder: Mapped[str] = mapped_column(
+        String(1000),
+        default=lambda: app_settings.default_download_folder,
+    )
+    completed_folder: Mapped[str] = mapped_column(
+        String(1000),
+        default=lambda: app_settings.default_completed_folder,
+    )
 
     # Naming templates
     tv_template: Mapped[str] = mapped_column(

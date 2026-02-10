@@ -1,6 +1,38 @@
 from pydantic_settings import BaseSettings
 from pathlib import Path
+import os
 import shutil
+
+
+def _default_data_root() -> Path:
+    repo_root = Path(__file__).resolve().parents[1]
+    return repo_root / "data"
+
+def _using_docker_paths() -> bool:
+    if os.environ.get("CATCHUP_DOCKER") == "1":
+        return True
+    return Path("/.dockerenv").exists()
+
+def is_docker_env() -> bool:
+    return _using_docker_paths()
+
+
+def _default_database_url() -> str:
+    if _using_docker_paths():
+        return "sqlite+aiosqlite:////app/config/catchup_dvr.db"
+    return f"sqlite+aiosqlite:///{_default_data_root() / 'catchup_dvr.db'}"
+
+
+def _default_download_folder() -> str:
+    if _using_docker_paths():
+        return "/app/downloads"
+    return str(_default_data_root() / "downloads")
+
+
+def _default_completed_folder() -> str:
+    if _using_docker_paths():
+        return "/app/completed"
+    return str(_default_data_root() / "completed")
 
 
 
@@ -10,11 +42,11 @@ class Settings(BaseSettings):
     timezone: str = "UTC"
 
     # Database
-    database_url: str = "sqlite+aiosqlite:////app/config/catchup_dvr.db"
+    database_url: str = _default_database_url()
 
     # Downloads
-    default_download_folder: str = "/app/downloads"
-    default_completed_folder: str = "/app/completed"
+    default_download_folder: str = _default_download_folder()
+    default_completed_folder: str = _default_completed_folder()
     max_concurrent_downloads: int = 2
 
     # EPG Cache
@@ -42,7 +74,7 @@ def ensure_config_files() -> Path:
     config_dir.mkdir(parents=True, exist_ok=True)
 
     repo_root = Path(__file__).resolve().parents[1]
-    bundled_ini = repo_root.parent / "comskip.ini"
+    bundled_ini = repo_root / "comskip.ini"
     target_ini = config_dir / "comskip.ini"
 
     if bundled_ini.exists() and not target_ini.exists():

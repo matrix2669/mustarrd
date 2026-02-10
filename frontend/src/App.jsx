@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Routes, Route, NavLink, Navigate } from 'react-router-dom'
 import {
   AppShell,
@@ -9,6 +9,7 @@ import {
   Stack,
 } from '@mantine/core'
 import { useDisclosure } from '@mantine/hooks'
+import { notifications } from '@mantine/notifications'
 import {
   IconServer,
   IconSearch,
@@ -23,12 +24,15 @@ import Browse from './pages/Browse'
 import Downloads from './pages/Downloads'
 import Scheduled from './pages/Scheduled'
 import Settings from './pages/Settings'
-import { downloadsApi, createDownloadWebSocket } from './api'
+import { downloadsApi, epgApi, createDownloadWebSocket } from './api'
 import mustarrdLogo from './assets/mustarrdlogo.png'
 
 function App() {
   const [opened, { toggle }] = useDisclosure()
   const [activeDownloads, setActiveDownloads] = useState(0)
+  const epgToastVisibleRef = useRef(false)
+  const epgToastCloseTimerRef = useRef(null)
+  const epgToastPendingCloseRef = useRef(false)
 
   // Fetch download queue for badge
   const { data: queue } = useQuery({
@@ -37,11 +41,126 @@ function App() {
     refetchInterval: 5000,
   })
 
+  const { data: epgStatus } = useQuery({
+    queryKey: ['epg', 'status'],
+    queryFn: epgApi.status,
+    refetchInterval: 5000,
+  })
+
   useEffect(() => {
     if (queue) {
       setActiveDownloads(queue.length)
     }
   }, [queue])
+
+  const clearEpgToastTimer = () => {
+    if (epgToastCloseTimerRef.current) {
+      clearTimeout(epgToastCloseTimerRef.current)
+      epgToastCloseTimerRef.current = null
+    }
+  }
+
+  const scheduleEpgToastClose = () => {
+    clearEpgToastTimer()
+    if (document.visibilityState === 'hidden') {
+      epgToastPendingCloseRef.current = true
+      return
+    }
+    epgToastPendingCloseRef.current = false
+    epgToastCloseTimerRef.current = setTimeout(() => {
+      notifications.hide('epg-download-progress')
+      epgToastVisibleRef.current = false
+    }, 10000)
+  }
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && epgToastPendingCloseRef.current) {
+        scheduleEpgToastClose()
+      }
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!epgStatus) return
+
+    const {
+      running,
+      account_name: accountName,
+      processed_programs: processedPrograms,
+      total_programs: totalPrograms,
+      last_error: lastError,
+    } = epgStatus
+
+    const processed = typeof processedPrograms === 'number' ? processedPrograms : 0
+    const total = typeof totalPrograms === 'number' ? totalPrograms : null
+    const hasTotal = total && total > 0
+    const percent = hasTotal ? Math.min(100, Math.round((processed / total) * 100)) : null
+    const percentLabel = percent != null ? ` • ${percent}%` : ''
+    const title = accountName
+      ? `Downloading full EPG (${accountName}${percentLabel})`
+      : 'Downloading full EPG'
+    const message = hasTotal
+      ? `${processed.toLocaleString()} of ${total.toLocaleString()} programs (${percent}%).`
+      : `${processed.toLocaleString()} programs indexed so far.`
+
+    if (running) {
+      clearEpgToastTimer()
+      epgToastPendingCloseRef.current = false
+      if (epgToastVisibleRef.current) {
+        notifications.update({
+          id: 'epg-download-progress',
+          title,
+          message,
+          loading: true,
+          autoClose: false,
+          withCloseButton: false,
+        })
+      } else {
+        notifications.show({
+          id: 'epg-download-progress',
+          title,
+          message,
+          loading: true,
+          autoClose: false,
+          withCloseButton: false,
+        })
+        epgToastVisibleRef.current = true
+      }
+      return
+    }
+
+    if (epgToastVisibleRef.current) {
+      clearEpgToastTimer()
+      if (lastError) {
+        notifications.update({
+          id: 'epg-download-progress',
+          title: 'EPG download failed',
+          message: lastError,
+          color: 'red',
+          loading: false,
+          autoClose: false,
+          withCloseButton: true,
+        })
+      } else {
+        notifications.update({
+          id: 'epg-download-progress',
+          title: 'EPG download complete',
+          message: 'Full EPG index updated.',
+          color: 'green',
+          loading: false,
+          autoClose: false,
+          withCloseButton: true,
+        })
+      }
+      scheduleEpgToastClose()
+    }
+  }, [epgStatus])
 
   // WebSocket for real-time updates
   useEffect(() => {

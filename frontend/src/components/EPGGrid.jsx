@@ -128,7 +128,8 @@ function DaySection({ date, programs, onProgramClick }) {
 
 export default function EPGGrid({ epgData, onProgramClick, showFuture = false }) {
   const scrollAreaRef = useRef(null)
-  const now = dayjs()
+  const didAutoScrollRef = useRef(false)
+  const now = useMemo(() => dayjs(), [epgData, showFuture])
 
   const visiblePrograms = useMemo(() => {
     if (!epgData) return epgData
@@ -198,10 +199,15 @@ export default function EPGGrid({ epgData, onProgramClick, showFuture = false })
 
   // Scroll to today on load
   useEffect(() => {
-    if (!scrollTargetId) return
+    didAutoScrollRef.current = false
+  }, [epgData, showFuture])
+
+  useEffect(() => {
+    if (!scrollTargetId || didAutoScrollRef.current) return
     const target = document.getElementById(scrollTargetId)
     if (target) {
       target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      didAutoScrollRef.current = true
     }
   }, [scrollTargetId])
 
@@ -223,7 +229,7 @@ export default function EPGGrid({ epgData, onProgramClick, showFuture = false })
   ).length
 
   return (
-    <Stack gap="md" style={{ height: '100%' }}>
+    <Stack gap="md" style={{ height: '100%', minHeight: 0 }}>
       <Group justify="space-between">
         <Text size="sm" c="dimmed">
           Showing {epgData.length} programs
@@ -242,7 +248,7 @@ export default function EPGGrid({ epgData, onProgramClick, showFuture = false })
         Click past programs with a blue border to download. Click upcoming programs to schedule.
       </Text>
 
-      <ScrollArea style={{ flex: 1 }} ref={scrollAreaRef}>
+      <ScrollArea style={{ flex: 1, minHeight: 0 }} ref={scrollAreaRef}>
         <Stack gap="lg">
           {programsByDay.map(({ date, programs }) => (
             <Box key={date.format('YYYY-MM-DD')} id={`epg-day-${date.format('YYYY-MM-DD')}`}>

@@ -106,6 +106,22 @@ class PostProcessor:
         self._comskip_path = None
         return None
 
+    async def _terminate_process(self, process: asyncio.subprocess.Process) -> None:
+        if process.returncode is not None:
+            return
+        try:
+            process.terminate()
+        except ProcessLookupError:
+            return
+        try:
+            await asyncio.wait_for(process.wait(), timeout=5)
+        except asyncio.TimeoutError:
+            try:
+                process.kill()
+            except ProcessLookupError:
+                return
+            await process.wait()
+
     def get_ffmpeg_path(self) -> Optional[str]:
         """Return resolved ffmpeg path if available."""
         return self._resolve_ffmpeg_path()
@@ -349,8 +365,12 @@ class PostProcessor:
                     last_progress = progress
                     await self._notify_progress(progress_callback, progress)
 
-        await asyncio.gather(read_stdout(), read_stderr())
-        await process.wait()
+        try:
+            await asyncio.gather(read_stdout(), read_stderr())
+            await process.wait()
+        except asyncio.CancelledError:
+            await self._terminate_process(process)
+            raise
 
         if process.returncode == 0:
             await self._notify_progress(progress_callback, 100.0)
@@ -526,19 +546,28 @@ class PostProcessor:
                 if not chunk:
                     break
                 text = tail + chunk.decode(errors="ignore")
+                max_percent = None
                 for match in percent_pattern.finditer(text):
                     try:
                         percent = int(match.group(1))
                     except ValueError:
                         continue
-                    if 0 <= percent <= 100 and percent != last_percent:
-                        last_percent = percent
-                        await self._notify_log(log_callback, f"Comskip progress: {percent}%")
-                        await self._notify_progress(progress_callback, float(percent))
+                    if 0 <= percent <= 100:
+                        if max_percent is None or percent > max_percent:
+                            max_percent = percent
+                if max_percent is not None:
+                    if last_percent is None or max_percent > last_percent:
+                        last_percent = max_percent
+                        await self._notify_log(log_callback, f"Comskip progress: {max_percent}%")
+                        await self._notify_progress(progress_callback, float(max_percent))
                 tail = text[-16:]
 
-        await asyncio.gather(read_stream(process.stdout), read_stream(process.stderr))
-        await process.wait()
+        try:
+            await asyncio.gather(read_stream(process.stdout), read_stream(process.stderr))
+            await process.wait()
+        except asyncio.CancelledError:
+            await self._terminate_process(process)
+            raise
 
         # Check for EDL file (Edit Decision List)
         edl_path = input_file.with_suffix(".edl")

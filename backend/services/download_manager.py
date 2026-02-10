@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 
 from models import Download, DownloadStatus, AppSettings, XtreamAccount
-from config import settings as app_settings
+from config import settings as app_settings, is_docker_env
 from database import async_session_maker
 
 
@@ -326,11 +326,19 @@ class DownloadManager:
 
     def _resolve_completed_folder(self, settings: Optional[AppSettings]) -> str:
         if settings and settings.completed_folder and not settings.completed_folder.startswith("./data"):
+            if is_docker_env() and not settings.completed_folder.startswith("/app/"):
+                return app_settings.default_completed_folder
+            if not is_docker_env() and settings.completed_folder.startswith("/app/"):
+                return app_settings.default_completed_folder
             return settings.completed_folder
         return app_settings.default_completed_folder
 
     def _resolve_download_folder(self, settings: Optional[AppSettings]) -> str:
         if settings and settings.download_folder and not settings.download_folder.startswith("./data"):
+            if is_docker_env() and not settings.download_folder.startswith("/app/"):
+                return app_settings.default_download_folder
+            if not is_docker_env() and settings.download_folder.startswith("/app/"):
+                return app_settings.default_download_folder
             return settings.download_folder
         return app_settings.default_download_folder
 
