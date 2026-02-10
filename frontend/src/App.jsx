@@ -190,14 +190,18 @@ function App() {
 
   return (
     <AppShell
+      header={{ height: { base: 56, sm: 0 } }}
       navbar={{ width: 250, breakpoint: 'sm', collapsed: { mobile: !opened } }}
       padding="md"
     >
+      <AppShell.Header hiddenFrom="sm">
+        <Group h="100%" px="md">
+          <Burger opened={opened} onClick={toggle} size="sm" />
+        </Group>
+      </AppShell.Header>
+
       <AppShell.Navbar p="md">
         <Stack gap="md">
-          <Group justify="flex-start">
-            <Burger opened={opened} onClick={toggle} hiddenFrom="sm" size="sm" />
-          </Group>
           <Group mb="md" justify="center">
             <img
               src={mustarrdLogo}

@@ -16,7 +16,7 @@ import {
   Tabs,
   Button,
 } from '@mantine/core'
-import { useDebouncedValue } from '@mantine/hooks'
+import { useDebouncedValue, useMediaQuery } from '@mantine/hooks'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import {
   IconSearch,
@@ -24,6 +24,7 @@ import {
   IconVideo,
   IconClock,
   IconPlayerPlay,
+  IconChevronLeft,
 } from '@tabler/icons-react'
 import dayjs from 'dayjs'
 
@@ -287,6 +288,9 @@ export default function Browse() {
   const [selectedSeriesCategory, setSelectedSeriesCategory] = useState(null)
   const [selectedMovie, setSelectedMovie] = useState(null)
   const [selectedSeries, setSelectedSeries] = useState(null)
+  const isMobile = useMediaQuery('(max-width: 48em)')
+  const [mobileMoviesView, setMobileMoviesView] = useState('categories')
+  const [mobileSeriesView, setMobileSeriesView] = useState('categories')
 
   // Fetch accounts
   const { data: accounts, isLoading: accountsLoading } = useQuery({
@@ -418,6 +422,8 @@ export default function Browse() {
     setSelectedMovie(null)
     setSelectedSeries(null)
     setGlobalSearch('')
+    setMobileMoviesView('categories')
+    setMobileSeriesView('categories')
   }, [selectedAccountId])
 
   useEffect(() => {
@@ -439,6 +445,11 @@ export default function Browse() {
     setProgramSearch('')
   }
 
+  const handleBackToChannels = () => {
+    setSelectedChannel(null)
+    setProgramSearch('')
+  }
+
   const handleSelectMovie = (movie) => {
     setSelectedMovie(movie)
   }
@@ -446,6 +457,40 @@ export default function Browse() {
   const handleSelectSeries = (seriesItem) => {
     setSelectedSeries(seriesItem)
   }
+
+  const handleSelectMovieCategory = (categoryId) => {
+    setSelectedMovieCategory(categoryId)
+    if (isMobile) {
+      setMobileMoviesView('items')
+    }
+  }
+
+  const handleSelectSeriesCategory = (categoryId) => {
+    setSelectedSeriesCategory(categoryId)
+    if (isMobile) {
+      setMobileSeriesView('items')
+    }
+  }
+
+  const handleBackToMovieCategories = () => {
+    setMobileMoviesView('categories')
+  }
+
+  const handleBackToSeriesCategories = () => {
+    setMobileSeriesView('categories')
+  }
+
+  const movieCategoryLabel = useMemo(() => {
+    if (!selectedMovieCategory) return 'All Categories'
+    const match = movieCategories.find((category) => category.category_id === selectedMovieCategory)
+    return match?.category_name || 'Selected Category'
+  }, [movieCategories, selectedMovieCategory])
+
+  const seriesCategoryLabel = useMemo(() => {
+    if (!selectedSeriesCategory) return 'All Categories'
+    const match = seriesCategories.find((category) => category.category_id === selectedSeriesCategory)
+    return match?.category_name || 'Selected Category'
+  }, [seriesCategories, selectedSeriesCategory])
 
   const handleGlobalProgramClick = async (program) => {
     if (!selectedAccountId || !program?.channel_id) {
@@ -558,95 +603,197 @@ export default function Browse() {
         </Tabs.List>
 
         <Tabs.Panel value="epg" pt="md">
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: '300px 1fr',
-              gap: 16,
-              alignItems: 'stretch',
-              height: 'calc(100vh - 260px)',
-            }}
-          >
-            <Card shadow="sm" padding="md" radius="md" withBorder style={{ height: '100%' }}>
-              <Stack gap="xs" style={{ height: '100%' }}>
-                <Group gap="xs">
-                  <IconVideo size={18} />
-                  <Text fw={500}>Channels</Text>
-                  {channels && (
-                    <Badge size="sm" variant="light">
-                      {channels.length}
-                    </Badge>
-                  )}
-                </Group>
-                <ChannelList
-                  channels={channels}
-                  selectedChannel={selectedChannel}
-                  onSelectChannel={handleSelectChannel}
-                  isLoading={channelsLoading}
-                />
-              </Stack>
-            </Card>
-
-            <Card shadow="sm" padding="md" radius="md" withBorder style={{ height: '100%' }}>
-              <Stack style={{ height: '100%' }}>
-                <Group justify="space-between">
+          {isMobile ? (
+            selectedChannel ? (
+              <Card shadow="sm" padding="md" radius="md" withBorder>
+                <Stack>
                   <Group gap="xs">
-                    {selectedChannel?.stream_icon ? (
-                      <Image
-                        src={selectedChannel.stream_icon}
-                        alt={selectedChannel.name}
-                        w={32}
-                        h={32}
-                        fit="contain"
-                      />
-                    ) : (
-                      <IconVideo size={28} opacity={0.4} />
-                    )}
-                    <Text fw={500}>
-                      {selectedChannel ? selectedChannel.name : 'No channel selected'}
+                    <Button
+                      variant="subtle"
+                      size="xs"
+                      leftSection={<IconChevronLeft size={14} />}
+                      onClick={handleBackToChannels}
+                    >
+                      Channels
+                    </Button>
+                    <Text size="xs" c="dimmed">
+                      /
+                    </Text>
+                    <Text size="sm" fw={500} truncate>
+                      {selectedChannel?.name || 'EPG'}
                     </Text>
                   </Group>
-                  {selectedChannel && (
-                    <Badge variant="light" leftSection={<IconClock size={12} />}>
-                      {selectedChannel.tv_archive_duration || 7} days
-                    </Badge>
-                  )}
-                </Group>
+                  <Stack style={{ height: '100%' }}>
+                    <Group justify="space-between">
+                      <Group gap="xs">
+                        {selectedChannel?.stream_icon ? (
+                          <Image
+                            src={selectedChannel.stream_icon}
+                            alt={selectedChannel.name}
+                            w={32}
+                            h={32}
+                            fit="contain"
+                          />
+                        ) : (
+                          <IconVideo size={28} opacity={0.4} />
+                        )}
+                        <Text fw={500}>
+                          {selectedChannel ? selectedChannel.name : 'No channel selected'}
+                        </Text>
+                      </Group>
+                      {selectedChannel && (
+                        <Badge variant="light" leftSection={<IconClock size={12} />}>
+                          {selectedChannel.tv_archive_duration || 7} days
+                        </Badge>
+                      )}
+                    </Group>
 
-                {selectedChannel ? (
-                  <Stack style={{ flex: 1, minHeight: 0 }}>
-                    <TextInput
-                      placeholder="Search shows on this channel..."
-                      leftSection={<IconSearch size={16} />}
-                      value={programSearch}
-                      onChange={(e) => setProgramSearch(e.target.value)}
-                      mb="md"
-                    />
-                    {epgLoading ? (
-                      <Stack align="center" justify="center" h={300}>
-                        <Loader />
+                    {selectedChannel ? (
+                      <Stack style={{ flex: 1, minHeight: 0 }}>
+                        <TextInput
+                          placeholder="Search shows on this channel..."
+                          leftSection={<IconSearch size={16} />}
+                          value={programSearch}
+                          onChange={(e) => setProgramSearch(e.target.value)}
+                          mb="md"
+                        />
+                        {epgLoading ? (
+                          <Stack align="center" justify="center" h={300}>
+                            <Loader />
+                          </Stack>
+                        ) : filteredEpgData ? (
+                          <EPGGrid
+                            epgData={filteredEpgData}
+                            onProgramClick={handleProgramClick}
+                            showFuture={appSettings?.show_future_programs}
+                          />
+                        ) : (
+                          <Text c="dimmed" ta="center" py="xl">
+                            No EPG data available
+                          </Text>
+                        )}
                       </Stack>
-                    ) : filteredEpgData ? (
-                      <EPGGrid
-                        epgData={filteredEpgData}
-                        onProgramClick={handleProgramClick}
-                        showFuture={appSettings?.show_future_programs}
-                      />
                     ) : (
-                      <Text c="dimmed" ta="center" py="xl">
-                        No EPG data available
-                      </Text>
+                      <Stack align="center" justify="center" h={300}>
+                        <IconVideo size={48} opacity={0.3} />
+                        <Text c="dimmed">Select a channel to view its EPG</Text>
+                      </Stack>
                     )}
                   </Stack>
-                ) : (
-                  <Stack align="center" justify="center" h={300}>
-                    <IconVideo size={48} opacity={0.3} />
-                    <Text c="dimmed">Select a channel to view its EPG</Text>
-                  </Stack>
-                )}
-              </Stack>
-            </Card>
-          </div>
+                </Stack>
+              </Card>
+            ) : (
+              <Card shadow="sm" padding="md" radius="md" withBorder>
+                <Stack gap="xs">
+                  <Group gap="xs">
+                    <IconVideo size={18} />
+                    <Text fw={500}>Channels</Text>
+                    {channels && (
+                      <Badge size="sm" variant="light">
+                        {channels.length}
+                      </Badge>
+                    )}
+                  </Group>
+                  <ChannelList
+                    channels={channels}
+                    selectedChannel={selectedChannel}
+                    onSelectChannel={handleSelectChannel}
+                    isLoading={channelsLoading}
+                  />
+                </Stack>
+              </Card>
+            )
+          ) : (
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '300px 1fr',
+                gap: 16,
+                alignItems: 'stretch',
+                height: 'calc(100vh - 260px)',
+              }}
+            >
+              <Card shadow="sm" padding="md" radius="md" withBorder style={{ height: '100%' }}>
+                <Stack gap="xs" style={{ height: '100%' }}>
+                  <Group gap="xs">
+                    <IconVideo size={18} />
+                    <Text fw={500}>Channels</Text>
+                    {channels && (
+                      <Badge size="sm" variant="light">
+                        {channels.length}
+                      </Badge>
+                    )}
+                  </Group>
+                  <ChannelList
+                    channels={channels}
+                    selectedChannel={selectedChannel}
+                    onSelectChannel={handleSelectChannel}
+                    isLoading={channelsLoading}
+                  />
+                </Stack>
+              </Card>
+
+              <Card shadow="sm" padding="md" radius="md" withBorder style={{ height: '100%' }}>
+                <Stack style={{ height: '100%' }}>
+                  <Group justify="space-between">
+                    <Group gap="xs">
+                      {selectedChannel?.stream_icon ? (
+                        <Image
+                          src={selectedChannel.stream_icon}
+                          alt={selectedChannel.name}
+                          w={32}
+                          h={32}
+                          fit="contain"
+                        />
+                      ) : (
+                        <IconVideo size={28} opacity={0.4} />
+                      )}
+                      <Text fw={500}>
+                        {selectedChannel ? selectedChannel.name : 'No channel selected'}
+                      </Text>
+                    </Group>
+                    {selectedChannel && (
+                      <Badge variant="light" leftSection={<IconClock size={12} />}>
+                        {selectedChannel.tv_archive_duration || 7} days
+                      </Badge>
+                    )}
+                  </Group>
+
+                  {selectedChannel ? (
+                    <Stack style={{ flex: 1, minHeight: 0 }}>
+                      <TextInput
+                        placeholder="Search shows on this channel..."
+                        leftSection={<IconSearch size={16} />}
+                        value={programSearch}
+                        onChange={(e) => setProgramSearch(e.target.value)}
+                        mb="md"
+                      />
+                      {epgLoading ? (
+                        <Stack align="center" justify="center" h={300}>
+                          <Loader />
+                        </Stack>
+                      ) : filteredEpgData ? (
+                        <EPGGrid
+                          epgData={filteredEpgData}
+                          onProgramClick={handleProgramClick}
+                          showFuture={appSettings?.show_future_programs}
+                        />
+                      ) : (
+                        <Text c="dimmed" ta="center" py="xl">
+                          No EPG data available
+                        </Text>
+                      )}
+                    </Stack>
+                  ) : (
+                    <Stack align="center" justify="center" h={300}>
+                      <IconVideo size={48} opacity={0.3} />
+                      <Text c="dimmed">Select a channel to view its EPG</Text>
+                    </Stack>
+                  )}
+                </Stack>
+              </Card>
+            </div>
+          )}
         </Tabs.Panel>
 
         <Tabs.Panel value="search" pt="md">
@@ -769,91 +916,199 @@ export default function Browse() {
               </Tabs.List>
 
               <Tabs.Panel value="movies" pt="md">
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: '300px 1fr',
-                    gap: 16,
-                    alignItems: 'stretch',
-                    height: 'calc(100vh - 300px)',
-                  }}
-                >
-                  <Card shadow="sm" padding="md" radius="md" withBorder style={{ height: '100%' }}>
-                    <Stack gap="xs" style={{ height: '100%' }}>
-                      <Group gap="xs">
-                        <IconPlayerPlay size={18} />
-                        <Text fw={500}>Movie Categories</Text>
-                        {movieCategories && (
-                          <Badge size="sm" variant="light">
-                            {movieCategories.length}
-                          </Badge>
-                        )}
-                      </Group>
-                      <CategoryList
-                        categories={movieCategories}
-                        selectedCategory={selectedMovieCategory}
-                        onSelectCategory={setSelectedMovieCategory}
-                        isLoading={movieCategoriesLoading}
-                        label="movie categories"
-                      />
-                    </Stack>
-                  </Card>
+                {isMobile ? (
+                  mobileMoviesView === 'categories' ? (
+                    <Card shadow="sm" padding="md" radius="md" withBorder>
+                      <Stack gap="xs">
+                        <Group gap="xs">
+                          <IconPlayerPlay size={18} />
+                          <Text fw={500}>Movie Categories</Text>
+                          {movieCategories && (
+                            <Badge size="sm" variant="light">
+                              {movieCategories.length}
+                            </Badge>
+                          )}
+                        </Group>
+                        <CategoryList
+                          categories={movieCategories}
+                          selectedCategory={selectedMovieCategory}
+                          onSelectCategory={handleSelectMovieCategory}
+                          isLoading={movieCategoriesLoading}
+                          label="movie categories"
+                        />
+                      </Stack>
+                    </Card>
+                  ) : (
+                    <Card shadow="sm" padding="md" radius="md" withBorder>
+                      <Stack gap="md">
+                        <Group gap="xs">
+                          <Button
+                            variant="subtle"
+                            size="xs"
+                            leftSection={<IconChevronLeft size={14} />}
+                            onClick={handleBackToMovieCategories}
+                          >
+                            Categories
+                          </Button>
+                          <Text size="xs" c="dimmed">
+                            /
+                          </Text>
+                          <Text size="sm" fw={500} truncate>
+                            {movieCategoryLabel}
+                          </Text>
+                        </Group>
+                        <VodGrid
+                          items={movies}
+                          onSelect={handleSelectMovie}
+                          isLoading={moviesLoading}
+                          searchPlaceholder="Search movies..."
+                          emptyLabel="No movies available in this category."
+                          icon={IconPlayerPlay}
+                        />
+                      </Stack>
+                    </Card>
+                  )
+                ) : (
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '300px 1fr',
+                      gap: 16,
+                      alignItems: 'stretch',
+                      height: 'calc(100vh - 300px)',
+                    }}
+                  >
+                    <Card shadow="sm" padding="md" radius="md" withBorder style={{ height: '100%' }}>
+                      <Stack gap="xs" style={{ height: '100%' }}>
+                        <Group gap="xs">
+                          <IconPlayerPlay size={18} />
+                          <Text fw={500}>Movie Categories</Text>
+                          {movieCategories && (
+                            <Badge size="sm" variant="light">
+                              {movieCategories.length}
+                            </Badge>
+                          )}
+                        </Group>
+                        <CategoryList
+                          categories={movieCategories}
+                          selectedCategory={selectedMovieCategory}
+                          onSelectCategory={setSelectedMovieCategory}
+                          isLoading={movieCategoriesLoading}
+                          label="movie categories"
+                        />
+                      </Stack>
+                    </Card>
 
-                  <Card shadow="sm" padding="md" radius="md" withBorder style={{ height: '100%' }}>
-                    <VodGrid
-                      items={movies}
-                      onSelect={handleSelectMovie}
-                      isLoading={moviesLoading}
-                      searchPlaceholder="Search movies..."
-                      emptyLabel="No movies available in this category."
-                      icon={IconPlayerPlay}
-                    />
-                  </Card>
-                </div>
+                    <Card shadow="sm" padding="md" radius="md" withBorder style={{ height: '100%' }}>
+                      <VodGrid
+                        items={movies}
+                        onSelect={handleSelectMovie}
+                        isLoading={moviesLoading}
+                        searchPlaceholder="Search movies..."
+                        emptyLabel="No movies available in this category."
+                        icon={IconPlayerPlay}
+                      />
+                    </Card>
+                  </div>
+                )}
               </Tabs.Panel>
 
               <Tabs.Panel value="series" pt="md">
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: '300px 1fr',
-                    gap: 16,
-                    alignItems: 'stretch',
-                    height: 'calc(100vh - 300px)',
-                  }}
-                >
-                  <Card shadow="sm" padding="md" radius="md" withBorder style={{ height: '100%' }}>
-                    <Stack gap="xs" style={{ height: '100%' }}>
-                      <Group gap="xs">
-                        <IconVideo size={18} />
-                        <Text fw={500}>Show Categories</Text>
-                        {seriesCategories && (
-                          <Badge size="sm" variant="light">
-                            {seriesCategories.length}
-                          </Badge>
-                        )}
-                      </Group>
-                      <CategoryList
-                        categories={seriesCategories}
-                        selectedCategory={selectedSeriesCategory}
-                        onSelectCategory={setSelectedSeriesCategory}
-                        isLoading={seriesCategoriesLoading}
-                        label="show categories"
-                      />
-                    </Stack>
-                  </Card>
+                {isMobile ? (
+                  mobileSeriesView === 'categories' ? (
+                    <Card shadow="sm" padding="md" radius="md" withBorder>
+                      <Stack gap="xs">
+                        <Group gap="xs">
+                          <IconVideo size={18} />
+                          <Text fw={500}>Show Categories</Text>
+                          {seriesCategories && (
+                            <Badge size="sm" variant="light">
+                              {seriesCategories.length}
+                            </Badge>
+                          )}
+                        </Group>
+                        <CategoryList
+                          categories={seriesCategories}
+                          selectedCategory={selectedSeriesCategory}
+                          onSelectCategory={handleSelectSeriesCategory}
+                          isLoading={seriesCategoriesLoading}
+                          label="show categories"
+                        />
+                      </Stack>
+                    </Card>
+                  ) : (
+                    <Card shadow="sm" padding="md" radius="md" withBorder>
+                      <Stack gap="md">
+                        <Group gap="xs">
+                          <Button
+                            variant="subtle"
+                            size="xs"
+                            leftSection={<IconChevronLeft size={14} />}
+                            onClick={handleBackToSeriesCategories}
+                          >
+                            Categories
+                          </Button>
+                          <Text size="xs" c="dimmed">
+                            /
+                          </Text>
+                          <Text size="sm" fw={500} truncate>
+                            {seriesCategoryLabel}
+                          </Text>
+                        </Group>
+                        <VodGrid
+                          items={series}
+                          onSelect={handleSelectSeries}
+                          isLoading={seriesLoading}
+                          searchPlaceholder="Search shows..."
+                          emptyLabel="No shows available in this category."
+                          icon={IconVideo}
+                        />
+                      </Stack>
+                    </Card>
+                  )
+                ) : (
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '300px 1fr',
+                      gap: 16,
+                      alignItems: 'stretch',
+                      height: 'calc(100vh - 300px)',
+                    }}
+                  >
+                    <Card shadow="sm" padding="md" radius="md" withBorder style={{ height: '100%' }}>
+                      <Stack gap="xs" style={{ height: '100%' }}>
+                        <Group gap="xs">
+                          <IconVideo size={18} />
+                          <Text fw={500}>Show Categories</Text>
+                          {seriesCategories && (
+                            <Badge size="sm" variant="light">
+                              {seriesCategories.length}
+                            </Badge>
+                          )}
+                        </Group>
+                        <CategoryList
+                          categories={seriesCategories}
+                          selectedCategory={selectedSeriesCategory}
+                          onSelectCategory={setSelectedSeriesCategory}
+                          isLoading={seriesCategoriesLoading}
+                          label="show categories"
+                        />
+                      </Stack>
+                    </Card>
 
-                  <Card shadow="sm" padding="md" radius="md" withBorder style={{ height: '100%' }}>
-                    <VodGrid
-                      items={series}
-                      onSelect={handleSelectSeries}
-                      isLoading={seriesLoading}
-                      searchPlaceholder="Search shows..."
-                      emptyLabel="No shows available in this category."
-                      icon={IconVideo}
-                    />
-                  </Card>
-                </div>
+                    <Card shadow="sm" padding="md" radius="md" withBorder style={{ height: '100%' }}>
+                      <VodGrid
+                        items={series}
+                        onSelect={handleSelectSeries}
+                        isLoading={seriesLoading}
+                        searchPlaceholder="Search shows..."
+                        emptyLabel="No shows available in this category."
+                        icon={IconVideo}
+                      />
+                    </Card>
+                  </div>
+                )}
               </Tabs.Panel>
             </Tabs>
           </Tabs.Panel>
