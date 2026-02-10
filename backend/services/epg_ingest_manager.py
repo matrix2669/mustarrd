@@ -123,7 +123,7 @@ class EPGIngestManager:
                         EPGProgram.account_id == account.id
                     )
                 )
-            earliest_start_in_range = self._ensure_aware(earliest_result.scalar_one_or_none())
+                earliest_start_in_range = self._ensure_aware(earliest_result.scalar_one_or_none())
 
                 if xmltv_bytes:
                     program_iter = self._iter_programs(
