@@ -12,16 +12,16 @@
   - `cd backend`
   - `python -m venv venv && source venv/bin/activate`
   - `pip install -r requirements.txt`
-  - `python main.py` (serves API on `http://localhost:8000`)
+  - `python main.py` (serves API on `http://localhost:4177`)
 - Frontend dev:
   - `cd frontend`
   - `npm install`
-  - `npm run dev` (serves UI on `http://localhost:5173`)
+  - `npm run dev` (serves UI on `http://localhost:4178`)
 - Docker:
-  - `docker-compose up -d` (full stack, UI on `http://localhost:3000`)
+  - `docker-compose up -d` (full stack, UI on `http://localhost:4178`)
   - Images are published by GitHub Actions using Buildx (see `.github/workflows/publish-images.yml`).
   - Local multi-arch builds can use `docker buildx build ... --push`.
-  - Compose ports: backend `4177:8000`, frontend `3000:80`.
+  - Compose ports: backend `4177:4177`, frontend `4178:4178`.
 
 ## Coding Style & Naming Conventions
 - Python: 4-space indentation; keep async code consistent with existing FastAPI patterns.

@@ -50,6 +50,12 @@ export const channelsApi = {
     request(`/accounts/${accountId}/channels/${channelId}/catchup?days_back=${daysBack}`),
 }
 
+// EPG Search
+export const epgApi = {
+  search: (accountId, query, limit = 100) =>
+    request(`/epg/search?account_id=${accountId}&q=${encodeURIComponent(query)}&limit=${limit}`),
+}
+
 // Downloads
 export const downloadsApi = {
   list: () => request('/downloads'),

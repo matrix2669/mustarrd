@@ -83,6 +83,15 @@ class XtreamClient:
             data = await response.json()
             return data.get("epg_listings", [])
 
+    async def get_xmltv(self) -> bytes:
+        """Get XMLTV guide data."""
+        url = f"{self.server_url}/xmltv.php?username={self.username}&password={self.password}"
+        session = await self._get_session()
+        async with session.get(url) as response:
+            if response.status != 200:
+                raise Exception(f"Failed to get XMLTV: HTTP {response.status}")
+            return await response.read()
+
     async def get_vod_categories(self) -> list:
         """Get VOD (movies) categories."""
         url = self._build_api_url("get_vod_categories")

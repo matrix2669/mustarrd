@@ -4,17 +4,16 @@ from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from models import XtreamAccount
+from models import XtreamAccount, EPGProgram, AppSettings
 from services.xtream_client import XtreamClient
 from config import settings as app_settings
-from models import AppSettings
 from zoneinfo import ZoneInfo
 
 
 class EPGService:
     def __init__(self):
         self._cache: dict = {}  # Simple in-memory cache
-        self._cache_ttl = 3600  # 1 hour
+        self._cache_ttl = app_settings.epg_cache_ttl
 
     def _get_cache_key(self, account_id: int, channel_id: str, epg_offset_minutes: int) -> str:
         return f"{account_id}:{channel_id}:{app_settings.timezone}:{epg_offset_minutes}"
@@ -68,7 +67,8 @@ class EPGService:
         session: AsyncSession,
         account_id: int,
         channel_id: str,
-        use_cache: bool = True
+        use_cache: bool = True,
+        days_back: Optional[int] = None
     ) -> list:
         """Get EPG data for a specific channel."""
         # Load EPG offset
@@ -80,6 +80,41 @@ class EPGService:
         if use_cache and self._is_cache_valid(cache_key):
             return self._cache[cache_key]["data"]
 
+        # Prefer DB-backed EPG if available
+        account_result = await session.execute(
+            select(XtreamAccount).where(XtreamAccount.id == account_id)
+        )
+        account = account_result.scalar_one_or_none()
+
+        max_days = account.catchup_days if account else 7
+        if days_back is None:
+            days_back = max_days
+        else:
+            days_back = min(days_back, max_days)
+
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days_back)
+        db_result = await session.execute(
+            select(EPGProgram)
+            .where(
+                EPGProgram.account_id == account_id,
+                EPGProgram.channel_id == channel_id,
+                EPGProgram.end_time >= cutoff,
+            )
+            .order_by(EPGProgram.start_time.desc())
+        )
+        db_rows = db_result.scalars().all()
+        if db_rows:
+            processed = [
+                self.serialize_program(row, epg_offset_minutes)
+                for row in db_rows
+            ]
+            self._cache[cache_key] = {
+                "data": processed,
+                "cached_at": datetime.utcnow()
+            }
+            return processed
+
+        # Fallback to live API if DB has no data
         client = await self._get_client(session, account_id)
         try:
             epg_data = await client.get_epg(channel_id)
@@ -167,7 +202,12 @@ class EPGService:
         days_back: int = 7
     ) -> list:
         """Get past programs that are available for catchup."""
-        epg_data = await self.get_epg_for_channel(session, account_id, channel_id)
+        epg_data = await self.get_epg_for_channel(
+            session,
+            account_id,
+            channel_id,
+            days_back=days_back
+        )
 
         now = datetime.now(timezone.utc)
         cutoff = now - timedelta(days=days_back)
@@ -187,6 +227,43 @@ class EPGService:
         # Sort by start time, most recent first
         past_programs.sort(key=lambda x: x["start_time"], reverse=True)
         return past_programs
+
+    def serialize_program(self, row: EPGProgram, epg_offset_minutes: int = 0) -> dict:
+        start_time = self._normalize_time(row.start_time, epg_offset_minutes)
+        end_time = self._normalize_time(row.end_time, epg_offset_minutes)
+        duration_minutes = 0
+        if start_time and end_time:
+            duration_minutes = int((end_time - start_time).total_seconds() / 60)
+
+        return {
+            "id": row.id,
+            "epg_id": row.epg_id,
+            "title": row.title,
+            "description": row.description,
+            "start_time": start_time.isoformat() if start_time else None,
+            "end_time": end_time.isoformat() if end_time else None,
+            "start_timestamp": row.start_timestamp,
+            "stop_timestamp": row.stop_timestamp,
+            "duration_minutes": duration_minutes,
+            "has_archive": row.has_archive,
+            "channel_id": row.channel_id,
+            "channel_name": row.channel_name,
+            "category": row.category,
+        }
+
+    def _normalize_time(self, dt_value: Optional[datetime], epg_offset_minutes: int) -> Optional[datetime]:
+        if not dt_value:
+            return None
+        if dt_value.tzinfo is None:
+            dt_value = dt_value.replace(tzinfo=timezone.utc)
+        try:
+            tz = ZoneInfo(app_settings.timezone)
+        except Exception:
+            tz = timezone.utc
+        normalized = dt_value.astimezone(tz)
+        if epg_offset_minutes:
+            normalized = normalized + timedelta(minutes=epg_offset_minutes)
+        return normalized
 
     def detect_program_type(self, program: dict, channel: dict = None) -> str:
         """

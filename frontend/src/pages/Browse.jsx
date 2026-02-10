@@ -16,6 +16,7 @@ import {
   Tabs,
   Button,
 } from '@mantine/core'
+import { useDebouncedValue } from '@mantine/hooks'
 import { useQuery } from '@tanstack/react-query'
 import {
   IconSearch,
@@ -24,8 +25,9 @@ import {
   IconClock,
   IconPlayerPlay,
 } from '@tabler/icons-react'
+import dayjs from 'dayjs'
 
-import { accountsApi, channelsApi, settingsApi, vodApi } from '../api'
+import { accountsApi, channelsApi, epgApi, settingsApi, vodApi } from '../api'
 import EPGGrid from '../components/EPGGrid'
 import DownloadModal from '../components/DownloadModal'
 import ScheduleModal from '../components/ScheduleModal'
@@ -275,6 +277,9 @@ export default function Browse() {
   const [downloadProgram, setDownloadProgram] = useState(null)
   const [scheduleProgram, setScheduleProgram] = useState(null)
   const [programSearch, setProgramSearch] = useState('')
+  const [epgTab, setEpgTab] = useState('timeline')
+  const [globalSearch, setGlobalSearch] = useState('')
+  const [debouncedGlobalSearch] = useDebouncedValue(globalSearch, 400)
   const [browseTab, setBrowseTab] = useState('epg')
   const [vodTab, setVodTab] = useState('movies')
   const [selectedMovieCategory, setSelectedMovieCategory] = useState(null)
@@ -314,6 +319,16 @@ export default function Browse() {
     queryKey: ['epg', selectedAccountId, selectedChannel?.stream_id],
     queryFn: () => channelsApi.getEpg(selectedAccountId, selectedChannel.stream_id, 7),
     enabled: !!selectedAccountId && !!selectedChannel,
+  })
+
+  const {
+    data: globalEpgResults = [],
+    isLoading: globalEpgLoading,
+  } = useQuery({
+    queryKey: ['epg-search', selectedAccountId, debouncedGlobalSearch],
+    queryFn: () => epgApi.search(selectedAccountId, debouncedGlobalSearch),
+    enabled: !!selectedAccountId && debouncedGlobalSearch.length >= 2,
+    retry: false,
   })
 
   const { data: appSettings } = useQuery({
@@ -388,6 +403,7 @@ export default function Browse() {
     setSelectedSeriesCategory(null)
     setSelectedMovie(null)
     setSelectedSeries(null)
+    setGlobalSearch('')
   }, [selectedAccountId])
 
   const handleProgramClick = (program, meta = {}) => {
@@ -409,6 +425,41 @@ export default function Browse() {
 
   const handleSelectSeries = (seriesItem) => {
     setSelectedSeries(seriesItem)
+  }
+
+  const handleGlobalProgramClick = async (program) => {
+    if (!selectedAccountId || !program?.channel_id) {
+      return
+    }
+
+    const endTime = dayjs(program.end_time)
+    const isPast = endTime.isBefore(dayjs())
+    if (isPast && !program.has_archive) {
+      return
+    }
+
+    let channel = channels?.find(
+      (ch) => ch.stream_id?.toString() === program.channel_id?.toString()
+    )
+
+    if (!channel) {
+      try {
+        channel = await channelsApi.getChannel(selectedAccountId, program.channel_id)
+      } catch (err) {
+        return
+      }
+    }
+
+    if (!channel) return
+
+    setSelectedChannel(channel)
+    setBrowseTab('epg')
+
+    if (isPast && program.has_archive) {
+      setDownloadProgram(program)
+    } else {
+      setScheduleProgram(program)
+    }
   }
 
   const accountOptions = accounts?.map((acc) => ({
@@ -509,63 +560,149 @@ export default function Browse() {
             </Card>
 
             <Card shadow="sm" padding="md" radius="md" withBorder style={{ height: '100%' }}>
-              {selectedChannel ? (
-                <Stack style={{ height: '100%' }}>
-                  <Group justify="space-between">
-                    <Group gap="xs">
-                      {selectedChannel.stream_icon && (
-                        <Image
-                          src={selectedChannel.stream_icon}
-                          alt={selectedChannel.name}
-                          w={32}
-                          h={32}
-                          fit="contain"
-                        />
-                      )}
-                      <Text fw={500}>{selectedChannel.name}</Text>
-                    </Group>
+              <Stack style={{ height: '100%' }}>
+                <Group justify="space-between">
+                  <Group gap="xs">
+                    {selectedChannel?.stream_icon ? (
+                      <Image
+                        src={selectedChannel.stream_icon}
+                        alt={selectedChannel.name}
+                        w={32}
+                        h={32}
+                        fit="contain"
+                      />
+                    ) : (
+                      <IconVideo size={28} opacity={0.4} />
+                    )}
+                    <Text fw={500}>
+                      {selectedChannel ? selectedChannel.name : 'No channel selected'}
+                    </Text>
+                  </Group>
+                  {selectedChannel && (
                     <Badge variant="light" leftSection={<IconClock size={12} />}>
                       {selectedChannel.tv_archive_duration || 7} days
                     </Badge>
-                  </Group>
+                  )}
+                </Group>
 
-                  <Tabs defaultValue="timeline" style={{ flex: 1, minHeight: 0 }}>
-                    <Tabs.List>
-                      <Tabs.Tab value="timeline">EPG Timeline</Tabs.Tab>
-                    </Tabs.List>
+                <Tabs value={epgTab} onChange={setEpgTab} style={{ flex: 1, minHeight: 0 }}>
+                  <Tabs.List>
+                    <Tabs.Tab value="timeline">EPG Timeline</Tabs.Tab>
+                    <Tabs.Tab value="search">Search All</Tabs.Tab>
+                  </Tabs.List>
 
-                    <Tabs.Panel value="timeline" pt="md" style={{ height: '100%' }}>
+                  <Tabs.Panel value="timeline" pt="md" style={{ height: '100%' }}>
+                    {selectedChannel ? (
+                      <>
+                        <TextInput
+                          placeholder="Search shows on this channel..."
+                          leftSection={<IconSearch size={16} />}
+                          value={programSearch}
+                          onChange={(e) => setProgramSearch(e.target.value)}
+                          mb="md"
+                        />
+                        {epgLoading ? (
+                          <Stack align="center" justify="center" h={300}>
+                            <Loader />
+                          </Stack>
+                        ) : filteredEpgData ? (
+                          <EPGGrid
+                            epgData={filteredEpgData}
+                            onProgramClick={handleProgramClick}
+                            showFuture={appSettings?.show_future_programs}
+                          />
+                        ) : (
+                          <Text c="dimmed" ta="center" py="xl">
+                            No EPG data available
+                          </Text>
+                        )}
+                      </>
+                    ) : (
+                      <Stack align="center" justify="center" h={300}>
+                        <IconVideo size={48} opacity={0.3} />
+                        <Text c="dimmed">Select a channel to view its EPG</Text>
+                      </Stack>
+                    )}
+                  </Tabs.Panel>
+
+                  <Tabs.Panel value="search" pt="md" style={{ height: '100%' }}>
+                    <Stack style={{ height: '100%' }}>
                       <TextInput
-                        placeholder="Search shows on this channel..."
+                        placeholder="Search all channels..."
                         leftSection={<IconSearch size={16} />}
-                        value={programSearch}
-                        onChange={(e) => setProgramSearch(e.target.value)}
-                        mb="md"
+                        value={globalSearch}
+                        onChange={(e) => setGlobalSearch(e.target.value)}
                       />
-                      {epgLoading ? (
-                        <Stack align="center" justify="center" h={300}>
+
+                      {debouncedGlobalSearch.length < 2 ? (
+                        <Text c="dimmed" ta="center" py="md">
+                          Enter at least 2 characters to search.
+                        </Text>
+                      ) : globalEpgLoading ? (
+                        <Stack align="center" justify="center" h={200}>
                           <Loader />
                         </Stack>
-                      ) : filteredEpgData ? (
-                        <EPGGrid
-                          epgData={filteredEpgData}
-                          onProgramClick={handleProgramClick}
-                          showFuture={appSettings?.show_future_programs}
-                        />
-                      ) : (
-                        <Text c="dimmed" ta="center" py="xl">
-                          No EPG data available
+                      ) : globalEpgResults.length === 0 ? (
+                        <Text c="dimmed" ta="center" py="md">
+                          No matching programs found.
                         </Text>
+                      ) : (
+                        <ScrollArea style={{ flex: 1 }}>
+                          <Stack gap="xs">
+                            {globalEpgResults.map((program) => {
+                              const start = dayjs(program.start_time)
+                              const end = dayjs(program.end_time)
+                              const isPast = end.isBefore(dayjs())
+                              const isDownloadable = isPast && program.has_archive
+                              const isClickable = !isPast || isDownloadable
+                              const actionLabel = isDownloadable ? 'Download' : isPast ? 'Unavailable' : 'Schedule'
+                              return (
+                                <Card
+                                  key={program.epg_id || program.id}
+                                  padding="sm"
+                                  radius="sm"
+                                  withBorder
+                                  style={{
+                                    cursor: isClickable ? 'pointer' : 'default',
+                                    opacity: isClickable ? 1 : 0.6,
+                                  }}
+                                  onClick={() => isClickable && handleGlobalProgramClick(program)}
+                                >
+                                  <Stack gap={4}>
+                                    <Group justify="space-between" wrap="nowrap">
+                                      <Text fw={500} truncate style={{ flex: 1 }}>
+                                        {program.title}
+                                      </Text>
+                                      <Badge
+                                        size="xs"
+                                        variant="light"
+                                        color={isDownloadable ? 'blue' : isPast ? 'gray' : 'teal'}
+                                      >
+                                        {actionLabel}
+                                      </Badge>
+                                    </Group>
+                                    <Text size="xs" c="dimmed">
+                                      {program.channel_name}
+                                    </Text>
+                                    <Group gap="xs">
+                                      <Badge size="xs" variant="outline">
+                                        {start.format('MMM D, h:mm A')} - {end.format('h:mm A')}
+                                      </Badge>
+                                      <Badge size="xs" variant="light">
+                                        {program.duration_minutes}m
+                                      </Badge>
+                                    </Group>
+                                  </Stack>
+                                </Card>
+                              )
+                            })}
+                          </Stack>
+                        </ScrollArea>
                       )}
-                    </Tabs.Panel>
-                  </Tabs>
-                </Stack>
-              ) : (
-                <Stack align="center" justify="center" h={400}>
-                  <IconVideo size={48} opacity={0.3} />
-                  <Text c="dimmed">Select a channel to view its EPG</Text>
-                </Stack>
-              )}
+                    </Stack>
+                  </Tabs.Panel>
+                </Tabs>
+              </Stack>
             </Card>
           </div>
         </Tabs.Panel>

@@ -7,7 +7,7 @@ import os
 
 from config import settings
 from database import init_db
-from api import accounts, channels, downloads, settings as settings_api, schedules, vod
+from api import accounts, channels, downloads, settings as settings_api, schedules, vod, epg
 
 
 @asynccontextmanager
@@ -18,15 +18,18 @@ async def lifespan(app: FastAPI):
     # Initialize background tasks
     from services.download_manager import download_manager
     from services.scheduled_manager import scheduled_manager
+    from services.epg_ingest_manager import epg_ingest_manager
     download_task = asyncio.create_task(download_manager.process_queue())
     schedule_task = asyncio.create_task(scheduled_manager.process_queue())
+    epg_task = asyncio.create_task(epg_ingest_manager.process_queue())
 
     yield
 
     # Shutdown
     download_task.cancel()
     schedule_task.cancel()
-    await asyncio.gather(download_task, schedule_task, return_exceptions=True)
+    epg_task.cancel()
+    await asyncio.gather(download_task, schedule_task, epg_task, return_exceptions=True)
 
 
 app = FastAPI(
@@ -39,7 +42,7 @@ app = FastAPI(
 # CORS for frontend development
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=["http://localhost:4178"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -52,6 +55,7 @@ app.include_router(downloads.router, prefix="/api/downloads", tags=["downloads"]
 app.include_router(schedules.router, prefix="/api/schedules", tags=["schedules"])
 app.include_router(vod.router, prefix="/api/vod", tags=["vod"])
 app.include_router(settings_api.router, prefix="/api/settings", tags=["settings"])
+app.include_router(epg.router, prefix="/api", tags=["epg"])
 
 
 @app.get("/api/health")
@@ -66,4 +70,4 @@ if os.path.exists("../frontend/dist"):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=4177, reload=True)

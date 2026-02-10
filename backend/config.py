@@ -19,6 +19,7 @@ class Settings(BaseSettings):
 
     # EPG Cache
     epg_cache_ttl: int = 3600  # 1 hour in seconds
+    epg_refresh_interval_hours: int = 8
 
     class Config:
         env_file = ".env"

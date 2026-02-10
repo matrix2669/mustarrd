@@ -118,8 +118,8 @@ RUN mkdir -p /app/downloads /app/completed /app/config \
   && chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # Expose port
-EXPOSE 8000
+EXPOSE 4177
 
 # Run the application
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "4177"]

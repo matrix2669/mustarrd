@@ -27,7 +27,7 @@ A web application that connects to Xtream Codes IPTV servers, displays past EPG 
    pip install -r requirements.txt
    python main.py
    ```
-   Backend runs on http://localhost:8000
+   Backend runs on http://localhost:4177
 
 2. **Frontend**:
    ```bash
@@ -35,7 +35,7 @@ A web application that connects to Xtream Codes IPTV servers, displays past EPG 
    npm install
    npm run dev
    ```
-   Frontend runs on http://localhost:5173
+   Frontend runs on http://localhost:4178
 
 ### Docker
 
@@ -43,7 +43,7 @@ A web application that connects to Xtream Codes IPTV servers, displays past EPG 
 docker-compose up -d
 ```
 
-Access the app at http://localhost:3000
+Access the app at http://localhost:4178
 
 #### Docker volumes
 

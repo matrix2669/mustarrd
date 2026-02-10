@@ -87,7 +87,13 @@ async def get_channel_epg(
         raise HTTPException(status_code=404, detail="Account not found")
 
     try:
-        epg_data = await epg_service.get_epg_for_channel(session, account_id, channel_id)
+        actual_days = min(days_back, account.catchup_days)
+        epg_data = await epg_service.get_epg_for_channel(
+            session,
+            account_id,
+            channel_id,
+            days_back=actual_days,
+        )
         return epg_data
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

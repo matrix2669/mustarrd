@@ -2,7 +2,7 @@ services:
   backend:
     image: ghcr.io/razzamatazm/mustarrd/backend:latest
     ports:
-      - "4177:8000"
+      - "4177:4177"
     volumes:
       # App config + database (SQLite)
       - ./config:/app/config
@@ -27,7 +27,7 @@ services:
   frontend:
     image: ghcr.io/razzamatazm/mustarrd/frontend:latest
     ports:
-      - "3000:80"
+      - "4178:4178"
     depends_on:
       - backend
     restart: unless-stopped
