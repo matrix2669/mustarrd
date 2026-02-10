@@ -2,7 +2,7 @@ name: Publish Images
 
 on:
   push:
-    branches: [main, comskip-fancybits, docker-lean-proposal, puid-pgid-support, ffmpeg-linuxserver-vaapi]
+    branches: [main, comskip-fancybits, docker-lean-proposal, puid-pgid-support, ffmpeg-linuxserver-vaapi, codex/mobileview]
     tags:
       - "v*"
 
