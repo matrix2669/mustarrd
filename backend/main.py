@@ -1,8 +1,9 @@
 import asyncio
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from pathlib import Path
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 import os
 
 from config import settings
@@ -42,7 +43,7 @@ app = FastAPI(
 # CORS for frontend development
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:4178"],
+    allow_origins=["http://localhost:4178", "http://127.0.0.1:4178"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -63,9 +64,49 @@ async def health_check():
     return {"status": "healthy", "app": settings.app_name}
 
 
-# Serve frontend static files in production
-if os.path.exists("../frontend/dist"):
-    app.mount("/", StaticFiles(directory="../frontend/dist", html=True), name="frontend")
+def _resolve_frontend_dist() -> Path | None:
+    configured_path = os.environ.get("CATCHUP_FRONTEND_DIST")
+    if configured_path:
+        configured_dist = Path(configured_path).expanduser().resolve()
+        if (configured_dist / "index.html").exists():
+            return configured_dist
+
+    candidate_roots = [
+        Path(__file__).resolve().parents[1] / "frontend" / "dist",
+        Path(__file__).resolve().parent / "frontend" / "dist",
+    ]
+
+    for candidate in candidate_roots:
+        if (candidate / "index.html").exists():
+            return candidate
+
+    return None
+
+
+FRONTEND_DIST = _resolve_frontend_dist()
+
+
+@app.api_route("/", methods=["GET", "HEAD"], include_in_schema=False)
+async def frontend_index():
+    if FRONTEND_DIST is None:
+        raise HTTPException(status_code=404, detail="Frontend is not built")
+    return FileResponse(FRONTEND_DIST / "index.html")
+
+
+@app.api_route("/{full_path:path}", methods=["GET", "HEAD"], include_in_schema=False)
+async def frontend_routes(full_path: str):
+    if full_path.startswith("api/") or full_path == "api":
+        raise HTTPException(status_code=404, detail="Not found")
+
+    if FRONTEND_DIST is None:
+        raise HTTPException(status_code=404, detail="Frontend is not built")
+
+    requested_path = (FRONTEND_DIST / full_path).resolve()
+
+    if requested_path.is_file() and requested_path.is_relative_to(FRONTEND_DIST):
+        return FileResponse(requested_path)
+
+    return FileResponse(FRONTEND_DIST / "index.html")
 
 
 if __name__ == "__main__":

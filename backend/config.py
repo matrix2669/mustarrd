@@ -5,6 +5,9 @@ import shutil
 
 
 def _default_data_root() -> Path:
+    configured_root = os.environ.get("CATCHUP_DATA_ROOT")
+    if configured_root:
+        return Path(configured_root).expanduser().resolve()
     repo_root = Path(__file__).resolve().parents[1]
     return repo_root / "data"
 

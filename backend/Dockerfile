@@ -23,6 +23,16 @@ RUN git clone --depth 1 --branch fancybits https://github.com/fancybits/Comskip 
   && ./configure \
   && make
 
+FROM node:20-alpine AS frontend-builder
+
+WORKDIR /app/frontend
+
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+
+COPY frontend ./
+RUN npm run build
+
 FROM lscr.io/linuxserver/ffmpeg:latest AS lsffmpeg
 
 FROM ghcr.io/linuxserver/baseimage-ubuntu:noble
@@ -82,7 +92,8 @@ RUN sed -i 's|http://ports.ubuntu.com/ubuntu-ports|https://ports.ubuntu.com/ubun
 ENV \
     LIBVA_DRIVERS_PATH="/usr/local/lib/x86_64-linux-gnu/dri:/usr/local/lib/aarch64-linux-gnu/dri:/usr/lib/x86_64-linux-gnu/dri:/usr/lib/aarch64-linux-gnu/dri" \
     LD_LIBRARY_PATH="/usr/local/lib:/usr/local/lib/x86_64-linux-gnu:/usr/local/lib/aarch64-linux-gnu" \
-    CATCHUP_FFMPEG_PATH="/usr/local/bin/ffmpeg"
+    CATCHUP_FFMPEG_PATH="/usr/local/bin/ffmpeg" \
+    CATCHUP_FRONTEND_DIST="/app/frontend/dist"
 
 # Install dependencies in a venv (PEP 668 safe)
 ENV VENV_PATH="/opt/venv"
@@ -93,6 +104,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application + tools
 COPY backend /app/backend
+COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist
 COPY backend/ffmpegwrapper.sh /usr/local/bin/ffmpegwrapper.sh
 COPY scripts /app/scripts
 COPY backend/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh

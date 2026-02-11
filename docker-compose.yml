@@ -1,5 +1,5 @@
 services:
-  backend:
+  app:
     image: ghcr.io/razzamatazm/mustarrd/backend:latest
     ports:
       - "4177:4177"
@@ -22,12 +22,4 @@ services:
       # Match host user/group IDs to avoid permission issues on mounted volumes.
       - PUID=1000
       - PGID=1000
-    restart: unless-stopped
-
-  frontend:
-    image: ghcr.io/razzamatazm/mustarrd/frontend:latest
-    ports:
-      - "4178:4178"
-    depends_on:
-      - backend
     restart: unless-stopped

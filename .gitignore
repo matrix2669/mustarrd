@@ -16,3 +16,8 @@ backend/venv/
 backend/data/
 frontend/node_modules/
 frontend/dist/
+desktop-electron/node_modules/
+desktop-electron/release/
+desktop-electron/.backend-build/
+desktop-electron/backend-bin/*
+!desktop-electron/backend-bin/.gitkeep

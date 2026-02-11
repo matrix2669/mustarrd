@@ -1,0 +1,54 @@
+{
+  "name": "mustarrd-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Mustarrd desktop shell for macOS and Windows",
+  "main": "main.js",
+  "scripts": {
+    "dev": "electron .",
+    "build:frontend": "cd ../frontend && npm run build",
+    "build:backend:mac": "bash ./scripts/build-backend-macos.sh",
+    "build:backend:win": "powershell -ExecutionPolicy Bypass -File ./scripts/build-backend-windows.ps1",
+    "dist:mac": "npm run build:frontend && npm run build:backend:mac && electron-builder --mac dmg zip",
+    "dist:win": "npm run build:frontend && npm run build:backend:win && electron-builder --win nsis zip"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.mustarrd.desktop",
+    "productName": "Mustarrd",
+    "directories": {
+      "output": "release",
+      "buildResources": "assets"
+    },
+    "files": [
+      "main.js",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../frontend/dist",
+        "to": "frontend-dist"
+      },
+      {
+        "from": "backend-bin",
+        "to": "backend"
+      }
+    ],
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.video"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "zip"
+      ]
+    }
+  }
+}

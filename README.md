@@ -19,7 +19,7 @@ A web application that connects to Xtream Codes IPTV servers, displays past EPG 
 
 ### Development
 
-1. **Backend**:
+1. **Backend API + workers**:
    ```bash
    cd backend
    python -m venv venv
@@ -27,15 +27,25 @@ A web application that connects to Xtream Codes IPTV servers, displays past EPG 
    pip install -r requirements.txt
    python main.py
    ```
-   Backend runs on http://localhost:4177
+   Backend runs on http://localhost:4177.
 
-2. **Frontend**:
+2. **Frontend dev server (optional for UI development)**:
    ```bash
    cd frontend
    npm install
    npm run dev
    ```
-   Frontend runs on http://localhost:4178
+   Frontend runs on http://localhost:4178 and proxies API calls to `:4177`.
+
+3. **Single-process local app mode**:
+   ```bash
+   cd frontend
+   npm install
+   npm run build
+   cd ../backend
+   python main.py
+   ```
+   UI + API are both served from http://localhost:4177.
 
 ### Docker
 
@@ -43,7 +53,7 @@ A web application that connects to Xtream Codes IPTV servers, displays past EPG 
 docker-compose up -d
 ```
 
-Access the app at http://localhost:4178
+Access the app at http://localhost:4177
 
 #### Docker volumes
 
@@ -84,8 +94,18 @@ Note: Docker uses absolute paths inside the container:
 
 ### Tools (ffmpeg + comskip)
 
-Docker builds install ffmpeg via apt and compile comskip from source in the backend image.
+Docker builds install ffmpeg via apt, compile comskip from source, and bundle the built frontend into the same image.
 If you run the backend locally (non-Docker), install ffmpeg and comskip manually.
+
+### Desktop apps (macOS and Windows)
+
+The `desktop-electron/` project builds native desktop shells that:
+
+- start the bundled backend server
+- load the UI from `http://127.0.0.1:4177`
+- hide to tray/menu bar on close while the server keeps running
+
+Build steps and scripts are documented in `desktop-electron/README.md`.
 
 ## Configuration
 
