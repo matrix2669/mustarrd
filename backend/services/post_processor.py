@@ -588,15 +588,29 @@ class PostProcessor:
 
         percent_pattern = re.compile(r"(\d{1,3})%{1,2}")
         last_percent: Optional[int] = None
+        stdout_output = ""
+        stderr_output = ""
+        max_output_chars = 24000
 
-        async def read_stream(stream: asyncio.StreamReader):
-            nonlocal last_percent
+        def _append_output(existing: str, addition: str) -> str:
+            combined = existing + addition
+            if len(combined) > max_output_chars:
+                return combined[-max_output_chars:]
+            return combined
+
+        async def read_stream(stream: asyncio.StreamReader, is_stderr: bool):
+            nonlocal last_percent, stdout_output, stderr_output
             tail = ""
             while True:
                 chunk = await stream.read(1024)
                 if not chunk:
                     break
-                text = tail + chunk.decode(errors="ignore")
+                decoded = chunk.decode(errors="ignore")
+                text = tail + decoded
+                if is_stderr:
+                    stderr_output = _append_output(stderr_output, decoded)
+                else:
+                    stdout_output = _append_output(stdout_output, decoded)
                 max_percent = None
                 for match in percent_pattern.finditer(text):
                     try:
@@ -611,19 +625,59 @@ class PostProcessor:
                         last_percent = max_percent
                         await self._notify_log(log_callback, f"Comskip progress: {max_percent}%")
                         await self._notify_progress(progress_callback, float(max_percent))
-                tail = text[-16:]
+                tail = text[-32:]
 
         try:
-            await asyncio.gather(read_stream(process.stdout), read_stream(process.stderr))
+            await asyncio.gather(
+                read_stream(process.stdout, False),
+                read_stream(process.stderr, True)
+            )
             await process.wait()
         except asyncio.CancelledError:
             await self._terminate_process(process)
             raise
 
+        returncode = process.returncode if process.returncode is not None else -1
+        combined_output = (stderr_output.strip() or stdout_output.strip())
+        if returncode != 0:
+            excerpt = re.sub(r"\s+", " ", combined_output).strip()
+            if len(excerpt) > 600:
+                excerpt = f"...{excerpt[-600:]}"
+            if excerpt:
+                await self._notify_log(
+                    log_callback,
+                    f"Comskip failed (exit {returncode}): {excerpt}"
+                )
+            raise Exception(
+                f"Comskip exited with code {returncode}"
+                + (f": {excerpt}" if excerpt else "")
+            )
+
         # Check for EDL file (Edit Decision List)
-        edl_path = input_file.with_suffix(".edl")
-        if edl_path.exists():
-            return str(edl_path)
+        edl_candidates = [
+            input_file.with_suffix(".edl"),
+            output_dir / f"{input_file.name}.edl",
+            output_dir / f"{input_file.stem}.edl",
+        ]
+        for edl_path in edl_candidates:
+            if edl_path.exists():
+                return str(edl_path)
+
+        for pattern in (f"{input_file.stem}*.edl", f"{input_file.name}*.edl"):
+            matches = sorted(output_dir.glob(pattern))
+            if matches:
+                return str(matches[0])
+
+        if combined_output:
+            excerpt = re.sub(r"\s+", " ", combined_output).strip()
+            if len(excerpt) > 400:
+                excerpt = f"...{excerpt[-400:]}"
+            await self._notify_log(
+                log_callback,
+                f"Comskip finished without EDL output: {excerpt}"
+            )
+        else:
+            await self._notify_log(log_callback, "Comskip finished without EDL output.")
 
         return None
 
