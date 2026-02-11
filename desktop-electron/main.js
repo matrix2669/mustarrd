@@ -13,6 +13,31 @@ let tray = null;
 let backendProcess = null;
 let isQuitting = false;
 
+function isExecutable(filePath) {
+  if (!filePath) return false;
+  try {
+    fs.accessSync(filePath, fs.constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function withPrependedPathEntries(existingPath, entries) {
+  const current = existingPath ? existingPath.split(path.delimiter) : [];
+  const merged = [...entries, ...current].filter(Boolean);
+  return [...new Set(merged)].join(path.delimiter);
+}
+
+function resolveFirstExecutable(candidates) {
+  for (const candidate of candidates) {
+    if (isExecutable(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
 function backendExecutableName() {
   return process.platform === "win32" ? "catchup-backend.exe" : "catchup-backend";
 }
@@ -96,15 +121,46 @@ async function startBackend() {
 
   ensureDataFolders();
 
+  const backendEnv = {
+    ...process.env,
+    CATCHUP_DESKTOP_HOST: BACKEND_HOST,
+    CATCHUP_DESKTOP_PORT: BACKEND_PORT,
+    CATCHUP_DATA_ROOT: resolveDataRootPath(),
+    CATCHUP_FRONTEND_DIST: frontendDistPath
+  };
+
+  if (process.platform === "darwin") {
+    backendEnv.PATH = withPrependedPathEntries(backendEnv.PATH, [
+      "/opt/homebrew/bin",
+      "/usr/local/bin"
+    ]);
+
+    if (!backendEnv.CATCHUP_FFMPEG_PATH) {
+      const ffmpegPath = resolveFirstExecutable([
+        "/opt/homebrew/bin/ffmpeg",
+        "/usr/local/bin/ffmpeg",
+        "/usr/bin/ffmpeg"
+      ]);
+      if (ffmpegPath) {
+        backendEnv.CATCHUP_FFMPEG_PATH = ffmpegPath;
+      }
+    }
+
+    if (!backendEnv.CATCHUP_COMSKIP_PATH) {
+      const comskipPath = resolveFirstExecutable([
+        "/opt/homebrew/bin/comskip",
+        "/usr/local/bin/comskip",
+        "/usr/bin/comskip"
+      ]);
+      if (comskipPath) {
+        backendEnv.CATCHUP_COMSKIP_PATH = comskipPath;
+      }
+    }
+  }
+
   backendProcess = spawn(backendPath, [], {
     stdio: "pipe",
-    env: {
-      ...process.env,
-      CATCHUP_DESKTOP_HOST: BACKEND_HOST,
-      CATCHUP_DESKTOP_PORT: BACKEND_PORT,
-      CATCHUP_DATA_ROOT: resolveDataRootPath(),
-      CATCHUP_FRONTEND_DIST: frontendDistPath
-    }
+    env: backendEnv
   });
 
   backendProcess.stdout.on("data", (chunk) => {

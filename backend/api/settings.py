@@ -230,11 +230,13 @@ async def get_tools_status():
     return {
         "ffmpeg": {
             "available": post_processor.ffmpeg_available,
+            "path": post_processor.get_ffmpeg_path(),
             "description": "Required for transcoding to MP4/MKV formats",
             "install_hint": "Included in the Docker image; install ffmpeg if running locally.",
         },
         "comskip": {
             "available": post_processor.comskip_available,
+            "path": post_processor.get_comskip_path(),
             "description": "Commercial detection and removal",
             "install_hint": "Included in the Docker image; build comskip if running locally.",
         },

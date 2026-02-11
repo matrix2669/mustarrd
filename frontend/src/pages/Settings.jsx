@@ -392,22 +392,30 @@ export default function Settings() {
           </Alert>
 
           {toolsStatus && (
-            <Group gap="md">
-              <Badge
-                color={toolsStatus.ffmpeg?.available ? 'green' : 'red'}
-                variant="light"
-                leftSection={toolsStatus.ffmpeg?.available ? <IconCheck size={12} /> : <IconX size={12} />}
-              >
-                ffmpeg {toolsStatus.ffmpeg?.available ? 'installed' : 'not found'}
-              </Badge>
-              <Badge
-                color={toolsStatus.comskip?.available ? 'green' : 'red'}
-                variant="light"
-                leftSection={toolsStatus.comskip?.available ? <IconCheck size={12} /> : <IconX size={12} />}
-              >
-                Comskip {toolsStatus.comskip?.available ? 'installed' : 'not found'}
-              </Badge>
-            </Group>
+            <Stack gap={6}>
+              <Group gap="md">
+                <Badge
+                  color={toolsStatus.ffmpeg?.available ? 'green' : 'red'}
+                  variant="light"
+                  leftSection={toolsStatus.ffmpeg?.available ? <IconCheck size={12} /> : <IconX size={12} />}
+                >
+                  ffmpeg {toolsStatus.ffmpeg?.available ? 'installed' : 'not found'}
+                </Badge>
+                <Badge
+                  color={toolsStatus.comskip?.available ? 'green' : 'red'}
+                  variant="light"
+                  leftSection={toolsStatus.comskip?.available ? <IconCheck size={12} /> : <IconX size={12} />}
+                >
+                  Comskip {toolsStatus.comskip?.available ? 'installed' : 'not found'}
+                </Badge>
+              </Group>
+              {toolsStatus.ffmpeg?.path && (
+                <Text size="xs" c="dimmed">ffmpeg: {toolsStatus.ffmpeg.path}</Text>
+              )}
+              {toolsStatus.comskip?.path && (
+                <Text size="xs" c="dimmed">comskip: {toolsStatus.comskip.path}</Text>
+              )}
+            </Stack>
           )}
 
           <Accordion variant="separated" styles={accordionStyles}>

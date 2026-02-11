@@ -70,6 +70,7 @@ class PostProcessor:
         if system_ffmpeg:
             candidates.append(system_ffmpeg)
         candidates.extend([
+            "/opt/homebrew/bin/ffmpeg",
             "/usr/local/bin/ffmpeg",
             "/usr/bin/ffmpeg",
         ])
@@ -95,6 +96,11 @@ class PostProcessor:
         system_comskip = shutil.which("comskip")
         if system_comskip:
             candidates.append(system_comskip)
+        candidates.extend([
+            "/opt/homebrew/bin/comskip",
+            "/usr/local/bin/comskip",
+            "/usr/bin/comskip",
+        ])
 
         for path in candidates:
             if not path:
@@ -133,6 +139,10 @@ class PostProcessor:
     @property
     def comskip_available(self) -> bool:
         return self._resolve_comskip_path() is not None
+
+    def get_comskip_path(self) -> Optional[str]:
+        """Return resolved comskip path if available."""
+        return self._resolve_comskip_path()
 
     def set_comskip_path(self, path: str):
         """Set custom path to comskip binary."""
