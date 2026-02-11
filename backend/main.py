@@ -8,7 +8,7 @@ import os
 
 from config import settings
 from database import init_db
-from api import accounts, channels, downloads, settings as settings_api, schedules, vod, epg
+from api import accounts, channels, downloads, settings as settings_api, schedules, vod, epg, logs
 
 
 @asynccontextmanager
@@ -57,6 +57,7 @@ app.include_router(schedules.router, prefix="/api/schedules", tags=["schedules"]
 app.include_router(vod.router, prefix="/api/vod", tags=["vod"])
 app.include_router(settings_api.router, prefix="/api/settings", tags=["settings"])
 app.include_router(epg.router, prefix="/api", tags=["epg"])
+app.include_router(logs.router, prefix="/api", tags=["logs"])
 
 
 @app.get("/api/health")

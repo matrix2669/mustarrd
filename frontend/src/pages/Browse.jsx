@@ -16,7 +16,7 @@ import {
   Tabs,
   Button,
 } from '@mantine/core'
-import { useDebouncedValue, useMediaQuery } from '@mantine/hooks'
+import { useDebouncedValue, useMediaQuery, useViewportSize } from '@mantine/hooks'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import {
   IconSearch,
@@ -271,6 +271,13 @@ function VodGrid({ items, onSelect, isLoading, searchPlaceholder, emptyLabel, ic
   )
 }
 
+function getInitialDesktopPanelHeight() {
+  if (typeof window === 'undefined') {
+    return 520
+  }
+  return Math.max(360, Math.floor(window.innerHeight - 180))
+}
+
 export default function Browse() {
   const [selectedAccountId, setSelectedAccountId] = useState(null)
   const [selectedCategory, setSelectedCategory] = useState(null)
@@ -281,6 +288,10 @@ export default function Browse() {
   const [globalSearch, setGlobalSearch] = useState('')
   const [debouncedGlobalSearch] = useDebouncedValue(globalSearch, 400)
   const searchViewportRef = useRef(null)
+  const desktopEpgLayoutRef = useRef(null)
+  const desktopSearchPanelRef = useRef(null)
+  const desktopMoviesLayoutRef = useRef(null)
+  const desktopSeriesLayoutRef = useRef(null)
   const searchLimit = 100
   const [browseTab, setBrowseTab] = useState('epg')
   const [vodTab, setVodTab] = useState('movies')
@@ -289,6 +300,11 @@ export default function Browse() {
   const [selectedMovie, setSelectedMovie] = useState(null)
   const [selectedSeries, setSelectedSeries] = useState(null)
   const isMobile = useMediaQuery('(max-width: 48em)')
+  const { height: viewportHeight } = useViewportSize()
+  const [desktopEpgHeight, setDesktopEpgHeight] = useState(getInitialDesktopPanelHeight)
+  const [desktopSearchHeight, setDesktopSearchHeight] = useState(getInitialDesktopPanelHeight)
+  const [desktopMoviesHeight, setDesktopMoviesHeight] = useState(getInitialDesktopPanelHeight)
+  const [desktopSeriesHeight, setDesktopSeriesHeight] = useState(getInitialDesktopPanelHeight)
   const [mobileMoviesView, setMobileMoviesView] = useState('categories')
   const [mobileSeriesView, setMobileSeriesView] = useState('categories')
 
@@ -431,6 +447,60 @@ export default function Browse() {
       searchViewportRef.current.scrollTo({ top: 0 })
     }
   }, [debouncedGlobalSearch, browseTab])
+
+  useEffect(() => {
+    if (isMobile) {
+      return
+    }
+
+    const measuredViewportHeight =
+      viewportHeight ||
+      (typeof window !== 'undefined' ? window.innerHeight || document.documentElement.clientHeight : 0)
+
+    if (!measuredViewportHeight) {
+      return
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      const resolveHeight = (node) => {
+        if (!node) return null
+        const layoutTop = node.getBoundingClientRect().top
+        if (!Number.isFinite(layoutTop) || layoutTop >= measuredViewportHeight) return null
+        const bottomPadding = 16
+        return Math.max(360, Math.floor(measuredViewportHeight - layoutTop - bottomPadding))
+      }
+
+      if (browseTab === 'epg') {
+        const nextHeight = resolveHeight(desktopEpgLayoutRef.current)
+        if (nextHeight != null) {
+          setDesktopEpgHeight((previous) => (previous === nextHeight ? previous : nextHeight))
+        }
+      }
+
+      if (browseTab === 'search') {
+        const nextHeight = resolveHeight(desktopSearchPanelRef.current)
+        if (nextHeight != null) {
+          setDesktopSearchHeight((previous) => (previous === nextHeight ? previous : nextHeight))
+        }
+      }
+
+      if (browseTab === 'vod' && vodTab === 'movies') {
+        const nextHeight = resolveHeight(desktopMoviesLayoutRef.current)
+        if (nextHeight != null) {
+          setDesktopMoviesHeight((previous) => (previous === nextHeight ? previous : nextHeight))
+        }
+      }
+
+      if (browseTab === 'vod' && vodTab === 'series') {
+        const nextHeight = resolveHeight(desktopSeriesLayoutRef.current)
+        if (nextHeight != null) {
+          setDesktopSeriesHeight((previous) => (previous === nextHeight ? previous : nextHeight))
+        }
+      }
+    })
+
+    return () => window.cancelAnimationFrame(frame)
+  }, [browseTab, vodTab, isMobile, viewportHeight])
 
   const handleProgramClick = (program, meta = {}) => {
     if (meta.action === 'schedule') {
@@ -705,12 +775,13 @@ export default function Browse() {
             )
           ) : (
             <div
+              ref={desktopEpgLayoutRef}
               style={{
                 display: 'grid',
                 gridTemplateColumns: '300px 1fr',
                 gap: 16,
                 alignItems: 'stretch',
-                height: 'calc(100vh - 260px)',
+                height: `${desktopEpgHeight}px`,
               }}
             >
               <Card shadow="sm" padding="md" radius="md" withBorder style={{ height: '100%' }}>
@@ -768,11 +839,11 @@ export default function Browse() {
                         onChange={(e) => setProgramSearch(e.target.value)}
                         mb="md"
                       />
-                      {epgLoading ? (
-                        <Stack align="center" justify="center" h={300}>
-                          <Loader />
-                        </Stack>
-                      ) : filteredEpgData ? (
+                        {epgLoading ? (
+                          <Stack align="center" justify="center" style={{ flex: 1, minHeight: 0 }}>
+                            <Loader />
+                          </Stack>
+                        ) : filteredEpgData ? (
                         <EPGGrid
                           epgData={filteredEpgData}
                           onProgramClick={handleProgramClick}
@@ -785,7 +856,7 @@ export default function Browse() {
                       )}
                     </Stack>
                   ) : (
-                    <Stack align="center" justify="center" h={300}>
+                    <Stack align="center" justify="center" style={{ flex: 1, minHeight: 0 }}>
                       <IconVideo size={48} opacity={0.3} />
                       <Text c="dimmed">Select a channel to view its EPG</Text>
                     </Stack>
@@ -797,7 +868,14 @@ export default function Browse() {
         </Tabs.Panel>
 
         <Tabs.Panel value="search" pt="md">
-          <Card shadow="sm" padding="md" radius="md" withBorder style={{ height: 'calc(100vh - 260px)' }}>
+          <Card
+            ref={desktopSearchPanelRef}
+            shadow="sm"
+            padding="md"
+            radius="md"
+            withBorder
+            style={{ height: isMobile ? 'auto' : `${desktopSearchHeight}px` }}
+          >
             <Stack style={{ height: '100%', minHeight: 0 }}>
               <TextInput
                 placeholder="Search all channels..."
@@ -970,12 +1048,13 @@ export default function Browse() {
                   )
                 ) : (
                   <div
+                    ref={desktopMoviesLayoutRef}
                     style={{
                       display: 'grid',
                       gridTemplateColumns: '300px 1fr',
                       gap: 16,
                       alignItems: 'stretch',
-                      height: 'calc(100vh - 300px)',
+                      height: `${desktopMoviesHeight}px`,
                     }}
                   >
                     <Card shadow="sm" padding="md" radius="md" withBorder style={{ height: '100%' }}>
@@ -1068,12 +1147,13 @@ export default function Browse() {
                   )
                 ) : (
                   <div
+                    ref={desktopSeriesLayoutRef}
                     style={{
                       display: 'grid',
                       gridTemplateColumns: '300px 1fr',
                       gap: 16,
                       alignItems: 'stretch',
-                      height: 'calc(100vh - 300px)',
+                      height: `${desktopSeriesHeight}px`,
                     }}
                   >
                     <Card shadow="sm" padding="md" radius="md" withBorder style={{ height: '100%' }}>

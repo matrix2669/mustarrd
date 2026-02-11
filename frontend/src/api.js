@@ -110,11 +110,39 @@ export const settingsApi = {
   getTools: () => request('/settings/tools'),
 }
 
+// Backend Logs
+export const logsApi = {
+  list: (limit = 300, source = null, level = null) => {
+    const params = new URLSearchParams()
+    params.append('limit', String(limit))
+    if (source) params.append('source', source)
+    if (level) params.append('level', level)
+    return request(`/logs?${params.toString()}`)
+  },
+}
+
 // WebSocket for download progress
 export function createDownloadWebSocket(onMessage, onError = null) {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   const wsUrl = `${protocol}//${window.location.host}/api/downloads/ws`
 
+  const ws = new WebSocket(wsUrl)
+
+  ws.onmessage = (event) => {
+    const data = JSON.parse(event.data)
+    onMessage(data)
+  }
+
+  ws.onerror = (error) => {
+    if (onError) onError(error)
+  }
+
+  return ws
+}
+
+export function createLogsWebSocket(onMessage, onError = null) {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  const wsUrl = `${protocol}//${window.location.host}/api/logs/ws`
   const ws = new WebSocket(wsUrl)
 
   ws.onmessage = (event) => {

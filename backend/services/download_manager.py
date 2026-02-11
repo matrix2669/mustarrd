@@ -12,6 +12,7 @@ from sqlalchemy import select, update
 from models import Download, DownloadStatus, AppSettings, XtreamAccount
 from config import settings as app_settings, is_docker_env
 from database import async_session_maker
+from services.log_stream import backend_log_stream
 
 
 class DownloadManager:
@@ -118,6 +119,12 @@ class DownloadManager:
                 dead_connections.add(ws)
 
         self._websocket_connections -= dead_connections
+        await backend_log_stream.emit(
+            source="download",
+            message=message,
+            level=level,
+            download_id=download_id
+        )
 
     async def _update_processing(
         self,
@@ -156,6 +163,10 @@ class DownloadManager:
             await session.refresh(download)
 
             await self._queue.put(download.id)
+            await self._broadcast_log(
+                download.id,
+                f"Queued download: {download.program_title} ({download.channel_name})."
+            )
             return download
 
     async def process_queue(self):
@@ -247,6 +258,10 @@ class DownloadManager:
                 await self._broadcast_progress(
                     download_id, 0, DownloadStatus.DOWNLOADING.value
                 )
+                await self._broadcast_log(
+                    download_id,
+                    f"Download started: {os.path.basename(download.output_path)}"
+                )
 
                 # Ensure output directory exists
                 output_dir = os.path.dirname(download.output_path)
@@ -259,6 +274,7 @@ class DownloadManager:
                     download_id,
                     session
                 )
+                await self._broadcast_log(download_id, "Download transfer complete.")
 
                 # Run post-processing if enabled (skip for VOD downloads)
                 original_path = download.output_path
@@ -280,6 +296,11 @@ class DownloadManager:
                 download.output_path = completed_path
                 if warnings:
                     download.error_message = f"Completed with warnings: {'; '.join(warnings)}"
+                    await self._broadcast_log(
+                        download_id,
+                        f"Completed with warnings: {'; '.join(warnings)}",
+                        level="warning"
+                    )
                 else:
                     download.error_message = None
                 self._cleanup_working_files(
@@ -297,6 +318,10 @@ class DownloadManager:
                 await self._broadcast_progress(
                     download_id, 100, DownloadStatus.COMPLETED.value
                 )
+                await self._broadcast_log(
+                    download_id,
+                    f"Download completed: {os.path.basename(completed_path)}"
+                )
 
             except asyncio.CancelledError:
                 # Download was cancelled
@@ -305,6 +330,7 @@ class DownloadManager:
                 await self._broadcast_progress(
                     download_id, download.progress, DownloadStatus.CANCELLED.value
                 )
+                await self._broadcast_log(download_id, "Download cancelled.", level="warning")
 
             except Exception as e:
                 # Download failed
@@ -323,6 +349,7 @@ class DownloadManager:
                     DownloadStatus.FAILED.value,
                     error=str(e)
                 )
+                await self._broadcast_log(download_id, f"Download failed: {e}", level="error")
 
     def _resolve_completed_folder(self, settings: Optional[AppSettings]) -> str:
         if settings and settings.completed_folder and not settings.completed_folder.startswith("./data"):
@@ -428,6 +455,16 @@ class DownloadManager:
                         total_part = content_range.split("/")[-1].strip()
                         if total_part.isdigit():
                             total_size = int(total_part)
+                if total_size > 0:
+                    await self._broadcast_log(
+                        download_id,
+                        f"HTTP {response.status}. Expected size: {total_size:,} bytes."
+                    )
+                else:
+                    await self._broadcast_log(
+                        download_id,
+                        f"HTTP {response.status}. Size unknown; streaming download."
+                    )
                 downloaded = 0
                 last_progress_update = 0
 
@@ -470,6 +507,10 @@ class DownloadManager:
                                 file_size=total_size,
                                 download_progress=progress
                             )
+                await self._broadcast_log(
+                    download_id,
+                    f"Download bytes written: {downloaded:,}."
+                )
 
     async def _post_process(
         self,

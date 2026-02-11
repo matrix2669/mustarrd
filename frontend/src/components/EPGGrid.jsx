@@ -232,7 +232,7 @@ export default function EPGGrid({ epgData, onProgramClick, showFuture = false })
     <Stack gap="md" style={{ height: '100%', minHeight: 0 }}>
       <Group justify="space-between">
         <Text size="sm" c="dimmed">
-          Showing {epgData.length} programs
+          Showing {visiblePrograms.length} programs
         </Text>
         <Group gap="xs">
           <Badge variant="light" color="blue" leftSection={<IconDownload size={12} />}>

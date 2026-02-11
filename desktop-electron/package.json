@@ -25,6 +25,7 @@
     },
     "files": [
       "main.js",
+      "preload.js",
       "package.json"
     ],
     "extraResources": [
@@ -35,9 +36,22 @@
       {
         "from": "backend-bin",
         "to": "backend"
+      },
+      {
+        "from": "assets/mustarrd.icns",
+        "to": "mustarrd.icns"
+      },
+      {
+        "from": "assets/mustarrd-trayTemplate.png",
+        "to": "mustarrd-trayTemplate.png"
+      },
+      {
+        "from": "assets/mustarrd-trayTemplate@2x.png",
+        "to": "mustarrd-trayTemplate@2x.png"
       }
     ],
     "mac": {
+      "icon": "assets/mustarrd.icns",
       "target": [
         "dmg",
         "zip"

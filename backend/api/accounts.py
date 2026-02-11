@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -6,10 +7,18 @@ from sqlalchemy import select
 
 from database import get_session
 from models import XtreamAccount
+from services.epg_ingest_manager import epg_ingest_manager
 from services.xtream_client import XtreamClient
 
 
 router = APIRouter()
+
+
+def _log_task_result(task: asyncio.Task):
+    try:
+        task.result()
+    except Exception as exc:
+        print(f"EPG refresh task failed: {exc}")
 
 
 class AccountCreate(BaseModel):
@@ -79,6 +88,9 @@ async def create_account(
     session.add(db_account)
     await session.commit()
     await session.refresh(db_account)
+
+    refresh_task = asyncio.create_task(epg_ingest_manager.refresh_account_by_id(db_account.id))
+    refresh_task.add_done_callback(_log_task_result)
 
     return db_account.to_dict()
 

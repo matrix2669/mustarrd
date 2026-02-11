@@ -55,6 +55,7 @@ class SettingsUpdate(BaseModel):
     remove_commercials: Optional[bool] = None
     epg_offset_minutes: Optional[int] = None
     show_future_programs: Optional[bool] = None
+    launch_on_startup: Optional[bool] = None
 
 
 NON_NULLABLE_FIELDS = {
@@ -78,6 +79,7 @@ NON_NULLABLE_FIELDS = {
     "remove_commercials",
     "epg_offset_minutes",
     "show_future_programs",
+    "launch_on_startup",
 }
 
 
@@ -158,6 +160,12 @@ async def get_settings(session: AsyncSession = Depends(get_session)):
 
     if settings.default_post_padding_minutes is None:
         settings.default_post_padding_minutes = 5
+        session.add(settings)
+        await session.commit()
+        await session.refresh(settings)
+
+    if settings.launch_on_startup is None:
+        settings.launch_on_startup = True
         session.add(settings)
         await session.commit()
         await session.refresh(settings)

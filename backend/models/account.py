@@ -16,6 +16,7 @@ class XtreamAccount(Base):
     catchup_days: Mapped[int] = mapped_column(Integer, default=7)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     last_used: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_epg_backfill_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     # Cached account info from server
     max_connections: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -32,6 +33,7 @@ class XtreamAccount(Base):
             "catchup_days": self.catchup_days,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "last_used": self.last_used.isoformat() if self.last_used else None,
+            "last_epg_backfill_at": self.last_epg_backfill_at.isoformat() if self.last_epg_backfill_at else None,
             "max_connections": self.max_connections,
             "active_connections": self.active_connections,
             "expiration_date": self.expiration_date.isoformat() if self.expiration_date else None,

@@ -57,6 +57,12 @@ class PostProcessor:
         self._comskip_path = shutil.which("comskip")
         self._available_encoders: Optional[List[str]] = None
 
+    @staticmethod
+    def _is_executable(path: Optional[str]) -> bool:
+        if not path:
+            return False
+        return os.path.isfile(path) and os.access(path, os.X_OK)
+
     def _resolve_ffmpeg_path(self) -> Optional[str]:
         """Resolve ffmpeg path on demand to handle PATH changes."""
         candidates = []
@@ -78,11 +84,46 @@ class PostProcessor:
         for path in candidates:
             if not path:
                 continue
-            if os.path.isfile(path) and os.access(path, os.X_OK):
+            if self._is_executable(path):
                 self._ffmpeg_path = path
                 return self._ffmpeg_path
 
         self._ffmpeg_path = None
+        return None
+
+    def _resolve_ffprobe_path(self) -> Optional[str]:
+        """Resolve ffprobe path on demand for duration detection."""
+        candidates = []
+        env_path = os.environ.get("CATCHUP_FFPROBE_PATH") or os.environ.get("FFPROBE_PATH")
+        if env_path:
+            candidates.append(env_path)
+
+        system_ffprobe = shutil.which("ffprobe")
+        if system_ffprobe:
+            candidates.append(system_ffprobe)
+
+        ffmpeg_path = self._resolve_ffmpeg_path()
+        if ffmpeg_path:
+            ffmpeg_file = Path(ffmpeg_path)
+            candidates.append(str(ffmpeg_file.with_name("ffprobe")))
+            candidates.append(ffmpeg_path.replace("ffmpeg", "ffprobe"))
+
+        candidates.extend([
+            "/opt/homebrew/bin/ffprobe",
+            "/usr/local/bin/ffprobe",
+            "/usr/bin/ffprobe",
+        ])
+
+        seen = set()
+        for path in candidates:
+            if not path:
+                continue
+            if path in seen:
+                continue
+            seen.add(path)
+            if self._is_executable(path):
+                return path
+
         return None
 
     def _resolve_comskip_path(self) -> Optional[str]:
@@ -105,7 +146,7 @@ class PostProcessor:
         for path in candidates:
             if not path:
                 continue
-            if os.path.isfile(path) and os.access(path, os.X_OK):
+            if self._is_executable(path):
                 self._comskip_path = path
                 return self._comskip_path
 
@@ -486,7 +527,7 @@ class PostProcessor:
             )
 
         # Run ffmpeg with progress
-        duration = await self._get_duration(input_path)
+        duration = await self._get_duration(input_path, log_callback=log_callback)
         returncode, stderr = await self._run_ffmpeg_with_progress(cmd, duration, progress_callback)
         if returncode != 0:
             log_path = self._write_ffmpeg_log(str(input_path), "transcode", stderr)
@@ -634,7 +675,7 @@ class PostProcessor:
         output_path = input_file.with_stem(f"{input_file.stem}_nocommercials").with_suffix(f".{output_format.value}")
 
         # Get video duration
-        duration = await self._get_duration(input_path)
+        duration = await self._get_duration(input_path, log_callback=log_callback)
         await self._notify_log(
             log_callback,
             f"Commercial removal: duration={duration:.3f}s"
@@ -834,13 +875,19 @@ class PostProcessor:
 
         return keep_segments
 
-    async def _get_duration(self, input_path: str) -> float:
+    async def _get_duration(
+        self,
+        input_path: str,
+        log_callback: Optional[Callable[[str], None]] = None
+    ) -> float:
         """Get video duration using ffprobe."""
-        ffprobe = shutil.which("ffprobe")
-        if not ffprobe:
-            ffprobe = self._ffmpeg_path.replace("ffmpeg", "ffprobe") if self._ffmpeg_path else None
+        ffprobe = self._resolve_ffprobe_path()
 
         if not ffprobe:
+            await self._notify_log(
+                log_callback,
+                "ffprobe not found; duration unavailable. Progress may be limited."
+            )
             return 0
 
         cmd = [
@@ -851,16 +898,29 @@ class PostProcessor:
             str(input_path)
         ]
 
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+        except FileNotFoundError:
+            await self._notify_log(
+                log_callback,
+                f"ffprobe not found at {ffprobe}; duration unavailable."
+            )
+            return 0
 
-        stdout, _ = await process.communicate()
+        stdout, stderr = await process.communicate()
+        if process.returncode != 0:
+            stderr_text = stderr.decode(errors="ignore").strip()
+            if stderr_text:
+                await self._notify_log(log_callback, f"ffprobe failed: {stderr_text}")
+            return 0
         try:
             return float(stdout.decode().strip())
         except ValueError:
+            await self._notify_log(log_callback, "ffprobe returned invalid duration.")
             return 0
 
 

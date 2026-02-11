@@ -16,6 +16,7 @@ import {
   IconDownload,
   IconCalendar,
   IconSettings,
+  IconListDetails,
 } from '@tabler/icons-react'
 import { useQuery } from '@tanstack/react-query'
 
@@ -24,6 +25,7 @@ import Browse from './pages/Browse'
 import Downloads from './pages/Downloads'
 import Scheduled from './pages/Scheduled'
 import Settings from './pages/Settings'
+import Logs from './pages/Logs'
 import { downloadsApi, epgApi, createDownloadWebSocket } from './api'
 import mustarrdLogo from './assets/mustarrdlogo.png'
 
@@ -93,21 +95,23 @@ function App() {
       running,
       account_name: accountName,
       processed_programs: processedPrograms,
+      inserted_programs: insertedPrograms,
       total_programs: totalPrograms,
       last_error: lastError,
     } = epgStatus
 
     const processed = typeof processedPrograms === 'number' ? processedPrograms : 0
+    const inserted = typeof insertedPrograms === 'number' ? insertedPrograms : 0
     const total = typeof totalPrograms === 'number' ? totalPrograms : null
     const hasTotal = total && total > 0
     const percent = hasTotal ? Math.min(100, Math.round((processed / total) * 100)) : null
     const percentLabel = percent != null ? ` • ${percent}%` : ''
     const title = accountName
-      ? `Downloading full EPG (${accountName}${percentLabel})`
-      : 'Downloading full EPG'
+      ? `Syncing EPG (${accountName}${percentLabel})`
+      : 'Syncing EPG'
     const message = hasTotal
-      ? `${processed.toLocaleString()} of ${total.toLocaleString()} programs (${percent}%).`
-      : `${processed.toLocaleString()} programs indexed so far.`
+      ? `${inserted.toLocaleString()} new, ${processed.toLocaleString()} scanned of ${total.toLocaleString()} (${percent}%).`
+      : `${inserted.toLocaleString()} new, ${processed.toLocaleString()} scanned so far.`
 
     if (running) {
       clearEpgToastTimer()
@@ -151,7 +155,7 @@ function App() {
         notifications.update({
           id: 'epg-download-progress',
           title: 'EPG download complete',
-          message: 'Full EPG index updated.',
+          message: `${inserted.toLocaleString()} new programs added.`,
           color: 'green',
           loading: false,
           autoClose: false,
@@ -185,6 +189,7 @@ function App() {
       badge: activeDownloads > 0 ? activeDownloads : null,
     },
     { icon: IconCalendar, label: 'Scheduled', to: '/scheduled' },
+    { icon: IconListDetails, label: 'Logs', to: '/logs' },
     { icon: IconSettings, label: 'Settings', to: '/settings' },
   ]
 
@@ -236,6 +241,7 @@ function App() {
           <Route path="/browse" element={<Browse />} />
           <Route path="/downloads" element={<Downloads />} />
           <Route path="/scheduled" element={<Scheduled />} />
+          <Route path="/logs" element={<Logs />} />
           <Route path="/settings" element={<Settings />} />
         </Routes>
       </AppShell.Main>

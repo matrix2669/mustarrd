@@ -49,6 +49,7 @@ class AppSettings(Base):
     remux_only: Mapped[bool] = mapped_column(Boolean, default=True)
     epg_offset_minutes: Mapped[int] = mapped_column(Integer, default=0)
     show_future_programs: Mapped[bool] = mapped_column(Boolean, default=False)
+    launch_on_startup: Mapped[bool] = mapped_column(Boolean, default=True)
 
     comskip_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     comskip_path: Mapped[str | None] = mapped_column(String(1000), nullable=True)
@@ -80,4 +81,5 @@ class AppSettings(Base):
             "remove_commercials": self.remove_commercials,
             "epg_offset_minutes": self.epg_offset_minutes,
             "show_future_programs": self.show_future_programs,
+            "launch_on_startup": self.launch_on_startup,
         }

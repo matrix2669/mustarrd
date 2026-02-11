@@ -88,6 +88,8 @@ export default function Settings() {
   const [leaveModalOpen, setLeaveModalOpen] = useState(false)
   const [pendingNavigation, setPendingNavigation] = useState(null)
   const [isSavingAndLeaving, setIsSavingAndLeaving] = useState(false)
+  const [desktopStartupSupported, setDesktopStartupSupported] = useState(false)
+  const [desktopStartupLoading, setDesktopStartupLoading] = useState(false)
   const { colorScheme, setColorScheme } = useMantineColorScheme()
   const theme = useMantineTheme()
   const blockNavigation = useCallback((tx) => {
@@ -139,9 +141,78 @@ export default function Settings() {
     }
   }, [settings, formData])
 
+  const applyDesktopStartupSetting = useCallback(async (enabled) => {
+    const desktopApi = window.mustarrdDesktop
+    if (!desktopApi?.setLaunchOnStartup) {
+      return
+    }
+
+    try {
+      const result = await desktopApi.setLaunchOnStartup(enabled)
+      if (result?.supported) {
+        setDesktopStartupSupported(true)
+        if (typeof result.enabled === 'boolean') {
+          setFormData((prev) => {
+            if (!prev) return prev
+            if (prev.launch_on_startup === result.enabled) return prev
+            return { ...prev, launch_on_startup: result.enabled }
+          })
+        }
+      }
+    } catch (error) {
+      notifications.show({
+        title: 'Startup Setting',
+        message: error.message || 'Unable to update startup behavior on this device.',
+        color: 'red',
+      })
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+
+    const loadDesktopStartup = async () => {
+      const desktopApi = window.mustarrdDesktop
+      if (!desktopApi?.getLaunchOnStartup) {
+        return
+      }
+
+      setDesktopStartupLoading(true)
+      try {
+        const result = await desktopApi.getLaunchOnStartup()
+        if (cancelled) {
+          return
+        }
+        setDesktopStartupSupported(Boolean(result?.supported))
+        if (result?.supported && typeof result.enabled === 'boolean') {
+          setFormData((prev) => {
+            if (!prev) return prev
+            if (prev.launch_on_startup === result.enabled) return prev
+            return { ...prev, launch_on_startup: result.enabled }
+          })
+        }
+      } finally {
+        if (!cancelled) {
+          setDesktopStartupLoading(false)
+        }
+      }
+    }
+
+    if (settings) {
+      loadDesktopStartup()
+    }
+
+    return () => {
+      cancelled = true
+    }
+  }, [settings])
+
   const updateMutation = useMutation({
     mutationFn: settingsApi.update,
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
+      if (typeof variables?.launch_on_startup === 'boolean') {
+        void applyDesktopStartupSetting(variables.launch_on_startup)
+      }
       queryClient.invalidateQueries({ queryKey: ['settings'] })
       setHasChanges(false)
       notifications.show({
@@ -364,6 +435,23 @@ export default function Settings() {
               handleChange('epg_offset_minutes', hours * 60)
             }}
           />
+
+          <Switch
+            label="Show future programs (schedule-only)"
+            description="Show upcoming programs that cannot be downloaded yet. Clicking them schedules recordings, so leave the app running."
+            checked={formData.show_future_programs || false}
+            onChange={(e) => handleChange('show_future_programs', e.currentTarget.checked)}
+          />
+
+          {(desktopStartupSupported || desktopStartupLoading) && (
+            <Switch
+              label="Run app at system startup"
+              description="Automatically launch Mustarrd when you sign in."
+              checked={formData.launch_on_startup !== false}
+              disabled={desktopStartupLoading}
+              onChange={(e) => handleChange('launch_on_startup', e.currentTarget.checked)}
+            />
+          )}
         </Stack>
       </Card>
 
@@ -672,13 +760,6 @@ export default function Settings() {
             label="Enable Dark Mode"
             checked={colorScheme === 'dark'}
             onChange={(e) => setColorScheme(e.currentTarget.checked ? 'dark' : 'light')}
-          />
-
-          <Switch
-            label="Show future (unavailable) programs"
-            description="Toggle visibility of upcoming shows in the EPG"
-            checked={formData.show_future_programs || false}
-            onChange={(e) => handleChange('show_future_programs', e.currentTarget.checked)}
           />
         </Stack>
       </Card>

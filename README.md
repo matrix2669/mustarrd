@@ -47,13 +47,22 @@ A web application that connects to Xtream Codes IPTV servers, displays past EPG 
    ```
    UI + API are both served from http://localhost:4177.
 
+### Baremetal Install (One App)
+
+Use the helper script to install dependencies and run a unified app (frontend + API served by backend on `:4177`):
+
+```bash
+./scripts/oneapp.sh install
+./scripts/oneapp.sh start
+```
+
 ### Docker
 
 ```bash
 docker-compose up -d
 ```
 
-Access the app at http://localhost:4177
+Access the unified app at http://localhost:4177 (UI + API in one container).
 
 #### Docker volumes
 

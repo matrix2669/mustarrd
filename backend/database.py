@@ -24,6 +24,7 @@ async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         await conn.run_sync(_ensure_app_settings_columns)
+        await conn.run_sync(_ensure_account_columns)
         await conn.run_sync(_ensure_download_columns)
         await conn.run_sync(_ensure_epg_program_indexes)
 
@@ -38,6 +39,7 @@ def _ensure_app_settings_columns(conn):
         "default_pre_padding_minutes": "INTEGER DEFAULT 1",
         "default_post_padding_minutes": "INTEGER DEFAULT 5",
         "min_free_space_gb": "INTEGER DEFAULT 25",
+        "launch_on_startup": "BOOLEAN DEFAULT 1",
     }
 
     for column_name, column_def in additions.items():
@@ -61,6 +63,23 @@ def _ensure_download_columns(conn):
         if column_name not in existing_columns:
             conn.exec_driver_sql(
                 f"ALTER TABLE downloads ADD COLUMN {column_name} {column_def}"
+            )
+
+
+def _ensure_account_columns(conn):
+    inspector = inspect(conn)
+    if "xtream_accounts" not in inspector.get_table_names():
+        return
+
+    existing_columns = {col["name"] for col in inspector.get_columns("xtream_accounts")}
+    additions = {
+        "last_epg_backfill_at": "DATETIME",
+    }
+
+    for column_name, column_def in additions.items():
+        if column_name not in existing_columns:
+            conn.exec_driver_sql(
+                f"ALTER TABLE xtream_accounts ADD COLUMN {column_name} {column_def}"
             )
 
 
