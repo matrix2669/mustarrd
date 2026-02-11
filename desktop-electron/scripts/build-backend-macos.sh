@@ -22,6 +22,8 @@ pyinstaller \
   --clean \
   --onefile \
   --name catchup-backend \
+  --hidden-import aiosqlite \
+  --hidden-import sqlalchemy.dialects.sqlite.aiosqlite \
   --distpath "${BUILD_DIR}/dist" \
   --workpath "${BUILD_DIR}/work" \
   --specpath "${BUILD_DIR}" \

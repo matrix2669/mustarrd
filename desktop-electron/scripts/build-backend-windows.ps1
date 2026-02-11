@@ -25,6 +25,8 @@ $PythonExe = Join-Path $VenvDir "Scripts\python.exe"
   --clean `
   --onefile `
   --name catchup-backend `
+  --hidden-import aiosqlite `
+  --hidden-import sqlalchemy.dialects.sqlite.aiosqlite `
   --distpath (Join-Path $BuildDir "dist") `
   --workpath (Join-Path $BuildDir "work") `
   --specpath $BuildDir `
