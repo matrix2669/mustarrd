@@ -6,7 +6,7 @@ import subprocess
 import shlex
 import re
 from pathlib import Path
-from typing import Optional, Callable, List, Dict
+from typing import Optional, Callable, List, Dict, Tuple
 from enum import Enum
 
 
@@ -194,6 +194,68 @@ class PostProcessor:
         """Set custom path to ffmpeg binary."""
         if os.path.isfile(path):
             self._ffmpeg_path = path
+
+    def _probe_tool(
+        self,
+        path: Optional[str],
+        args: List[str],
+        timeout: float = 5.0,
+    ) -> Tuple[bool, Optional[str]]:
+        """Check whether a tool executable can actually run."""
+        if not self._is_executable(path):
+            return False, "not executable or not found"
+
+        try:
+            result = subprocess.run(
+                [path, *args],
+                capture_output=True,
+                text=True,
+                timeout=timeout
+            )
+        except FileNotFoundError:
+            return False, "not found"
+        except subprocess.TimeoutExpired:
+            return False, "timed out while probing"
+        except Exception as exc:
+            return False, str(exc)
+
+        if result.returncode != 0:
+            output = (result.stderr or result.stdout or "").strip()
+            output = re.sub(r"\s+", " ", output)
+            if len(output) > 240:
+                output = f"...{output[-240:]}"
+            if output:
+                return False, f"exit {result.returncode}: {output}"
+            return False, f"exit {result.returncode}"
+        return True, None
+
+    def get_tool_runtime_status(self) -> Dict[str, Dict[str, Optional[str]]]:
+        """Return resolved paths plus runtime probe results for external tools."""
+        ffmpeg_path = self.get_ffmpeg_path()
+        ffprobe_path = self._resolve_ffprobe_path()
+        comskip_path = self.get_comskip_path()
+
+        ffmpeg_ok, ffmpeg_error = self._probe_tool(ffmpeg_path, ["-version"])
+        ffprobe_ok, ffprobe_error = self._probe_tool(ffprobe_path, ["-version"])
+        comskip_ok, comskip_error = self._probe_tool(comskip_path, ["--version"])
+
+        return {
+            "ffmpeg": {
+                "path": ffmpeg_path,
+                "available": ffmpeg_ok,
+                "error": ffmpeg_error,
+            },
+            "ffprobe": {
+                "path": ffprobe_path,
+                "available": ffprobe_ok,
+                "error": ffprobe_error,
+            },
+            "comskip": {
+                "path": comskip_path,
+                "available": comskip_ok,
+                "error": comskip_error,
+            },
+        }
 
     def _get_available_encoders(self) -> List[str]:
         """Get list of available ffmpeg encoders."""

@@ -269,16 +269,30 @@ async def get_template_variables():
 @router.get("/tools")
 async def get_tools_status():
     """Check availability of post-processing tools."""
+    tool_status = post_processor.get_tool_runtime_status()
+    ffmpeg_status = tool_status["ffmpeg"]
+    ffprobe_status = tool_status["ffprobe"]
+    comskip_status = tool_status["comskip"]
+
     return {
         "ffmpeg": {
-            "available": post_processor.ffmpeg_available,
-            "path": post_processor.get_ffmpeg_path(),
+            "available": ffmpeg_status["available"],
+            "path": ffmpeg_status["path"],
+            "error": ffmpeg_status["error"],
             "description": "Required for transcoding to MP4/MKV formats",
             "install_hint": "Included in the Docker image; install ffmpeg if running locally.",
         },
+        "ffprobe": {
+            "available": ffprobe_status["available"],
+            "path": ffprobe_status["path"],
+            "error": ffprobe_status["error"],
+            "description": "Used for duration/progress and segment timing calculations",
+            "install_hint": "Usually installed with ffmpeg.",
+        },
         "comskip": {
-            "available": post_processor.comskip_available,
-            "path": post_processor.get_comskip_path(),
+            "available": comskip_status["available"],
+            "path": comskip_status["path"],
+            "error": comskip_status["error"],
             "description": "Commercial detection and removal",
             "install_hint": "Included in the Docker image; build comskip if running locally.",
         },

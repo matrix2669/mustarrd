@@ -135,6 +135,59 @@ function resolveBundledComskipIniPath() {
   return path.resolve(__dirname, "..", "comskip.ini");
 }
 
+function toolExecutableName(toolName) {
+  if (process.platform === "win32") {
+    return `${toolName}.exe`;
+  }
+  return toolName;
+}
+
+function resolveBundledToolsRoot() {
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, "tools");
+  }
+  return path.resolve(__dirname, "tools");
+}
+
+function resolveBundledToolSearchDirs() {
+  const root = resolveBundledToolsRoot();
+  const arch = process.arch;
+  const platform = process.platform;
+
+  return [
+    path.join(root, `${platform}-${arch}`),
+    path.join(root, platform),
+    root
+  ];
+}
+
+function resolveBundledToolPath(toolName) {
+  const executable = toolExecutableName(toolName);
+  const dirs = resolveBundledToolSearchDirs();
+  for (const dirPath of dirs) {
+    const candidate = path.join(dirPath, executable);
+    if (isExecutable(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+function resolveBundledLibraryDirs() {
+  const dirs = [];
+  const searchDirs = resolveBundledToolSearchDirs();
+  for (const dirPath of searchDirs) {
+    if (fs.existsSync(dirPath)) {
+      dirs.push(dirPath);
+      const libDir = path.join(dirPath, "lib");
+      if (fs.existsSync(libDir)) {
+        dirs.push(libDir);
+      }
+    }
+  }
+  return [...new Set(dirs)];
+}
+
 function escapeHtml(value) {
   return String(value)
     .replace(/&/g, "&amp;")
@@ -340,6 +393,36 @@ async function startBackend() {
     const bundledComskipIniPath = resolveBundledComskipIniPath();
     if (fs.existsSync(bundledComskipIniPath)) {
       backendEnv.CATCHUP_BUNDLED_COMSKIP_INI = bundledComskipIniPath;
+    }
+  }
+
+  const bundledFfmpegPath = resolveBundledToolPath("ffmpeg");
+  const bundledFfprobePath = resolveBundledToolPath("ffprobe");
+  const bundledComskipPath = resolveBundledToolPath("comskip");
+
+  if (!backendEnv.CATCHUP_FFMPEG_PATH && bundledFfmpegPath) {
+    backendEnv.CATCHUP_FFMPEG_PATH = bundledFfmpegPath;
+  }
+  if (!backendEnv.CATCHUP_FFPROBE_PATH && bundledFfprobePath) {
+    backendEnv.CATCHUP_FFPROBE_PATH = bundledFfprobePath;
+  }
+  if (!backendEnv.CATCHUP_COMSKIP_PATH && bundledComskipPath) {
+    backendEnv.CATCHUP_COMSKIP_PATH = bundledComskipPath;
+  }
+
+  const bundledLibraryDirs = resolveBundledLibraryDirs();
+  if (bundledLibraryDirs.length > 0) {
+    backendEnv.PATH = withPrependedPathEntries(backendEnv.PATH, bundledLibraryDirs);
+    if (process.platform === "darwin") {
+      backendEnv.DYLD_LIBRARY_PATH = withPrependedPathEntries(
+        backendEnv.DYLD_LIBRARY_PATH,
+        bundledLibraryDirs
+      );
+    } else if (process.platform === "linux") {
+      backendEnv.LD_LIBRARY_PATH = withPrependedPathEntries(
+        backendEnv.LD_LIBRARY_PATH,
+        bundledLibraryDirs
+      );
     }
   }
 

@@ -29,6 +29,13 @@ In desktop mode, default download and completed folders are the current user's O
 
 Output artifacts are written to `desktop-electron/release/`.
 
+## Optional bundled post-processing tools
+
+Desktop builds can include bundled `ffmpeg`, `ffprobe`, and `comskip` binaries under `desktop-electron/tools/`.
+At runtime, the desktop shell prefers these bundled tools when present and falls back to system-installed tools when absent.
+
+This behavior is desktop-only and does not affect Linux server or Docker deployments.
+
 ## Development shell (optional)
 
 For local shell testing, build the frontend and backend binary first:

@@ -482,7 +482,7 @@ export default function Settings() {
 
           <Alert icon={<IconInfoCircle size={16} />} variant="light">
             <Text size="sm">
-              Automatically process downloads after completion. Requires ffmpeg and/or Comskip to be installed.
+              Automatically process downloads after completion. Requires working ffmpeg and/or Comskip binaries.
             </Text>
           </Alert>
 
@@ -494,21 +494,27 @@ export default function Settings() {
                   variant="light"
                   leftSection={toolsStatus.ffmpeg?.available ? <IconCheck size={12} /> : <IconX size={12} />}
                 >
-                  ffmpeg {toolsStatus.ffmpeg?.available ? 'installed' : 'not found'}
+                  ffmpeg {toolsStatus.ffmpeg?.available ? 'ready' : 'unavailable'}
                 </Badge>
                 <Badge
                   color={toolsStatus.comskip?.available ? 'green' : 'red'}
                   variant="light"
                   leftSection={toolsStatus.comskip?.available ? <IconCheck size={12} /> : <IconX size={12} />}
                 >
-                  Comskip {toolsStatus.comskip?.available ? 'installed' : 'not found'}
+                  Comskip {toolsStatus.comskip?.available ? 'ready' : 'unavailable'}
                 </Badge>
               </Group>
               {toolsStatus.ffmpeg?.path && (
                 <Text size="xs" c="dimmed">ffmpeg: {toolsStatus.ffmpeg.path}</Text>
               )}
+              {toolsStatus.ffmpeg?.error && (
+                <Text size="xs" c="red">ffmpeg error: {toolsStatus.ffmpeg.error}</Text>
+              )}
               {toolsStatus.comskip?.path && (
                 <Text size="xs" c="dimmed">comskip: {toolsStatus.comskip.path}</Text>
+              )}
+              {toolsStatus.comskip?.error && (
+                <Text size="xs" c="red">comskip error: {toolsStatus.comskip.error}</Text>
               )}
             </Stack>
           )}
@@ -594,7 +600,7 @@ export default function Settings() {
                   {!toolsStatus?.ffmpeg?.available && (
                     <Alert color="yellow" variant="light">
                       <Text size="sm">
-                        ffmpeg not found. The Docker image includes ffmpeg; install it manually if running locally.
+                        ffmpeg is unavailable. The Docker image includes ffmpeg; install or fix it manually if running locally.
                       </Text>
                     </Alert>
                   )}
@@ -656,7 +662,7 @@ export default function Settings() {
                   {!toolsStatus?.comskip?.available && (
                     <Alert color="yellow" variant="light">
                       <Text size="sm">
-                        Comskip not found. See{' '}
+                        Comskip is unavailable. See{' '}
                         <a href="https://github.com/erikkaashoek/Comskip" target="_blank" rel="noopener noreferrer">
                           github.com/erikkaashoek/Comskip
                         </a>{' '}

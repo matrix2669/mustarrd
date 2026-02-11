@@ -50,6 +50,10 @@
         "to": "mustarrd-trayTemplate@2x.png"
       },
       {
+        "from": "tools",
+        "to": "tools"
+      },
+      {
         "from": "../comskip.ini",
         "to": "comskip.ini"
       }
