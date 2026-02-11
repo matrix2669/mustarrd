@@ -2,6 +2,7 @@ from pydantic_settings import BaseSettings
 from pathlib import Path
 import os
 import shutil
+import sys
 
 
 def _default_data_root() -> Path:
@@ -99,15 +100,34 @@ def _get_config_dir() -> Path:
     return Path("./config")
 
 
+def _resolve_bundled_comskip_ini() -> Path | None:
+    candidates: list[Path] = []
+
+    env_ini_path = os.environ.get("CATCHUP_BUNDLED_COMSKIP_INI")
+    if env_ini_path:
+        candidates.append(Path(env_ini_path).expanduser())
+
+    meipass_root = getattr(sys, "_MEIPASS", None)
+    if meipass_root:
+        candidates.append(Path(meipass_root) / "comskip.ini")
+
+    repo_root = Path(__file__).resolve().parents[1]
+    candidates.append(repo_root / "comskip.ini")
+
+    for candidate in candidates:
+        if candidate.exists() and candidate.is_file():
+            return candidate
+    return None
+
+
 def ensure_config_files() -> Path:
     config_dir = _get_config_dir()
     config_dir.mkdir(parents=True, exist_ok=True)
 
-    repo_root = Path(__file__).resolve().parents[1]
-    bundled_ini = repo_root / "comskip.ini"
+    bundled_ini = _resolve_bundled_comskip_ini()
     target_ini = config_dir / "comskip.ini"
 
-    if bundled_ini.exists() and not target_ini.exists():
+    if bundled_ini and bundled_ini.exists() and not target_ini.exists():
         shutil.copyfile(bundled_ini, target_ini)
 
     return config_dir

@@ -128,6 +128,13 @@ function resolveAppIconPath() {
   return path.resolve(__dirname, "assets", "mustarrd.icns");
 }
 
+function resolveBundledComskipIniPath() {
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, "comskip.ini");
+  }
+  return path.resolve(__dirname, "..", "comskip.ini");
+}
+
 function escapeHtml(value) {
   return String(value)
     .replace(/&/g, "&amp;")
@@ -328,6 +335,13 @@ async function startBackend() {
     CATCHUP_DATA_ROOT: resolveDataRootPath(),
     CATCHUP_FRONTEND_DIST: frontendDistPath
   };
+
+  if (!backendEnv.CATCHUP_BUNDLED_COMSKIP_INI) {
+    const bundledComskipIniPath = resolveBundledComskipIniPath();
+    if (fs.existsSync(bundledComskipIniPath)) {
+      backendEnv.CATCHUP_BUNDLED_COMSKIP_INI = bundledComskipIniPath;
+    }
+  }
 
   if (process.platform === "darwin") {
     backendEnv.PATH = withPrependedPathEntries(backendEnv.PATH, [

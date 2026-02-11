@@ -645,7 +645,7 @@ export default function Settings() {
 
                       <TextInput
                         label="Comskip INI Path (optional)"
-                        description="Custom comskip.ini configuration file"
+                        description="Custom comskip.ini configuration file (leave blank to use the app default)"
                         placeholder="/path/to/comskip.ini"
                         value={formData.comskip_ini_path || ''}
                         onChange={(e) => handleChange('comskip_ini_path', e.target.value || null)}

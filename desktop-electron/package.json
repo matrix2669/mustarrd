@@ -48,6 +48,10 @@
       {
         "from": "assets/mustarrd-trayTemplate@2x.png",
         "to": "mustarrd-trayTemplate@2x.png"
+      },
+      {
+        "from": "../comskip.ini",
+        "to": "comskip.ini"
       }
     ],
     "mac": {
