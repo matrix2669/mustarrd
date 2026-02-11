@@ -4,6 +4,8 @@ This Electron shell launches the bundled backend server and opens the Mustarrd U
 
 Closing the window hides the app to the tray/menu bar while the backend keeps running.
 
+In desktop mode, default download and completed folders are the current user's OS Downloads directory.
+
 ## Build prerequisites
 
 - Node.js 20+

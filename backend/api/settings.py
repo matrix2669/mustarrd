@@ -3,9 +3,17 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import Optional
+import os
 
 from database import get_session
-from config import ensure_config_files, settings as app_settings, is_docker_env
+from config import (
+    ensure_config_files,
+    settings as app_settings,
+    is_docker_env,
+    is_desktop_env,
+    legacy_desktop_download_folder,
+    legacy_desktop_completed_folder,
+)
 from models import AppSettings
 from services.download_manager import download_manager
 from services.epg_service import epg_service
@@ -13,6 +21,14 @@ from services.post_processor import post_processor
 
 
 router = APIRouter()
+
+
+def _paths_match(path_a: Optional[str], path_b: Optional[str]) -> bool:
+    if not path_a or not path_b:
+        return False
+    norm_a = os.path.realpath(os.path.abspath(os.path.expanduser(path_a)))
+    norm_b = os.path.realpath(os.path.abspath(os.path.expanduser(path_b)))
+    return norm_a == norm_b
 
 
 class SettingsUpdate(BaseModel):
@@ -99,6 +115,24 @@ async def get_settings(session: AsyncSession = Depends(get_session)):
         session.add(settings)
         await session.commit()
         await session.refresh(settings)
+
+    # Desktop builds now default to the OS Downloads directory.
+    # Migrate legacy desktop defaults stored under CATCHUP_DATA_ROOT.
+    if is_desktop_env():
+        legacy_download = legacy_desktop_download_folder()
+        legacy_completed = legacy_desktop_completed_folder()
+
+        if _paths_match(settings.download_folder, legacy_download):
+            settings.download_folder = app_settings.default_download_folder
+            session.add(settings)
+            await session.commit()
+            await session.refresh(settings)
+
+        if _paths_match(settings.completed_folder, legacy_completed):
+            settings.completed_folder = app_settings.default_completed_folder
+            session.add(settings)
+            await session.commit()
+            await session.refresh(settings)
     if is_docker_env() and not settings.completed_folder.startswith("/app/"):
         settings.completed_folder = app_settings.default_completed_folder
         session.add(settings)

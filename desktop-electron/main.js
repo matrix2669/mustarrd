@@ -125,6 +125,7 @@ async function startBackend() {
     ...process.env,
     CATCHUP_DESKTOP_HOST: BACKEND_HOST,
     CATCHUP_DESKTOP_PORT: BACKEND_PORT,
+    CATCHUP_DESKTOP_MODE: "1",
     CATCHUP_DATA_ROOT: resolveDataRootPath(),
     CATCHUP_FRONTEND_DIST: frontendDistPath
   };

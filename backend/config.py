@@ -16,8 +16,31 @@ def _using_docker_paths() -> bool:
         return True
     return Path("/.dockerenv").exists()
 
+
+def _using_desktop_mode() -> bool:
+    return os.environ.get("CATCHUP_DESKTOP_MODE") == "1"
+
+
 def is_docker_env() -> bool:
     return _using_docker_paths()
+
+
+def is_desktop_env() -> bool:
+    return _using_desktop_mode()
+
+
+def _desktop_downloads_dir() -> Path:
+    downloads_dir = Path.home() / "Downloads"
+    downloads_dir.mkdir(parents=True, exist_ok=True)
+    return downloads_dir
+
+
+def legacy_desktop_download_folder() -> str:
+    return str(_default_data_root() / "downloads")
+
+
+def legacy_desktop_completed_folder() -> str:
+    return str(_default_data_root() / "completed")
 
 
 def _default_database_url() -> str:
@@ -29,12 +52,16 @@ def _default_database_url() -> str:
 def _default_download_folder() -> str:
     if _using_docker_paths():
         return "/app/downloads"
+    if _using_desktop_mode():
+        return str(_desktop_downloads_dir())
     return str(_default_data_root() / "downloads")
 
 
 def _default_completed_folder() -> str:
     if _using_docker_paths():
         return "/app/completed"
+    if _using_desktop_mode():
+        return str(_desktop_downloads_dir())
     return str(_default_data_root() / "completed")
 
 

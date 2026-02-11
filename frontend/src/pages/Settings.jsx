@@ -257,25 +257,32 @@ export default function Settings() {
         onClose={handleStay}
         title="Unsaved changes"
         centered
+        size="md"
+        radius="md"
+        padding="lg"
+        overlayProps={{ opacity: 0.55, blur: 2 }}
       >
-        <Stack>
-          <Text size="sm">
-            You have unsaved changes. Would you like to save before leaving?
-          </Text>
-          <Group justify="flex-end">
-            <Button variant="subtle" onClick={handleStay}>
-              Stay
-            </Button>
-            <Button variant="default" onClick={handleDiscardAndContinue}>
-              Discard & Continue
-            </Button>
+        <Stack gap="md">
+          <Alert icon={<IconAlertCircle size={16} />} color="yellow" variant="light" radius="md">
+            <Text size="sm">
+              You have unsaved settings changes. Save before leaving this page?
+            </Text>
+          </Alert>
+          <Stack gap="xs">
             <Button
               onClick={handleSaveAndContinue}
               loading={isSavingAndLeaving || updateMutation.isPending}
+              fullWidth
             >
               Save & Continue
             </Button>
-          </Group>
+            <Button variant="default" onClick={handleDiscardAndContinue} fullWidth>
+              Discard & Continue
+            </Button>
+            <Button variant="subtle" color="gray" onClick={handleStay} fullWidth>
+              Keep Editing
+            </Button>
+          </Stack>
         </Stack>
       </Modal>
       <Group justify="space-between">
