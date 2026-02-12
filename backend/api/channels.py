@@ -75,6 +75,7 @@ async def get_channel_epg(
     account_id: int,
     channel_id: str,
     days_back: int = Query(7, ge=1, le=14),
+    fresh: bool = Query(False, description="Fetch live channel EPG before falling back to stored guide data"),
     session: AsyncSession = Depends(get_session)
 ):
     """Get EPG data for a specific channel."""
@@ -92,6 +93,7 @@ async def get_channel_epg(
             session,
             account_id,
             channel_id,
+            prefer_live=fresh,
             days_back=actual_days,
         )
         return epg_data

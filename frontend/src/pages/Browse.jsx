@@ -338,8 +338,10 @@ export default function Browse() {
   // Fetch EPG for selected channel
   const { data: epgData, isLoading: epgLoading } = useQuery({
     queryKey: ['epg', selectedAccountId, selectedChannel?.stream_id],
-    queryFn: () => channelsApi.getEpg(selectedAccountId, selectedChannel.stream_id, 7),
+    queryFn: () => channelsApi.getEpg(selectedAccountId, selectedChannel.stream_id, 7, true),
     enabled: !!selectedAccountId && !!selectedChannel,
+    staleTime: 0,
+    refetchOnWindowFocus: false,
   })
 
   const {

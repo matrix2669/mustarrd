@@ -68,6 +68,7 @@ class EPGService:
         account_id: int,
         channel_id: str,
         use_cache: bool = True,
+        prefer_live: bool = False,
         days_back: Optional[int] = None
     ) -> list:
         """Get EPG data for a specific channel."""
@@ -77,7 +78,7 @@ class EPGService:
         epg_offset_minutes = app_settings_row.epg_offset_minutes if app_settings_row else 0
         cache_key = self._get_cache_key(account_id, channel_id, epg_offset_minutes)
 
-        if use_cache and self._is_cache_valid(cache_key):
+        if use_cache and not prefer_live and self._is_cache_valid(cache_key):
             return self._cache[cache_key]["data"]
 
         # Prefer DB-backed EPG if available
@@ -93,6 +94,31 @@ class EPGService:
             days_back = min(days_back, max_days)
 
         cutoff = datetime.now(timezone.utc) - timedelta(days=days_back)
+
+        async def fetch_live_epg() -> list:
+            client = await self._get_client(session, account_id)
+            try:
+                epg_data = await client.get_epg(channel_id)
+                processed = [
+                    self._process_epg_entry(entry, epg_offset_minutes)
+                    for entry in epg_data
+                ]
+                return self._filter_programs_by_cutoff(processed, cutoff)
+            finally:
+                await client.close()
+
+        if prefer_live:
+            try:
+                live_programs = await fetch_live_epg()
+            except Exception:
+                live_programs = []
+            if live_programs:
+                self._cache[cache_key] = {
+                    "data": live_programs,
+                    "cached_at": datetime.utcnow()
+                }
+                return live_programs
+
         db_result = await session.execute(
             select(EPGProgram)
             .where(
@@ -115,24 +141,12 @@ class EPGService:
             return processed
 
         # Fallback to live API if DB has no data
-        client = await self._get_client(session, account_id)
-        try:
-            epg_data = await client.get_epg(channel_id)
-
-            # Process EPG entries
-            processed = []
-            for entry in epg_data:
-                processed.append(self._process_epg_entry(entry, epg_offset_minutes))
-
-            # Cache the results
-            self._cache[cache_key] = {
-                "data": processed,
-                "cached_at": datetime.utcnow()
-            }
-
-            return processed
-        finally:
-            await client.close()
+        live_programs = await fetch_live_epg()
+        self._cache[cache_key] = {
+            "data": live_programs,
+            "cached_at": datetime.utcnow()
+        }
+        return live_programs
 
     def _process_epg_entry(self, entry: dict, epg_offset_minutes: int = 0) -> dict:
         """Process and normalize an EPG entry."""
@@ -250,6 +264,22 @@ class EPGService:
             "channel_name": row.channel_name,
             "category": row.category,
         }
+
+    def _filter_programs_by_cutoff(self, programs: list[dict], cutoff: datetime) -> list:
+        filtered: list[dict] = []
+        for program in programs:
+            end_time_raw = program.get("end_time")
+            if not end_time_raw:
+                continue
+            try:
+                end_time = datetime.fromisoformat(end_time_raw)
+            except (TypeError, ValueError):
+                continue
+            if end_time.tzinfo is None:
+                end_time = end_time.replace(tzinfo=timezone.utc)
+            if end_time >= cutoff:
+                filtered.append(program)
+        return filtered
 
     def _normalize_time(self, dt_value: Optional[datetime], epg_offset_minutes: int) -> Optional[datetime]:
         if not dt_value:

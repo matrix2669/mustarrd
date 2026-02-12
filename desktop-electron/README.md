@@ -34,6 +34,21 @@ Output artifacts are written to `desktop-electron/release/`.
 Desktop builds can include bundled `ffmpeg`, `ffprobe`, and `comskip` binaries under `desktop-electron/tools/`.
 At runtime, the desktop shell prefers these bundled tools when present and falls back to system-installed tools when absent.
 
+For macOS builds, `npm run dist:mac` now runs `scripts/prepare-tools-macos.sh` to vendor:
+- `ffmpeg`
+- `ffprobe`
+- `comskip`
+- non-system dynamic libraries needed by those executables
+
+These are staged under `desktop-electron/tools/darwin-<arch>/` before packaging.
+The prep step uses a manifest cache and skips rebuilding when the source tool binaries have not changed.
+To force a rebuild of bundled tools:
+
+```bash
+cd desktop-electron
+bash ./scripts/prepare-tools-macos.sh --force
+```
+
 This behavior is desktop-only and does not affect Linux server or Docker deployments.
 
 ## Development shell (optional)

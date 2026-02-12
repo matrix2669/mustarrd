@@ -44,8 +44,10 @@ export const channelsApi = {
     return request(`/accounts/${accountId}/channels?${params}`)
   },
   getChannel: (accountId, channelId) => request(`/accounts/${accountId}/channels/${channelId}`),
-  getEpg: (accountId, channelId, daysBack = 7) =>
-    request(`/accounts/${accountId}/channels/${channelId}/epg?days_back=${daysBack}`),
+  getEpg: (accountId, channelId, daysBack = 7, fresh = false) =>
+    request(
+      `/accounts/${accountId}/channels/${channelId}/epg?days_back=${daysBack}&fresh=${fresh ? 'true' : 'false'}`
+    ),
   getCatchup: (accountId, channelId, daysBack = 7) =>
     request(`/accounts/${accountId}/channels/${channelId}/catchup?days_back=${daysBack}`),
 }
