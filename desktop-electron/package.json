@@ -7,9 +7,10 @@
   "scripts": {
     "dev": "electron .",
     "build:frontend": "cd ../frontend && npm run build",
+    "prepare:tools:mac": "bash ./scripts/prepare-tools-macos.sh",
     "build:backend:mac": "bash ./scripts/build-backend-macos.sh",
     "build:backend:win": "powershell -ExecutionPolicy Bypass -File ./scripts/build-backend-windows.ps1",
-    "dist:mac": "npm run build:frontend && npm run build:backend:mac && electron-builder --mac dmg zip",
+    "dist:mac": "npm run build:frontend && npm run prepare:tools:mac && npm run build:backend:mac && electron-builder --mac dmg zip",
     "dist:win": "npm run build:frontend && npm run build:backend:win && electron-builder --win nsis zip"
   },
   "devDependencies": {

@@ -199,6 +199,7 @@ class PostProcessor:
         self,
         path: Optional[str],
         args: List[str],
+        allowed_exit_codes: Optional[set[int]] = None,
         timeout: float = 5.0,
     ) -> Tuple[bool, Optional[str]]:
         """Check whether a tool executable can actually run."""
@@ -219,7 +220,10 @@ class PostProcessor:
         except Exception as exc:
             return False, str(exc)
 
-        if result.returncode != 0:
+        if allowed_exit_codes is None:
+            allowed_exit_codes = {0}
+
+        if result.returncode not in allowed_exit_codes:
             output = (result.stderr or result.stdout or "").strip()
             output = re.sub(r"\s+", " ", output)
             if len(output) > 240:
@@ -237,7 +241,12 @@ class PostProcessor:
 
         ffmpeg_ok, ffmpeg_error = self._probe_tool(ffmpeg_path, ["-version"])
         ffprobe_ok, ffprobe_error = self._probe_tool(ffprobe_path, ["-version"])
-        comskip_ok, comskip_error = self._probe_tool(comskip_path, ["--version"])
+        # Comskip commonly returns 2 for --help/usage even when functional.
+        comskip_ok, comskip_error = self._probe_tool(
+            comskip_path,
+            ["--help"],
+            allowed_exit_codes={0, 2}
+        )
 
         return {
             "ffmpeg": {
@@ -357,7 +366,6 @@ class PostProcessor:
             # VideoToolbox options
             args.extend([
                 "-q:v", "65",  # Quality (0-100, higher is better)
-                "-allow_sw", "1",  # Allow software fallback
             ])
         elif hw_accel == HardwareAccel.NVIDIA:
             args.extend([
@@ -377,6 +385,13 @@ class PostProcessor:
             ])
 
         return args
+
+    def _preferred_video_codec(self, hw_accel: HardwareAccel) -> str:
+        """Choose default encoder codec per hardware backend."""
+        if hw_accel == HardwareAccel.APPLE_SILICON:
+            # Match desired macOS VideoToolbox defaults.
+            return "hevc"
+        return "h264"
 
     def _parse_ffmpeg_time(self, key: str, value: str) -> Optional[float]:
         """Parse ffmpeg progress time values into seconds."""
@@ -556,9 +571,13 @@ class PostProcessor:
                 cmd.extend(["-map", "0", "-c", "copy"])
             else:
                 # Add video encoder args
-                cmd.extend(self._get_encoder_args(hw_accel, "h264", quality))
+                cmd.extend(self._get_encoder_args(
+                    hw_accel,
+                    self._preferred_video_codec(hw_accel),
+                    quality
+                ))
                 # Audio - AAC for compatibility
-                cmd.extend(["-c:a", "aac", "-b:a", "192k"])
+                cmd.extend(["-c:a", "aac"])
         else:
             # TS - copy streams
             cmd.extend(["-c", "copy"])
@@ -891,8 +910,11 @@ class PostProcessor:
             cmd = self._with_error_tolerant_flags(cmd)
 
             if output_format in [OutputFormat.MP4, OutputFormat.MKV]:
-                cmd.extend(self._get_encoder_args(hw_accel))
-                cmd.extend(["-c:a", "aac", "-b:a", "192k"])
+                cmd.extend(self._get_encoder_args(
+                    hw_accel,
+                    self._preferred_video_codec(hw_accel)
+                ))
+                cmd.extend(["-c:a", "aac"])
             else:
                 cmd.extend(["-c", "copy"])
 

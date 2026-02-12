@@ -19,3 +19,5 @@ Any shared libraries can be colocated in the same directory or in a lib/ subdire
 Desktop startup prepends these directories to PATH and platform library lookup paths.
 
 If this folder is empty, desktop falls back to system-installed tools (current behavior).
+
+For mac builds, `scripts/prepare-tools-macos.sh` auto-populates `tools/darwin-<arch>/`.

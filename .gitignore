@@ -21,3 +21,5 @@ desktop-electron/release/
 desktop-electron/.backend-build/
 desktop-electron/backend-bin/*
 !desktop-electron/backend-bin/.gitkeep
+desktop-electron/tools/darwin-*/
+desktop-electron/tools/win32-*/

@@ -400,6 +400,7 @@ class DownloadManager:
             original_file = Path(original_path)
             base_dir = original_file.parent
             stem = original_file.stem
+            completed_real = os.path.realpath(os.path.abspath(completed_path))
 
             if original_path != completed_path and original_file.exists():
                 original_file.unlink()
@@ -427,6 +428,9 @@ class DownloadManager:
             for pattern in patterns:
                 for path in base_dir.glob(pattern):
                     try:
+                        candidate_real = os.path.realpath(os.path.abspath(str(path)))
+                        if candidate_real == completed_real:
+                            continue
                         path.unlink()
                     except Exception:
                         continue
