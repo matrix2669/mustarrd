@@ -521,6 +521,11 @@ class PostProcessor:
             return cmd
         return ["/usr/bin/env", "LIBVA_DRIVER_NAME=iHD", *cmd]
 
+    def _escape_concat_path(self, path: Path) -> str:
+        text = str(path)
+        text = text.replace("\\", "\\\\")
+        return text.replace("'", "'\\''")
+
     async def transcode(
         self,
         input_path: str,
@@ -568,7 +573,7 @@ class PostProcessor:
 
         if output_format in [OutputFormat.MP4, OutputFormat.MKV]:
             if remux_only:
-                cmd.extend(["-map", "0", "-c", "copy"])
+                cmd.extend(["-map", "0", "-c", "copy", "-avoid_negative_ts", "make_zero"])
             else:
                 # Add video encoder args
                 cmd.extend(self._get_encoder_args(
@@ -611,6 +616,44 @@ class PostProcessor:
         duration = await self._get_duration(input_path, log_callback=log_callback)
         returncode, stderr = await self._run_ffmpeg_with_progress(cmd, duration, progress_callback)
         if returncode != 0:
+            if remux_only and output_format in [OutputFormat.MP4, OutputFormat.MKV]:
+                await self._notify_log(
+                    log_callback,
+                    "ffmpeg remux failed; retrying with audio re-encode (copy video, AAC audio)."
+                )
+                if output_path.exists():
+                    try:
+                        output_path.unlink()
+                    except Exception:
+                        pass
+                retry_cmd = [self._ffmpeg_path]
+                if hw_accel == HardwareAccel.VAAPI:
+                    retry_cmd.extend(["-vaapi_device", "/dev/dri/renderD128"])
+                retry_cmd.extend([
+                    "-i", str(input_path),
+                    "-y",
+                ])
+                retry_cmd = self._with_error_tolerant_flags(retry_cmd)
+                retry_cmd.extend(["-map", "0", "-c:v", "copy", "-c:a", "aac", "-avoid_negative_ts", "make_zero"])
+                retry_cmd.extend([
+                    "-progress", "pipe:1",
+                    "-nostats",
+                    str(output_path)
+                ])
+                await self._notify_log(
+                    log_callback,
+                    f"ffmpeg retry cmd: {' '.join(shlex.quote(str(c)) for c in retry_cmd)}"
+                )
+                if hw_accel == HardwareAccel.VAAPI:
+                    retry_cmd = self._prepend_vaapi_env(retry_cmd)
+                returncode, stderr = await self._run_ffmpeg_with_progress(
+                    retry_cmd,
+                    duration,
+                    progress_callback
+                )
+                if returncode == 0:
+                    return str(output_path)
+
             log_path = self._write_ffmpeg_log(str(input_path), "transcode", stderr)
             if log_path:
                 await self._notify_log(log_callback, f"ffmpeg log saved: {log_path}")
@@ -896,7 +939,7 @@ class PostProcessor:
             # Write concat file
             with open(concat_file, "w") as f:
                 for temp_path in temp_files:
-                    f.write(f"file '{temp_path}'\n")
+                    f.write(f"file '{self._escape_concat_path(temp_path)}'\n")
 
             # Concat and encode
             cmd = [self._ffmpeg_path]
@@ -910,11 +953,14 @@ class PostProcessor:
             cmd = self._with_error_tolerant_flags(cmd)
 
             if output_format in [OutputFormat.MP4, OutputFormat.MKV]:
-                cmd.extend(self._get_encoder_args(
-                    hw_accel,
-                    self._preferred_video_codec(hw_accel)
-                ))
-                cmd.extend(["-c:a", "aac"])
+                if remux_only:
+                    cmd.extend(["-map", "0", "-c", "copy", "-avoid_negative_ts", "make_zero"])
+                else:
+                    cmd.extend(self._get_encoder_args(
+                        hw_accel,
+                        self._preferred_video_codec(hw_accel)
+                    ))
+                    cmd.extend(["-c:a", "aac"])
             else:
                 cmd.extend(["-c", "copy"])
 
@@ -936,6 +982,41 @@ class PostProcessor:
             )
 
             if returncode != 0:
+                if remux_only and output_format in [OutputFormat.MP4, OutputFormat.MKV]:
+                    await self._notify_log(
+                        log_callback,
+                        "ffmpeg concat remux failed; retrying with audio re-encode (copy video, AAC audio)."
+                    )
+                    if output_path.exists():
+                        try:
+                            output_path.unlink()
+                        except Exception:
+                            pass
+                    retry_cmd = [self._ffmpeg_path]
+                    if hw_accel == HardwareAccel.VAAPI:
+                        retry_cmd.extend(["-vaapi_device", "/dev/dri/renderD128"])
+                    retry_cmd.extend([
+                        "-f", "concat",
+                        "-safe", "0",
+                        "-i", str(concat_file),
+                    ])
+                    retry_cmd = self._with_error_tolerant_flags(retry_cmd)
+                    retry_cmd.extend(["-map", "0", "-c:v", "copy", "-c:a", "aac", "-avoid_negative_ts", "make_zero"])
+                    retry_cmd.extend(["-progress", "pipe:1", "-nostats", "-y", str(output_path)])
+                    await self._notify_log(
+                        log_callback,
+                        f"ffmpeg concat retry cmd: {' '.join(shlex.quote(str(c)) for c in retry_cmd)}"
+                    )
+                    if hw_accel == HardwareAccel.VAAPI:
+                        retry_cmd = self._prepend_vaapi_env(retry_cmd)
+                    returncode, stderr = await self._run_ffmpeg_with_progress(
+                        retry_cmd,
+                        kept_duration,
+                        progress_callback=mapped_callback if progress_callback else None
+                    )
+                    if returncode == 0:
+                        return str(output_path)
+
                 log_path = self._write_ffmpeg_log(str(input_path), "concat", stderr)
                 if log_path:
                     await self._notify_log(log_callback, f"ffmpeg log saved: {log_path}")

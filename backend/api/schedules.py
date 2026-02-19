@@ -113,6 +113,7 @@ async def list_schedules(session: AsyncSession = Depends(get_session)):
         if download:
             data["download_status"] = download.status
             data["download_progress"] = download.progress
+            data["download_output_path"] = download.output_path
         response.append(data)
 
     if updated:

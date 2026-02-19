@@ -1,4 +1,6 @@
+import asyncio
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_, func
 
@@ -9,6 +11,17 @@ from services.epg_ingest_manager import epg_ingest_manager
 
 
 router = APIRouter()
+
+
+def _log_task_result(task: asyncio.Task):
+    try:
+        task.result()
+    except Exception as exc:
+        print(f"EPG refresh task failed: {exc}")
+
+
+class EPGRefreshRequest(BaseModel):
+    force: bool = False
 
 
 @router.get("/epg/search")
@@ -51,3 +64,20 @@ async def search_epg(
 @router.get("/epg/status")
 async def epg_status():
     return epg_ingest_manager.get_status()
+
+
+@router.post("/epg/refresh")
+async def trigger_epg_refresh(request: EPGRefreshRequest):
+    status = epg_ingest_manager.get_status()
+    if status.get("running"):
+        raise HTTPException(status_code=409, detail="EPG refresh is already running")
+
+    refresh_task = asyncio.create_task(
+        epg_ingest_manager.refresh_all_accounts(force=request.force)
+    )
+    refresh_task.add_done_callback(_log_task_result)
+
+    return {
+        "status": "started",
+        "force": request.force,
+    }

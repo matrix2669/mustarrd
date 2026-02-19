@@ -59,6 +59,7 @@ export const epgApi = {
       `/epg/search?account_id=${accountId}&q=${encodeURIComponent(query)}&limit=${limit}&offset=${offset}`
     ),
   status: () => request('/epg/status'),
+  refresh: (force = false) => request('/epg/refresh', { method: 'POST', body: { force } }),
 }
 
 // Downloads

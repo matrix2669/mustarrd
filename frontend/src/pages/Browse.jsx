@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import {
   Title,
   Select,
@@ -28,7 +28,7 @@ import {
 } from '@tabler/icons-react'
 import dayjs from 'dayjs'
 
-import { accountsApi, channelsApi, epgApi, settingsApi, vodApi } from '../api'
+import { accountsApi, channelsApi, downloadsApi, epgApi, settingsApi, vodApi } from '../api'
 import EPGGrid from '../components/EPGGrid'
 import DownloadModal from '../components/DownloadModal'
 import ScheduleModal from '../components/ScheduleModal'
@@ -278,6 +278,50 @@ function getInitialDesktopPanelHeight() {
   return Math.max(360, Math.floor(window.innerHeight - 180))
 }
 
+const previousDownloadStatusMeta = {
+  pending: { label: 'Queued', color: 'blue' },
+  downloading: { label: 'Downloading', color: 'blue' },
+  processing: { label: 'Processing', color: 'violet' },
+  completed: { label: 'Downloaded', color: 'green' },
+  failed: { label: 'Failed', color: 'red' },
+  cancelled: { label: 'Cancelled', color: 'gray' },
+}
+
+function normalizeProgramTitle(value) {
+  return (value || '')
+    .toString()
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase()
+}
+
+function getProgramStartMinute(program) {
+  const rawTimestamp = Number(program?.start_timestamp)
+  if (Number.isFinite(rawTimestamp) && rawTimestamp > 0) {
+    return Math.floor(rawTimestamp / 60)
+  }
+
+  const startTime = program?.start_time || program?.program_start
+  if (!startTime) return null
+
+  const parsed = dayjs(startTime)
+  if (!parsed.isValid()) return null
+
+  return Math.floor(parsed.valueOf() / 60000)
+}
+
+function buildProgramSelectionKey(program, fallbackChannelId = null) {
+  const channelId = (program?.channel_id ?? fallbackChannelId ?? '').toString().trim()
+  const title = normalizeProgramTitle(program?.title ?? program?.program_title)
+  const startMinute = getProgramStartMinute(program)
+
+  if (!channelId || !title || startMinute == null) {
+    return null
+  }
+
+  return `${channelId}|${startMinute}|${title}`
+}
+
 export default function Browse() {
   const [selectedAccountId, setSelectedAccountId] = useState(null)
   const [selectedCategory, setSelectedCategory] = useState(null)
@@ -372,6 +416,12 @@ export default function Browse() {
     queryFn: settingsApi.get,
   })
 
+  const { data: downloads = [] } = useQuery({
+    queryKey: ['downloads'],
+    queryFn: downloadsApi.list,
+    enabled: !!selectedAccountId,
+  })
+
   const {
     data: movieCategories = [],
     isLoading: movieCategoriesLoading,
@@ -418,6 +468,48 @@ export default function Browse() {
       return title.includes(searchLower) || desc.includes(searchLower)
     })
   }, [epgData, programSearch])
+
+  const previousDownloadLookup = useMemo(() => {
+    if (!selectedAccountId) return new Map()
+
+    const lookup = new Map()
+
+    downloads.forEach((download) => {
+      if (download?.account_id?.toString() !== selectedAccountId) {
+        return
+      }
+      if (download?.is_vod) {
+        return
+      }
+
+      const key = buildProgramSelectionKey(download)
+      if (!key) return
+
+      const existing = lookup.get(key)
+      if (!existing) {
+        lookup.set(key, download)
+        return
+      }
+
+      const existingCreatedAt = dayjs(existing.created_at)
+      const nextCreatedAt = dayjs(download.created_at)
+
+      if (!existingCreatedAt.isValid() || (nextCreatedAt.isValid() && nextCreatedAt.isAfter(existingCreatedAt))) {
+        lookup.set(key, download)
+      }
+    })
+
+    return lookup
+  }, [downloads, selectedAccountId])
+
+  const getProgramPreviousDownload = useCallback(
+    (program, fallbackChannelId = null) => {
+      const key = buildProgramSelectionKey(program, fallbackChannelId)
+      if (!key) return null
+      return previousDownloadLookup.get(key) || null
+    },
+    [previousDownloadLookup]
+  )
 
   useEffect(() => {
     if (!vodAvailable && browseTab === 'vod') {
@@ -738,6 +830,9 @@ export default function Browse() {
                             epgData={filteredEpgData}
                             onProgramClick={handleProgramClick}
                             showFuture={appSettings?.show_future_programs}
+                            getProgramPreviousDownload={(program) =>
+                              getProgramPreviousDownload(program, selectedChannel?.stream_id)
+                            }
                           />
                         ) : (
                           <Text c="dimmed" ta="center" py="xl">
@@ -850,6 +945,9 @@ export default function Browse() {
                           epgData={filteredEpgData}
                           onProgramClick={handleProgramClick}
                           showFuture={appSettings?.show_future_programs}
+                          getProgramPreviousDownload={(program) =>
+                            getProgramPreviousDownload(program, selectedChannel?.stream_id)
+                          }
                         />
                       ) : (
                         <Text c="dimmed" ta="center" py="xl">
@@ -919,6 +1017,10 @@ export default function Browse() {
                       const isDownloadable = isPast && program.has_archive
                       const isClickable = !isPast || isDownloadable
                       const actionLabel = isDownloadable ? 'Download' : isPast ? 'Unavailable' : 'Schedule'
+                      const previousDownload = getProgramPreviousDownload(program)
+                      const previousStatus = previousDownload?.status
+                      const previousMeta =
+                        (previousStatus && previousDownloadStatusMeta[previousStatus]) || null
                       return (
                         <Card
                           key={program.epg_id || program.id}
@@ -933,16 +1035,28 @@ export default function Browse() {
                         >
                           <Stack gap={4}>
                             <Group justify="space-between" wrap="nowrap">
-                              <Text fw={500} truncate style={{ flex: 1 }}>
+                              <Text
+                                size={isMobile ? 'xs' : 'sm'}
+                                fw={500}
+                                lineClamp={isMobile ? 2 : 1}
+                                style={{ flex: 1, minWidth: 0, lineHeight: isMobile ? 1.25 : undefined }}
+                              >
                                 {program.title}
                               </Text>
-                              <Badge
-                                size="xs"
-                                variant="light"
-                                color={isDownloadable ? 'blue' : isPast ? 'gray' : 'teal'}
-                              >
-                                {actionLabel}
-                              </Badge>
+                              <Group gap={6} wrap="nowrap" style={{ flexShrink: 0 }}>
+                                {previousMeta && (
+                                  <Badge size="xs" variant="light" color={previousMeta.color}>
+                                    {previousMeta.label}
+                                  </Badge>
+                                )}
+                                <Badge
+                                  size="xs"
+                                  variant="light"
+                                  color={isDownloadable ? 'blue' : isPast ? 'gray' : 'teal'}
+                                >
+                                  {actionLabel}
+                                </Badge>
+                              </Group>
                             </Group>
                             <Text size="xs" c="dimmed">
                               {program.channel_name}

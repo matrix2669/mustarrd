@@ -30,7 +30,7 @@ import { downloadsApi, epgApi, createDownloadWebSocket } from './api'
 import mustarrdLogo from './assets/mustarrdlogo.png'
 
 function App() {
-  const [opened, { toggle }] = useDisclosure()
+  const [opened, { toggle, close }] = useDisclosure()
   const [activeDownloads, setActiveDownloads] = useState(0)
   const epgToastVisibleRef = useRef(false)
   const epgToastCloseTimerRef = useRef(null)
@@ -219,6 +219,7 @@ function App() {
               key={item.to}
               component={NavLink}
               to={item.to}
+              onClick={close}
               label={item.label}
               leftSection={<item.icon size={20} />}
               rightSection={

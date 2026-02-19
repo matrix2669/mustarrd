@@ -236,10 +236,6 @@ export default function Settings() {
       if (field === 'comskip_enabled' && value) {
         next.transcode_enabled = true
       }
-      if (field === 'remove_commercials' && value) {
-        next.transcode_enabled = true
-        next.remux_only = false
-      }
       return next
     })
     setHasChanges(true)
@@ -486,6 +482,24 @@ export default function Settings() {
             </Text>
           </Alert>
 
+          <NumberInput
+            label="Max Concurrent Post-Processing"
+            description="How many files can be converted at the same time (Recommended: 1). Higher values use much more CPU/GPU and disk I/O."
+            min={1}
+            max={10}
+            value={formData.max_concurrent_post_processing ?? 1}
+            onChange={(val) => handleChange('max_concurrent_post_processing', val)}
+          />
+
+          {(formData.max_concurrent_post_processing ?? 1) > 1 && (
+            <Alert icon={<IconAlertCircle size={16} />} color="yellow" variant="light">
+              <Text size="sm">
+                Running multiple conversions at once can saturate your CPU/GPU and disk. Some GPUs also have limited
+                concurrent encoding sessions.
+              </Text>
+            </Alert>
+          )}
+
           {toolsStatus && (
             <Stack gap={6}>
               <Group gap="md">
@@ -523,78 +537,52 @@ export default function Settings() {
             <Accordion.Item value="transcode">
               <Accordion.Control>
                 <Group gap="xs">
-                  <Text>Transcoding</Text>
-                  {formData.transcode_enabled && (
-                    <Badge size="xs" color="blue">Enabled</Badge>
-                  )}
+                  <Text>Post-Processing (Advanced)</Text>
                 </Group>
               </Accordion.Control>
               <Accordion.Panel>
                 <Stack gap="md">
-                  <Switch
-                    label="Enable Transcoding"
-                    description="Convert downloaded .ts files to another format"
-                    checked={formData.transcode_enabled || false}
-                    onChange={(e) => handleChange('transcode_enabled', e.currentTarget.checked)}
-                    disabled={!toolsStatus?.ffmpeg?.available}
+                  <Text size="xs" c="dimmed">
+                    By default, downloads are remuxed to MKV using stream copy. Use these options if you want
+                    to change the format or force a re-encode.
+                  </Text>
+
+                  <Select
+                    label="Output Format"
+                    data={[
+                      { value: 'mp4', label: 'MP4 (H.264 + AAC)' },
+                      { value: 'mkv', label: 'MKV (best compatibility)' },
+                      { value: 'ts', label: 'TS (keep original)' },
+                    ]}
+                    value={formData.transcode_format || 'mkv'}
+                    onChange={(val) => handleChange('transcode_format', val)}
                   />
 
-                  {formData.transcode_enabled && (
-                    <>
-                      <Switch
-                        label="Remux only (no re-encode)"
-                        description="Faster and lossless; improves seeking without re-encoding"
-                        checked={formData.remux_only !== false}
-                        onChange={(e) => handleChange('remux_only', e.currentTarget.checked)}
-                      />
+                  <Switch
+                    label="Remux only (no re-encode)"
+                    description="Faster and lossless; may show minor glitches at cut points."
+                    checked={formData.remux_only !== false}
+                    onChange={(e) => handleChange('remux_only', e.currentTarget.checked)}
+                  />
 
-                      <Switch
-                        label="Delete original after transcoding"
-                        checked={formData.delete_original_after_transcode !== false}
-                        onChange={(e) => handleChange('delete_original_after_transcode', e.currentTarget.checked)}
-                      />
+                  <Switch
+                    label="Delete original after processing"
+                    checked={formData.delete_original_after_transcode !== false}
+                    onChange={(e) => handleChange('delete_original_after_transcode', e.currentTarget.checked)}
+                  />
 
-                      {!formData.remux_only && (
-                        <>
-                          <Select
-                            label="Output Format"
-                            data={[
-                              { value: 'mp4', label: 'MP4 (H.264 + AAC)' },
-                              { value: 'mkv', label: 'MKV (best compatibility)' },
-                              { value: 'ts', label: 'TS (keep original)' },
-                            ]}
-                            value={formData.transcode_format || 'mkv'}
-                            onChange={(val) => handleChange('transcode_format', val)}
-                          />
-
-                          <Select
-                            label="Output Hardware"
-                            description="Use GPU for faster encoding"
-                            data={toolsStatus?.hardware_accels?.map(hw => ({
-                              value: hw.id,
-                              label: hw.name,
-                              disabled: !hw.available,
-                            })) || [{ value: 'cpu', label: 'CPU (Software)' }]}
-                            value={formData.hw_accel || 'cpu'}
-                            onChange={(val) => handleChange('hw_accel', val)}
-                          />
-
-                          <Select
-                            label="Quality Preset"
-                            data={toolsStatus?.quality_presets?.map(q => ({
-                              value: q.id,
-                              label: q.name,
-                            })) || [
-                              { value: 'fast', label: 'Fast' },
-                              { value: 'balanced', label: 'Balanced' },
-                              { value: 'quality', label: 'Quality' },
-                            ]}
-                            value={formData.transcode_quality || 'balanced'}
-                            onChange={(val) => handleChange('transcode_quality', val)}
-                          />
-                        </>
-                      )}
-                    </>
+                  {!formData.remux_only && (
+                    <Select
+                      label="Output Hardware"
+                      description="Use GPU for faster encoding"
+                      data={toolsStatus?.hardware_accels?.map(hw => ({
+                        value: hw.id,
+                        label: hw.name,
+                        disabled: !hw.available,
+                      })) || [{ value: 'cpu', label: 'CPU (Software)' }]}
+                      value={formData.hw_accel || 'cpu'}
+                      onChange={(val) => handleChange('hw_accel', val)}
+                    />
                   )}
 
                   {!toolsStatus?.ffmpeg?.available && (
@@ -621,7 +609,7 @@ export default function Settings() {
                 <Stack gap="md">
                   <Switch
                     label="Enable Comskip"
-                    description="Detect and optionally remove commercials from recordings"
+                    description="Detect and remove commercials from recordings"
                     checked={formData.comskip_enabled || false}
                     onChange={(e) => handleChange('comskip_enabled', e.currentTarget.checked)}
                     disabled={!toolsStatus?.comskip?.available}
@@ -630,16 +618,8 @@ export default function Settings() {
                   {formData.comskip_enabled && (
                     <>
                       <Text size="xs" c="dimmed">
-                        Turning this on will re-encode the stream. Configure Output Format and Quality in the
-                        Transcoding section.
+                        Commercials will be cut out and the result will be remuxed using your advanced settings.
                       </Text>
-
-                      <Switch
-                        label="Remove commercials"
-                        description="Cut commercials from the video (vs just marking them)"
-                        checked={formData.remove_commercials !== false}
-                        onChange={(e) => handleChange('remove_commercials', e.currentTarget.checked)}
-                      />
 
                       <TextInput
                         label="Comskip Path (optional)"

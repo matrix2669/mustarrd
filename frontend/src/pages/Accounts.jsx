@@ -26,10 +26,11 @@ import {
   IconPlugConnected,
   IconAlertCircle,
   IconServer,
+  IconRefresh,
 } from '@tabler/icons-react'
 import dayjs from 'dayjs'
 
-import { accountsApi } from '../api'
+import { accountsApi, epgApi } from '../api'
 
 function AccountForm({ account, onSubmit, onCancel, isLoading }) {
   const [formData, setFormData] = useState({
@@ -164,6 +165,11 @@ export default function Accounts() {
     queryKey: ['accounts'],
     queryFn: accountsApi.list,
   })
+  const { data: epgStatus } = useQuery({
+    queryKey: ['epg', 'status'],
+    queryFn: epgApi.status,
+    refetchInterval: 5000,
+  })
 
   const createMutation = useMutation({
     mutationFn: accountsApi.create,
@@ -245,6 +251,25 @@ export default function Accounts() {
     },
   })
 
+  const forceRefreshMutation = useMutation({
+    mutationFn: () => epgApi.refresh(true),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['epg', 'status'] })
+      notifications.show({
+        title: 'Force EPG Refresh Started',
+        message: 'Guide data is being rebuilt for all active accounts.',
+        color: 'blue',
+      })
+    },
+    onError: (error) => {
+      notifications.show({
+        title: 'Refresh Failed',
+        message: error.message,
+        color: 'red',
+      })
+    },
+  })
+
   const handleAddClick = () => {
     setEditingAccount(null)
     openModal()
@@ -263,6 +288,23 @@ export default function Accounts() {
 
   const handleTest = (account) => {
     testMutation.mutate(account.id)
+  }
+
+  const handleForceRefresh = () => {
+    if (epgStatus?.running) {
+      notifications.show({
+        title: 'Refresh Already Running',
+        message: 'Wait for the current EPG refresh to finish.',
+        color: 'yellow',
+      })
+      return
+    }
+
+    if (!confirm('Force refresh will clear stored EPG rows and rebuild guide data. Continue?')) {
+      return
+    }
+
+    forceRefreshMutation.mutate()
   }
 
   const handleSubmit = (data) => {
@@ -293,9 +335,21 @@ export default function Accounts() {
     <Stack>
       <Group justify="space-between">
         <Title order={2}>Accounts</Title>
-        <Button leftSection={<IconPlus size={16} />} onClick={handleAddClick}>
-          Add Account
-        </Button>
+        <Group>
+          <Button
+            variant="light"
+            color="orange"
+            leftSection={<IconRefresh size={16} />}
+            onClick={handleForceRefresh}
+            loading={forceRefreshMutation.isPending}
+            disabled={Boolean(epgStatus?.running)}
+          >
+            Force EPG Refresh
+          </Button>
+          <Button leftSection={<IconPlus size={16} />} onClick={handleAddClick}>
+            Add Account
+          </Button>
+        </Group>
       </Group>
 
       {accounts?.length === 0 ? (

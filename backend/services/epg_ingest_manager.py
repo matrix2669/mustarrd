@@ -56,12 +56,15 @@ class EPGIngestManager:
                 await self._log(f"EPG refresh loop error: {exc}", level="error")
             await asyncio.sleep(self._interval)
 
-    async def refresh_all_accounts(self):
+    async def refresh_all_accounts(self, force: bool = False):
         async with self._refresh_lock:
-            await self._log("Starting full EPG refresh across active accounts.")
-            await self._refresh_all_accounts()
+            if force:
+                await self._log("Starting forced full EPG refresh across active accounts.")
+            else:
+                await self._log("Starting full EPG refresh across active accounts.")
+            await self._refresh_all_accounts(force=force)
 
-    async def refresh_account_by_id(self, account_id: int):
+    async def refresh_account_by_id(self, account_id: int, force: bool = False):
         async with self._refresh_lock:
             async with async_session_maker() as session:
                 result = await session.execute(
@@ -73,8 +76,11 @@ class EPGIngestManager:
                 raise ValueError(f"Account {account_id} not found")
 
             try:
-                await self._log("Starting account-specific EPG refresh.", account=account)
-                await self._refresh_account(account)
+                if force:
+                    await self._log("Starting forced account-specific EPG refresh.", account=account)
+                else:
+                    await self._log("Starting account-specific EPG refresh.", account=account)
+                await self._refresh_account(account, force=force)
             except Exception as exc:
                 self._status["last_error"] = str(exc)
                 await self._log(f"Account EPG refresh failed: {exc}", level="error", account=account)
@@ -93,7 +99,7 @@ class EPGIngestManager:
                 status[key] = status[key].isoformat()
         return status
 
-    async def _refresh_all_accounts(self):
+    async def _refresh_all_accounts(self, force: bool = False):
         async with async_session_maker() as session:
             result = await session.execute(
                 select(XtreamAccount).where(XtreamAccount.is_active == True)  # noqa: E712
@@ -121,7 +127,7 @@ class EPGIngestManager:
 
         for account in accounts:
             try:
-                await self._refresh_account(account)
+                await self._refresh_account(account, force=force)
             except Exception as exc:
                 self._status.update({
                     "last_error": str(exc),
@@ -135,7 +141,7 @@ class EPGIngestManager:
         })
         await self._log("Full EPG refresh finished.")
 
-    async def _refresh_account(self, account: XtreamAccount):
+    async def _refresh_account(self, account: XtreamAccount, force: bool = False):
         self._status.update({
             "running": True,
             "account_id": account.id,
@@ -181,12 +187,23 @@ class EPGIngestManager:
 
             async with async_session_maker() as session:
                 async with session.begin():
-                    await session.execute(
-                        delete(EPGProgram).where(
-                            EPGProgram.account_id == account.id,
-                            EPGProgram.end_time < cutoff,
+                    if force:
+                        await self._log(
+                            "Force mode enabled: clearing existing guide rows before reload.",
+                            account=account,
                         )
-                    )
+                        await session.execute(
+                            delete(EPGProgram).where(
+                                EPGProgram.account_id == account.id,
+                            )
+                        )
+                    else:
+                        await session.execute(
+                            delete(EPGProgram).where(
+                                EPGProgram.account_id == account.id,
+                                EPGProgram.end_time < cutoff,
+                            )
+                        )
 
                 async with session.begin():
                     earliest_rows = await session.execute(
@@ -208,8 +225,13 @@ class EPGIngestManager:
                     if not batch:
                         return batch, inserted
                     async with session.begin():
+                        sqlite_before_changes = await self._get_sqlite_total_changes(session)
                         result = await session.execute(insert_stmt, batch)
-                    rowcount = await self._get_inserted_rowcount(session, result)
+                        rowcount = await self._get_inserted_rowcount(
+                            session,
+                            result,
+                            sqlite_before_changes=sqlite_before_changes,
+                        )
                     if rowcount > 0:
                         inserted += rowcount
                     return [], inserted
@@ -258,7 +280,8 @@ class EPGIngestManager:
                 if channel_earliest > cutoff:
                     backfill_targets.append((channel, channel_earliest))
 
-            if backfill_targets and self._should_backfill(account, now_utc):
+            should_backfill = force or self._should_backfill(account, now_utc)
+            if backfill_targets and should_backfill:
                 self._status["total_programs"] = None
                 await self._log(
                     f"Starting API backfill for {len(backfill_targets):,} channels.",
@@ -474,7 +497,12 @@ class EPGIngestManager:
         except Exception:
             return value
 
-    async def _get_inserted_rowcount(self, session, result) -> int:
+    async def _get_inserted_rowcount(
+        self,
+        session,
+        result,
+        sqlite_before_changes: Optional[int] = None,
+    ) -> int:
         rowcount = getattr(result, "rowcount", None)
         if rowcount is None:
             raw_result = getattr(result, "raw", None)
@@ -482,14 +510,39 @@ class EPGIngestManager:
                 rowcount = getattr(raw_result, "rowcount", None)
 
         if rowcount is None:
-            return 0
+            rowcount = 0
 
         try:
             rowcount = int(rowcount)
         except (TypeError, ValueError):
+            rowcount = 0
+
+        if rowcount > 0:
+            return rowcount
+
+        if sqlite_before_changes is None:
             return 0
 
-        return rowcount if rowcount > 0 else 0
+        sqlite_after_changes = await self._get_sqlite_total_changes(session)
+        if sqlite_after_changes is None:
+            return 0
+
+        delta = sqlite_after_changes - sqlite_before_changes
+        return delta if delta > 0 else 0
+
+    async def _get_sqlite_total_changes(self, session) -> Optional[int]:
+        bind = session.get_bind()
+        if not bind or bind.dialect.name != "sqlite":
+            return None
+
+        try:
+            result = await session.execute(select(func.total_changes()))
+            total_changes = result.scalar_one_or_none()
+            if total_changes is None:
+                return None
+            return int(total_changes)
+        except Exception:
+            return None
 
     def _parse_timestamp(self, value) -> Optional[int]:
         if value is None:
@@ -586,8 +639,13 @@ class EPGIngestManager:
                 if not batch:
                     return
                 async with session.begin():
+                    sqlite_before_changes = await self._get_sqlite_total_changes(session)
                     result = await session.execute(insert_stmt, batch)
-                rowcount = await self._get_inserted_rowcount(session, result)
+                    rowcount = await self._get_inserted_rowcount(
+                        session,
+                        result,
+                        sqlite_before_changes=sqlite_before_changes,
+                    )
                 if rowcount > 0:
                     inserted += rowcount
                 batch = []

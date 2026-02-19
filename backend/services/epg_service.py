@@ -100,10 +100,11 @@ class EPGService:
             try:
                 epg_data = await client.get_epg(channel_id)
                 processed = [
-                    self._process_epg_entry(entry, epg_offset_minutes)
+                    self._process_epg_entry(entry, epg_offset_minutes, fallback_channel_id=channel_id)
                     for entry in epg_data
                 ]
-                return self._filter_programs_by_cutoff(processed, cutoff)
+                filtered = self._filter_programs_by_cutoff(processed, cutoff)
+                return self._dedupe_programs(filtered)
             finally:
                 await client.close()
 
@@ -134,6 +135,7 @@ class EPGService:
                 self.serialize_program(row, epg_offset_minutes)
                 for row in db_rows
             ]
+            processed = self._dedupe_programs(processed)
             self._cache[cache_key] = {
                 "data": processed,
                 "cached_at": datetime.utcnow()
@@ -148,7 +150,12 @@ class EPGService:
         }
         return live_programs
 
-    def _process_epg_entry(self, entry: dict, epg_offset_minutes: int = 0) -> dict:
+    def _process_epg_entry(
+        self,
+        entry: dict,
+        epg_offset_minutes: int = 0,
+        fallback_channel_id: Optional[str] = None
+    ) -> dict:
         """Process and normalize an EPG entry."""
         # Decode base64 title and description if present
         title = entry.get("title", "")
@@ -166,11 +173,11 @@ class EPGService:
                 pass
 
         # Parse timestamps
-        start_timestamp = entry.get("start_timestamp", 0)
-        stop_timestamp = entry.get("stop_timestamp", 0)
+        start_timestamp = self._coerce_timestamp(entry.get("start_timestamp"))
+        stop_timestamp = self._coerce_timestamp(entry.get("stop_timestamp"))
 
-        start_time_utc = datetime.fromtimestamp(int(start_timestamp), tz=timezone.utc) if start_timestamp else None
-        end_time_utc = datetime.fromtimestamp(int(stop_timestamp), tz=timezone.utc) if stop_timestamp else None
+        start_time_utc = datetime.fromtimestamp(start_timestamp, tz=timezone.utc) if start_timestamp else None
+        end_time_utc = datetime.fromtimestamp(stop_timestamp, tz=timezone.utc) if stop_timestamp else None
 
         if start_time_utc and end_time_utc:
             try:
@@ -194,9 +201,14 @@ class EPGService:
         if start_time and end_time:
             duration_minutes = int((end_time - start_time).total_seconds() / 60)
 
+        channel_id = str(entry.get("channel_id") or fallback_channel_id or "")
+        epg_id = entry.get("epg_id")
+        if channel_id and start_timestamp and stop_timestamp:
+            epg_id = f"{channel_id}:{start_timestamp}:{stop_timestamp}"
+
         return {
             "id": entry.get("id"),
-            "epg_id": entry.get("epg_id"),
+            "epg_id": epg_id,
             "title": title,
             "description": description,
             "start_time": start_time.isoformat() if start_time else None,
@@ -205,7 +217,7 @@ class EPGService:
             "stop_timestamp": stop_timestamp,
             "duration_minutes": duration_minutes,
             "has_archive": entry.get("has_archive", 0) == 1,
-            "channel_id": entry.get("channel_id"),
+            "channel_id": channel_id or None,
         }
 
     async def get_past_programs(
@@ -294,6 +306,72 @@ class EPGService:
         if epg_offset_minutes:
             normalized = normalized + timedelta(minutes=epg_offset_minutes)
         return normalized
+
+    def _coerce_timestamp(self, value) -> int:
+        if value is None:
+            return 0
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            try:
+                return int(float(value))
+            except (TypeError, ValueError):
+                return 0
+
+    def _extract_program_timestamps(self, program: dict) -> tuple[int, int]:
+        start_ts = self._coerce_timestamp(program.get("start_timestamp"))
+        stop_ts = self._coerce_timestamp(program.get("stop_timestamp"))
+        if start_ts and stop_ts:
+            return start_ts, stop_ts
+
+        start_iso = program.get("start_time")
+        end_iso = program.get("end_time")
+        try:
+            if start_iso and end_iso:
+                start_dt = datetime.fromisoformat(start_iso)
+                end_dt = datetime.fromisoformat(end_iso)
+                if start_dt.tzinfo is None:
+                    start_dt = start_dt.replace(tzinfo=timezone.utc)
+                if end_dt.tzinfo is None:
+                    end_dt = end_dt.replace(tzinfo=timezone.utc)
+                return int(start_dt.timestamp()), int(end_dt.timestamp())
+        except (TypeError, ValueError):
+            pass
+
+        return 0, 0
+
+    def _dedupe_programs(self, programs: list[dict]) -> list[dict]:
+        deduped: dict[tuple, dict] = {}
+
+        for program in programs:
+            channel_id = str(program.get("channel_id") or "")
+            start_ts, stop_ts = self._extract_program_timestamps(program)
+            title_key = (program.get("title") or "").strip().lower()
+
+            if channel_id and start_ts and stop_ts:
+                key = (channel_id, start_ts, stop_ts)
+            else:
+                key = (channel_id, program.get("start_time"), program.get("end_time"), title_key)
+
+            existing = deduped.get(key)
+            if not existing:
+                deduped[key] = program
+                continue
+
+            existing_score = (
+                1 if existing.get("has_archive") else 0,
+                len(existing.get("description") or ""),
+                1 if existing.get("epg_id") else 0,
+            )
+            program_score = (
+                1 if program.get("has_archive") else 0,
+                len(program.get("description") or ""),
+                1 if program.get("epg_id") else 0,
+            )
+            if program_score > existing_score:
+                deduped[key] = program
+
+        return list(deduped.values())
 
     def detect_program_type(self, program: dict, channel: dict = None) -> str:
         """

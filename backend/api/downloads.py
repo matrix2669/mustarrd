@@ -1,4 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
+import mimetypes
+from pathlib import Path
+from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, conint
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -132,6 +135,43 @@ async def get_download(
         raise HTTPException(status_code=404, detail="Download not found")
 
     return download.to_dict()
+
+
+@router.get("/{download_id}/file")
+async def get_download_file(
+    download_id: int,
+    action: str = Query(default="download", pattern="^(download|play)$"),
+    session: AsyncSession = Depends(get_session),
+):
+    """Serve a completed download file for browser download/play actions."""
+    result = await session.execute(
+        select(Download).where(Download.id == download_id)
+    )
+    download = result.scalar_one_or_none()
+
+    if not download:
+        raise HTTPException(status_code=404, detail="Download not found")
+
+    if download.status != DownloadStatus.COMPLETED.value:
+        raise HTTPException(status_code=409, detail="Download is not completed yet")
+
+    if not download.output_path:
+        raise HTTPException(status_code=404, detail="No file path available for this download")
+
+    file_path = Path(download.output_path).expanduser()
+    if not file_path.is_file():
+        raise HTTPException(status_code=404, detail="Downloaded file was not found on disk")
+
+    media_type = mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
+    disposition = "inline" if action == "play" else "attachment"
+    safe_filename = file_path.name.replace('"', "")
+    headers = {"Content-Disposition": f'{disposition}; filename="{safe_filename}"'}
+
+    return FileResponse(
+        path=str(file_path),
+        media_type=media_type,
+        headers=headers,
+    )
 
 
 @router.delete("/{download_id}")

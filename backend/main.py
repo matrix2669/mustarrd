@@ -20,7 +20,9 @@ async def lifespan(app: FastAPI):
     from services.download_manager import download_manager
     from services.scheduled_manager import scheduled_manager
     from services.epg_ingest_manager import epg_ingest_manager
+    await download_manager.recover_incomplete_downloads()
     download_task = asyncio.create_task(download_manager.process_queue())
+    post_process_task = asyncio.create_task(download_manager.process_post_queue())
     schedule_task = asyncio.create_task(scheduled_manager.process_queue())
     epg_task = asyncio.create_task(epg_ingest_manager.process_queue())
 
@@ -28,9 +30,10 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     download_task.cancel()
+    post_process_task.cancel()
     schedule_task.cancel()
     epg_task.cancel()
-    await asyncio.gather(download_task, schedule_task, epg_task, return_exceptions=True)
+    await asyncio.gather(download_task, post_process_task, schedule_task, epg_task, return_exceptions=True)
 
 
 app = FastAPI(

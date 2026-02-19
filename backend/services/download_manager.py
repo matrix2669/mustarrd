@@ -19,6 +19,8 @@ class DownloadManager:
     def __init__(self):
         self._queue: asyncio.Queue = asyncio.Queue()
         self._active_downloads: Dict[int, asyncio.Task] = {}
+        self._post_queue: asyncio.Queue = asyncio.Queue()
+        self._active_post: Dict[int, asyncio.Task] = {}
         self._active_account_ids: Dict[int, int] = {}
         self._account_active_counts: Dict[int, int] = {}
         self._cancelled: Set[int] = set()
@@ -26,10 +28,17 @@ class DownloadManager:
         self._websocket_connections: Set = set()
         self._stage_progress: Dict[int, Dict[str, Any]] = {}
         self._max_concurrent = 2
+        self._max_concurrent_post_processing = 1
         self._running = False
 
     def set_max_concurrent(self, max_concurrent: int):
         self._max_concurrent = max_concurrent
+
+    def set_max_concurrent_post_processing(self, max_concurrent: int):
+        try:
+            self._max_concurrent_post_processing = max(1, int(max_concurrent))
+        except Exception:
+            self._max_concurrent_post_processing = 1
 
     def register_websocket(self, websocket):
         self._websocket_connections.add(websocket)
@@ -61,6 +70,14 @@ class DownloadManager:
         for did in completed:
             del self._active_downloads[did]
             self._untrack_active_download(did)
+
+    def _cleanup_completed_post_tasks(self) -> None:
+        completed = [
+            did for did, task in self._active_post.items()
+            if task.done()
+        ]
+        for did in completed:
+            del self._active_post[did]
 
     async def _broadcast_progress(self, download_id: int, progress: float, status: str, **extra):
         """Broadcast progress to all connected WebSocket clients."""
@@ -169,6 +186,34 @@ class DownloadManager:
             )
             return download
 
+    def _needs_post_processing(self, download: Download, settings: Optional[AppSettings]) -> bool:
+        if download.is_vod:
+            return False
+        if not settings:
+            return False
+        return True
+
+    def _processed_output_candidates(self, input_path: str, settings: Optional[AppSettings]) -> list[str]:
+        input_file = Path(input_path)
+        stem = input_file.stem
+        candidates: list[Path] = []
+
+        if settings:
+            fmt = (getattr(settings, "transcode_format", None) or "mkv").strip().lower()
+            candidates.append(input_file.with_stem(f"{stem}_nocommercials").with_suffix(f".{fmt}"))
+            candidates.append(input_file.with_suffix(f".{fmt}"))
+
+        return [str(c) for c in candidates]
+
+    def _path_is_under(self, path: str, parent: str) -> bool:
+        try:
+            path_real = os.path.realpath(os.path.abspath(path))
+            parent_real = os.path.realpath(os.path.abspath(parent))
+            common = os.path.commonpath([path_real, parent_real])
+            return os.path.abspath(common) == os.path.abspath(parent_real)
+        except Exception:
+            return False
+
     async def process_queue(self):
         """Main loop for processing download queue."""
         self._running = True
@@ -205,6 +250,8 @@ class DownloadManager:
 
                     if not download:
                         continue
+                    if download.status != DownloadStatus.PENDING.value:
+                        continue
 
                     account_id = download.account_id
                     max_connections = None
@@ -233,6 +280,195 @@ class DownloadManager:
                 print(f"Error in queue processor: {e}")
                 await asyncio.sleep(1)
 
+    async def process_post_queue(self):
+        """Main loop for processing post-processing queue."""
+        self._running = True
+
+        while self._running:
+            try:
+                self._cleanup_completed_post_tasks()
+                while len(self._active_post) >= self._max_concurrent_post_processing:
+                    await asyncio.sleep(0.5)
+                    self._cleanup_completed_post_tasks()
+
+                try:
+                    download_id = await asyncio.wait_for(
+                        self._post_queue.get(),
+                        timeout=1.0
+                    )
+                except asyncio.TimeoutError:
+                    continue
+
+                if download_id in self._cancelled:
+                    self._cancelled.discard(download_id)
+                    continue
+
+                self._cleanup_completed_post_tasks()
+
+                task = asyncio.create_task(self._execute_post_process(download_id))
+                self._active_post[download_id] = task
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                print(f"Error in post-processing queue processor: {e}")
+                await asyncio.sleep(1)
+
+    async def recover_incomplete_downloads(self) -> int:
+        """
+        Recover downloads left mid-flight after a restart.
+
+        - pending: requeue to download queue
+        - downloading: restart from scratch (no HTTP resume currently); if complete, continue to processing/finalize
+        - processing: requeue to post-processing if input exists; if missing, mark failed (or finalize if output exists)
+        """
+        async with async_session_maker() as session:
+            settings_result = await session.execute(select(AppSettings))
+            settings = settings_result.scalar_one_or_none()
+            if settings:
+                if getattr(settings, "max_concurrent_downloads", None) is not None:
+                    try:
+                        self._max_concurrent = max(1, int(settings.max_concurrent_downloads))
+                    except Exception:
+                        pass
+                if getattr(settings, "max_concurrent_post_processing", None) is not None:
+                    try:
+                        self._max_concurrent_post_processing = max(1, int(settings.max_concurrent_post_processing))
+                    except Exception:
+                        pass
+            completed_folder = self._resolve_completed_folder(settings)
+            download_folder = self._resolve_download_folder(settings)
+
+            result = await session.execute(
+                select(Download).where(
+                    Download.status.in_([
+                        DownloadStatus.PENDING.value,
+                        DownloadStatus.DOWNLOADING.value,
+                        DownloadStatus.PROCESSING.value
+                    ])
+                ).order_by(Download.created_at)
+            )
+            downloads = list(result.scalars().all())
+            if not downloads:
+                return 0
+
+            recovered_download_ids: list[int] = []
+            recovered_post_ids: list[int] = []
+
+            for download in downloads:
+                input_path = download.output_path
+                input_file = Path(input_path)
+
+                if download.status == DownloadStatus.PENDING.value:
+                    recovered_download_ids.append(download.id)
+                    continue
+
+                if download.status == DownloadStatus.DOWNLOADING.value:
+                    try:
+                        is_complete = (
+                            input_file.is_file()
+                            and download.file_size
+                            and download.downloaded_bytes >= int(download.file_size)
+                        )
+                    except Exception:
+                        is_complete = False
+
+                    if is_complete:
+                        if self._needs_post_processing(download, settings):
+                            download.status = DownloadStatus.PROCESSING.value
+                            download.progress = 0.0
+                            recovered_post_ids.append(download.id)
+                            await self._broadcast_progress(
+                                download.id,
+                                0.0,
+                                DownloadStatus.PROCESSING.value,
+                                message="Queued for post-processing...",
+                                indeterminate=False,
+                                download_progress=100.0,
+                            )
+                            await self._broadcast_log(download.id, "Recovered after restart: queued for post-processing.")
+                        else:
+                            completed_path = self._move_to_completed(str(input_file), completed_folder, download_folder)
+                            download.output_path = completed_path
+                            download.status = DownloadStatus.COMPLETED.value
+                            download.progress = 100.0
+                            if not download.completed_at:
+                                download.completed_at = datetime.utcnow()
+                            download.error_message = None
+                            await self._broadcast_log(download.id, "Recovered after restart: finalized completed output.")
+                        continue
+
+                    download.status = DownloadStatus.PENDING.value
+                    download.progress = 0.0
+                    download.downloaded_bytes = 0
+                    download.file_size = 0
+                    download.error_message = None
+                    recovered_download_ids.append(download.id)
+                    await self._broadcast_log(download.id, "Recovered after restart: requeued for download.")
+                    continue
+
+                if download.status == DownloadStatus.PROCESSING.value:
+                    if input_file.is_file() and self._path_is_under(str(input_file), completed_folder):
+                        download.status = DownloadStatus.COMPLETED.value
+                        download.progress = 100.0
+                        if not download.completed_at:
+                            download.completed_at = datetime.utcnow()
+                        download.error_message = None
+                        await self._broadcast_log(download.id, "Recovered after restart: marked completed.")
+                        continue
+
+                    if input_file.is_file():
+                        if self._needs_post_processing(download, settings):
+                            recovered_post_ids.append(download.id)
+                            await self._broadcast_progress(
+                                download.id,
+                                0.0,
+                                DownloadStatus.PROCESSING.value,
+                                message="Queued for post-processing...",
+                                indeterminate=False,
+                                download_progress=100.0,
+                            )
+                            await self._broadcast_log(download.id, "Recovered after restart: queued for post-processing.")
+                        else:
+                            completed_path = self._move_to_completed(str(input_file), completed_folder, download_folder)
+                            download.output_path = completed_path
+                            download.status = DownloadStatus.COMPLETED.value
+                            download.progress = 100.0
+                            if not download.completed_at:
+                                download.completed_at = datetime.utcnow()
+                            download.error_message = None
+                            await self._broadcast_log(download.id, "Recovered after restart: finalized completed output.")
+                        continue
+
+                    # If we lost the input file but still have an output, finalize it.
+                    processed_found = None
+                    for candidate in self._processed_output_candidates(input_path, settings):
+                        if Path(candidate).is_file():
+                            processed_found = candidate
+                            break
+                    if processed_found:
+                        completed_path = self._move_to_completed(processed_found, completed_folder, download_folder)
+                        download.output_path = completed_path
+                        download.status = DownloadStatus.COMPLETED.value
+                        download.progress = 100.0
+                        if not download.completed_at:
+                            download.completed_at = datetime.utcnow()
+                        download.error_message = None
+                        await self._broadcast_log(download.id, "Recovered after restart: finalized completed output.")
+                        continue
+
+                    download.status = DownloadStatus.FAILED.value
+                    download.error_message = "Recovery failed: missing input file for post-processing."
+                    await self._broadcast_log(download.id, download.error_message, level="error")
+
+            await session.commit()
+
+        for download_id in recovered_download_ids:
+            await self._queue.put(download_id)
+        for download_id in recovered_post_ids:
+            await self._post_queue.put(download_id)
+        return len(recovered_download_ids) + len(recovered_post_ids)
+
     async def _execute_download(self, download_id: int):
         """Execute a single download."""
         async with async_session_maker() as session:
@@ -246,13 +482,30 @@ class DownloadManager:
                 if not download:
                     return
 
+                if download.status != DownloadStatus.PENDING.value:
+                    return
+
+                # Skip terminal states
+                if download.status in [
+                    DownloadStatus.COMPLETED.value,
+                    DownloadStatus.FAILED.value,
+                    DownloadStatus.CANCELLED.value,
+                ]:
+                    return
+
                 # Check if cancelled
                 if download_id in self._cancelled:
                     self._cancelled.discard(download_id)
                     return
 
+                # Ensure output directory exists
+                output_dir = os.path.dirname(download.output_path)
+                os.makedirs(output_dir, exist_ok=True)
+
                 # Update status to downloading
                 download.status = DownloadStatus.DOWNLOADING.value
+                download.progress = 0.0
+                download.downloaded_bytes = 0
                 await session.commit()
 
                 await self._broadcast_progress(
@@ -263,10 +516,6 @@ class DownloadManager:
                     f"Download started: {os.path.basename(download.output_path)}"
                 )
 
-                # Ensure output directory exists
-                output_dir = os.path.dirname(download.output_path)
-                os.makedirs(output_dir, exist_ok=True)
-
                 # Start download
                 await self._download_file(
                     download.source_url,
@@ -276,43 +525,35 @@ class DownloadManager:
                 )
                 await self._broadcast_log(download_id, "Download transfer complete.")
 
-                # Run post-processing if enabled (skip for VOD downloads)
-                original_path = download.output_path
                 settings_result = await session.execute(select(AppSettings))
                 settings = settings_result.scalar_one_or_none()
-                if download.is_vod:
-                    final_path, warnings = download.output_path, []
-                else:
-                    final_path, warnings = await self._post_process(
-                        download.output_path,
+
+                if self._needs_post_processing(download, settings):
+                    download.status = DownloadStatus.PROCESSING.value
+                    download.progress = 0.0
+                    await session.commit()
+
+                    await self._broadcast_progress(
                         download_id,
-                        session,
-                        settings
+                        0.0,
+                        DownloadStatus.PROCESSING.value,
+                        message="Queued for post-processing...",
+                        indeterminate=False,
+                        download_progress=100.0,
                     )
+                    await self._broadcast_log(download_id, "Queued for post-processing.")
+                    await self._post_queue.put(download_id)
+                    return
+
                 completed_folder = self._resolve_completed_folder(settings)
                 download_folder = self._resolve_download_folder(settings)
-                final_path = self._select_final_path(original_path, final_path)
-                completed_path = self._move_to_completed(final_path, completed_folder, download_folder)
+                completed_path = self._move_to_completed(download.output_path, completed_folder, download_folder)
                 download.output_path = completed_path
-                if warnings:
-                    download.error_message = f"Completed with warnings: {'; '.join(warnings)}"
-                    await self._broadcast_log(
-                        download_id,
-                        f"Completed with warnings: {'; '.join(warnings)}",
-                        level="warning"
-                    )
-                else:
-                    download.error_message = None
-                self._cleanup_working_files(
-                    original_path,
-                    completed_path,
-                    keep_logs=bool(warnings)
-                )
 
-                # Mark as completed
                 download.status = DownloadStatus.COMPLETED.value
                 download.progress = 100.0
                 download.completed_at = datetime.utcnow()
+                download.error_message = None
                 await session.commit()
 
                 await self._broadcast_progress(
@@ -350,6 +591,138 @@ class DownloadManager:
                     error=str(e)
                 )
                 await self._broadcast_log(download_id, f"Download failed: {e}", level="error")
+
+    async def _execute_post_process(self, download_id: int):
+        """Execute post-processing for a downloaded file."""
+        async with async_session_maker() as session:
+            try:
+                result = await session.execute(
+                    select(Download).where(Download.id == download_id)
+                )
+                download = result.scalar_one_or_none()
+
+                if not download:
+                    return
+
+                if download.status != DownloadStatus.PROCESSING.value:
+                    return
+
+                if download_id in self._cancelled:
+                    self._cancelled.discard(download_id)
+                    raise asyncio.CancelledError()
+
+                settings_result = await session.execute(select(AppSettings))
+                settings = settings_result.scalar_one_or_none()
+                completed_folder = self._resolve_completed_folder(settings)
+                download_folder = self._resolve_download_folder(settings)
+
+                original_path = download.output_path
+                original_file = Path(original_path)
+                if not original_file.is_file():
+                    processed_found = None
+                    for candidate in self._processed_output_candidates(original_path, settings):
+                        if Path(candidate).is_file():
+                            processed_found = candidate
+                            break
+                    if processed_found:
+                        completed_path = self._move_to_completed(processed_found, completed_folder, download_folder)
+                        download.output_path = completed_path
+                        download.status = DownloadStatus.COMPLETED.value
+                        download.progress = 100.0
+                        download.completed_at = datetime.utcnow()
+                        download.error_message = None
+                        await session.commit()
+                        await self._broadcast_progress(download_id, 100, DownloadStatus.COMPLETED.value)
+                        await self._broadcast_log(download_id, "Post-processing recovery: finalized completed output.")
+                        return
+
+                    raise Exception("Missing input file for post-processing.")
+
+                if not self._needs_post_processing(download, settings):
+                    completed_path = self._move_to_completed(original_path, completed_folder, download_folder)
+                    download.output_path = completed_path
+                    download.status = DownloadStatus.COMPLETED.value
+                    download.progress = 100.0
+                    download.completed_at = datetime.utcnow()
+                    download.error_message = None
+                    await session.commit()
+                    await self._broadcast_progress(download_id, 100, DownloadStatus.COMPLETED.value)
+                    await self._broadcast_log(download_id, "Post-processing disabled; finalized completed output.")
+                    return
+
+                await self._broadcast_log(download_id, "Post-processing started.")
+
+                final_path, warnings = await self._post_process(
+                    original_path,
+                    download_id,
+                    session,
+                    settings
+                )
+
+                final_path = self._select_final_path(original_path, final_path)
+                completed_path = self._move_to_completed(final_path, completed_folder, download_folder)
+                download.output_path = completed_path
+                if warnings:
+                    download.error_message = f"Completed with warnings: {'; '.join(warnings)}"
+                    await self._broadcast_log(
+                        download_id,
+                        f"Completed with warnings: {'; '.join(warnings)}",
+                        level="warning"
+                    )
+                else:
+                    download.error_message = None
+
+                self._cleanup_working_files(
+                    original_path,
+                    completed_path,
+                    keep_logs=bool(warnings)
+                )
+
+                download.status = DownloadStatus.COMPLETED.value
+                download.progress = 100.0
+                download.completed_at = datetime.utcnow()
+                await session.commit()
+
+                await self._broadcast_progress(download_id, 100, DownloadStatus.COMPLETED.value)
+                await self._broadcast_log(
+                    download_id,
+                    f"Post-processing completed: {os.path.basename(completed_path)}"
+                )
+
+            except asyncio.CancelledError:
+                result = await session.execute(
+                    select(Download).where(Download.id == download_id)
+                )
+                download = result.scalar_one_or_none()
+                if download and download.status in [
+                    DownloadStatus.PENDING.value,
+                    DownloadStatus.DOWNLOADING.value,
+                    DownloadStatus.PROCESSING.value,
+                ]:
+                    download.status = DownloadStatus.CANCELLED.value
+                    await session.commit()
+                    await self._broadcast_progress(
+                        download_id, download.progress, DownloadStatus.CANCELLED.value
+                    )
+                    await self._broadcast_log(download_id, "Post-processing cancelled.", level="warning")
+
+            except Exception as e:
+                result = await session.execute(
+                    select(Download).where(Download.id == download_id)
+                )
+                download = result.scalar_one_or_none()
+                if download:
+                    download.status = DownloadStatus.FAILED.value
+                    download.error_message = str(e)
+                    await session.commit()
+
+                await self._broadcast_progress(
+                    download_id,
+                    download.progress if download else 0,
+                    DownloadStatus.FAILED.value,
+                    error=str(e)
+                )
+                await self._broadcast_log(download_id, f"Post-processing failed: {e}", level="error")
 
     def _resolve_completed_folder(self, settings: Optional[AppSettings]) -> str:
         if settings and settings.completed_folder and not settings.completed_folder.startswith("./data"):
@@ -542,11 +915,10 @@ class DownloadManager:
         except ValueError:
             hw_accel = HardwareAccel.CPU
 
-        quality = settings.transcode_quality if hasattr(settings, 'transcode_quality') else "balanced"
         remux_only = getattr(settings, "remux_only", False)
 
         will_comskip = settings.comskip_enabled and post_processor.comskip_available
-        will_transcode = settings.transcode_enabled and post_processor.ffmpeg_available
+        will_transcode = post_processor.ffmpeg_available
 
         if not will_comskip and not will_transcode:
             return current_path, warnings
@@ -556,8 +928,8 @@ class DownloadManager:
 
         if settings.comskip_enabled and not post_processor.comskip_available:
             await log_callback("Comskip enabled but not available; skipping detection.")
-        if settings.transcode_enabled and not post_processor.ffmpeg_available:
-            await log_callback("Transcoding enabled but ffmpeg not available; skipping transcode.")
+        if not post_processor.ffmpeg_available:
+            await log_callback("Post-processing enabled but ffmpeg not available; skipping remux/transcode.")
 
         download_progress = 100.0
         comskip_progress: Optional[float] = None
@@ -629,9 +1001,15 @@ class DownloadManager:
                 comskip_indeterminate = False
                 await broadcast_processing(comskip_progress, current_message, indeterminate=False)
 
-                if edl_path and settings.remove_commercials:
-                    output_format = OutputFormat(settings.transcode_format) if settings.transcode_enabled else OutputFormat.TS
-                    current_message = f"Removing commercials + transcoding to {output_format.value} (using {hw_accel.value})..."
+                if edl_path:
+                    output_format = OutputFormat(settings.transcode_format or "mkv")
+                    accel_name = hw_accel.value if hw_accel != HardwareAccel.CPU else "CPU"
+                    if remux_only:
+                        current_message = f"Removing commercials + remuxing to {output_format.value}..."
+                    else:
+                        current_message = (
+                            f"Removing commercials + transcoding to {output_format.value} (using {accel_name})..."
+                        )
                     transcode_progress = 0.0
                     transcode_indeterminate = False
                     await broadcast_processing(transcode_progress, current_message)
@@ -647,12 +1025,10 @@ class DownloadManager:
                         remove_original=settings.delete_original_after_transcode,
                         progress_callback=transcode_progress_callback,
                         log_callback=log_callback,
-                        remux_only=False
+                        remux_only=remux_only
                     )
                     commercials_removed = True
                     await log_callback(f"Commercial removal complete: {current_path}")
-                elif edl_path:
-                    await log_callback("Comskip: commercials detected but removal disabled.")
                 else:
                     await log_callback("Comskip: no commercials detected.")
             except Exception as e:
@@ -664,26 +1040,28 @@ class DownloadManager:
         if will_transcode and not commercials_removed:
             try:
                 accel_name = hw_accel.value if hw_accel != HardwareAccel.CPU else "CPU"
-                current_message = f"Transcoding to {settings.transcode_format} (using {accel_name})..."
+                output_format = OutputFormat(settings.transcode_format or "mkv")
+                if remux_only:
+                    current_message = f"Remuxing to {output_format.value}..."
+                else:
+                    current_message = f"Transcoding to {output_format.value} (using {accel_name})..."
                 transcode_progress = 0.0
                 transcode_indeterminate = False
                 await broadcast_processing(transcode_progress, current_message)
                 await log_callback(
-                    f"Transcoding started: {settings.transcode_format} with {accel_name}."
+                    f"{'Remuxing' if remux_only else 'Transcoding'} started: {output_format.value}."
                 )
 
-                output_format = OutputFormat(settings.transcode_format)
                 current_path = await post_processor.transcode(
                     current_path,
                     output_format,
                     hw_accel=hw_accel,
-                    quality=quality,
                     progress_callback=transcode_progress_callback,
                     log_callback=log_callback,
                     remove_original=settings.delete_original_after_transcode,
                     remux_only=remux_only
                 )
-                await log_callback(f"Transcoding complete: {current_path}")
+                await log_callback(f"{'Remux' if remux_only else 'Transcode'} complete: {current_path}")
             except Exception as e:
                 await log_callback(f"Transcode error: {e}")
                 warnings.append(f"Transcode failed: {e}")
@@ -695,10 +1073,17 @@ class DownloadManager:
         """Cancel a download."""
         self._cancelled.add(download_id)
 
-        # Cancel active task if running
+        cancelled_task = False
+
+        # Cancel active download task if running
         if download_id in self._active_downloads:
             self._active_downloads[download_id].cancel()
-            return True
+            cancelled_task = True
+
+        # Cancel active post-processing task if running
+        if download_id in self._active_post:
+            self._active_post[download_id].cancel()
+            cancelled_task = True
 
         # Update database status if pending
         async with async_session_maker() as session:
@@ -707,12 +1092,31 @@ class DownloadManager:
             )
             download = result.scalar_one_or_none()
 
-            if download and download.status == DownloadStatus.PENDING.value:
+            if download and download.status in [
+                DownloadStatus.PENDING.value,
+                DownloadStatus.DOWNLOADING.value,
+                DownloadStatus.PROCESSING.value,
+            ]:
                 download.status = DownloadStatus.CANCELLED.value
                 await session.commit()
                 return True
 
-        return False
+        return cancelled_task
+
+    def _compute_completed_dest(self, path: str, completed_folder: str, download_folder: Optional[str] = None) -> str:
+        if download_folder:
+            try:
+                common = os.path.commonpath([os.path.abspath(path), os.path.abspath(download_folder)])
+            except Exception:
+                common = None
+            if common and os.path.abspath(common) == os.path.abspath(download_folder):
+                rel = os.path.relpath(path, download_folder)
+                dest = os.path.join(completed_folder, rel)
+            else:
+                dest = os.path.join(completed_folder, os.path.basename(path))
+        else:
+            dest = os.path.join(completed_folder, os.path.basename(path))
+        return dest
 
     async def retry_download(self, download_id: int) -> bool:
         """Retry a failed download."""

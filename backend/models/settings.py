@@ -32,19 +32,19 @@ class AppSettings(Base):
     )
     default_template: Mapped[str] = mapped_column(
         String(500),
-        default="{channel} - {title} - {date}"
+        default="{title} - {date}"
     )
 
     max_concurrent_downloads: Mapped[int] = mapped_column(Integer, default=2)
     min_free_space_gb: Mapped[int] = mapped_column(Integer, default=25)
     default_pre_padding_minutes: Mapped[int] = mapped_column(Integer, default=1)
     default_post_padding_minutes: Mapped[int] = mapped_column(Integer, default=5)
+    max_concurrent_post_processing: Mapped[int] = mapped_column(Integer, default=1)
 
     # Post-processing options
     transcode_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     transcode_format: Mapped[str] = mapped_column(String(10), default="mkv")  # ts, mp4, mkv
     hw_accel: Mapped[str] = mapped_column(String(20), default="cpu")  # cpu, videotoolbox, nvenc, amf, vaapi
-    transcode_quality: Mapped[str] = mapped_column(String(20), default="balanced")  # fast, balanced, quality
     delete_original_after_transcode: Mapped[bool] = mapped_column(Boolean, default=True)
     remux_only: Mapped[bool] = mapped_column(Boolean, default=True)
     epg_offset_minutes: Mapped[int] = mapped_column(Integer, default=0)
@@ -54,7 +54,6 @@ class AppSettings(Base):
     comskip_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     comskip_path: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     comskip_ini_path: Mapped[str | None] = mapped_column(String(1000), nullable=True)
-    remove_commercials: Mapped[bool] = mapped_column(Boolean, default=True)  # vs just marking
 
     def to_dict(self):
         return {
@@ -69,16 +68,15 @@ class AppSettings(Base):
             "min_free_space_gb": self.min_free_space_gb,
             "default_pre_padding_minutes": self.default_pre_padding_minutes,
             "default_post_padding_minutes": self.default_post_padding_minutes,
+            "max_concurrent_post_processing": self.max_concurrent_post_processing,
             "transcode_enabled": self.transcode_enabled,
             "transcode_format": self.transcode_format,
             "hw_accel": self.hw_accel,
-            "transcode_quality": self.transcode_quality,
             "delete_original_after_transcode": self.delete_original_after_transcode,
             "remux_only": self.remux_only,
             "comskip_enabled": self.comskip_enabled,
             "comskip_path": self.comskip_path,
             "comskip_ini_path": self.comskip_ini_path,
-            "remove_commercials": self.remove_commercials,
             "epg_offset_minutes": self.epg_offset_minutes,
             "show_future_programs": self.show_future_programs,
             "launch_on_startup": self.launch_on_startup,

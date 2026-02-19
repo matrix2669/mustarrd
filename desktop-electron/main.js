@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Tray, dialog, ipcMain, nativeImage } = require("electron");
+const { app, BrowserWindow, Menu, Tray, dialog, ipcMain, nativeImage, shell } = require("electron");
 const http = require("http");
 const path = require("path");
 const fs = require("fs");
@@ -649,6 +649,44 @@ app.whenReady().then(async () => {
 
   ipcMain.handle("desktop:set-launch-on-startup", (_event, enabled) => {
     return setLaunchOnStartup(enabled);
+  });
+
+  ipcMain.handle("desktop:open-file-location", (_event, filePath) => {
+    try {
+      if (typeof filePath !== "string" || filePath.trim().length === 0) {
+        return { success: false, error: "Invalid file path" };
+      }
+
+      if (!fs.existsSync(filePath)) {
+        return { success: false, error: "File not found" };
+      }
+
+      shell.showItemInFolder(path.normalize(filePath));
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle("desktop:play-file", async (_event, filePath) => {
+    try {
+      if (typeof filePath !== "string" || filePath.trim().length === 0) {
+        return { success: false, error: "Invalid file path" };
+      }
+
+      if (!fs.existsSync(filePath)) {
+        return { success: false, error: "File not found" };
+      }
+
+      const openError = await shell.openPath(path.normalize(filePath));
+      if (openError) {
+        return { success: false, error: openError };
+      }
+
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
   });
 
   createTray();

@@ -12,6 +12,7 @@ import {
   Loader,
   Alert,
   Tooltip,
+  Button,
 } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -26,6 +27,8 @@ import {
   IconClock,
   IconDownload,
   IconSettings,
+  IconPlayerPlay,
+  IconFolderOpen,
 } from '@tabler/icons-react'
 import dayjs from 'dayjs'
 import duration from 'dayjs/plugin/duration'
@@ -53,6 +56,12 @@ function formatDuration(minutes) {
   return `${mins}m`
 }
 
+function getFileName(filePath) {
+  if (!filePath || typeof filePath !== 'string') return 'file'
+  const parts = filePath.split(/[\\/]/)
+  return parts[parts.length - 1] || 'file'
+}
+
 function getStatusBadge(status) {
   const statusConfig = {
     pending: { color: 'gray', icon: IconClock, label: 'Pending' },
@@ -73,7 +82,7 @@ function getStatusBadge(status) {
   )
 }
 
-function DownloadCard({ download, onCancel, onRetry, onDelete }) {
+function DownloadCard({ download, isDesktop, onCancel, onRetry, onDelete, onOpenFileLocation, onPlayFile }) {
   const isActive = ['pending', 'downloading', 'processing'].includes(download.status)
   const canRetry = ['failed', 'cancelled'].includes(download.status)
   const downloadProgress = typeof download.download_progress === 'number'
@@ -83,6 +92,9 @@ function DownloadCard({ download, onCancel, onRetry, onDelete }) {
   const transcodeProgress = typeof download.transcode_progress === 'number' ? download.transcode_progress : null
   const comskipIndeterminate = Boolean(download.comskip_indeterminate)
   const transcodeIndeterminate = Boolean(download.transcode_indeterminate)
+  const completedFileName = getFileName(download.output_path)
+  const downloadHref = `/api/downloads/${download.id}/file?action=download`
+  const playHref = `/api/downloads/${download.id}/file?action=play`
 
   const formatStagePercent = (value, indeterminate = false) => {
     if (indeterminate) return '...'
@@ -216,9 +228,56 @@ function DownloadCard({ download, onCancel, onRetry, onDelete }) {
         {download.status === 'completed' && (
           <Tooltip label={download.output_path}>
             <Text size="xs" c="dimmed" truncate>
-              Saved to: {download.output_path.split('/').pop()}
+              Saved to: {completedFileName}
             </Text>
           </Tooltip>
+        )}
+        {download.status === 'completed' && (
+          <Group gap="xs">
+            {isDesktop ? (
+              <>
+                <Button
+                  size="xs"
+                  variant="light"
+                  leftSection={<IconFolderOpen size={14} />}
+                  onClick={() => onOpenFileLocation(download)}
+                >
+                  Open File Location
+                </Button>
+                <Button
+                  size="xs"
+                  variant="default"
+                  leftSection={<IconPlayerPlay size={14} />}
+                  onClick={() => onPlayFile(download)}
+                >
+                  Play
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  component="a"
+                  href={downloadHref}
+                  size="xs"
+                  variant="light"
+                  leftSection={<IconDownload size={14} />}
+                >
+                  Download
+                </Button>
+                <Button
+                  component="a"
+                  href={playHref}
+                  target="_blank"
+                  rel="noreferrer"
+                  size="xs"
+                  variant="default"
+                  leftSection={<IconPlayerPlay size={14} />}
+                >
+                  Play
+                </Button>
+              </>
+            )}
+          </Group>
         )}
         {download.status === 'completed' && download.error_message && (
           <Alert color="yellow" variant="light" p="xs">
@@ -240,6 +299,8 @@ export default function Downloads() {
   const queryClient = useQueryClient()
   const [localProgress, setLocalProgress] = useState({})
   const [localLogs, setLocalLogs] = useState({})
+  const desktopApi = typeof window !== 'undefined' ? window.mustarrdDesktop : null
+  const isDesktop = Boolean(desktopApi?.openFileLocation && desktopApi?.playFile)
 
   // Fetch downloads
   const { data: downloads, isLoading, error } = useQuery({
@@ -337,6 +398,44 @@ export default function Downloads() {
     },
   })
 
+  const handleOpenFileLocation = async (download) => {
+    if (!desktopApi?.openFileLocation) return
+    try {
+      const result = await desktopApi.openFileLocation(download.output_path)
+      if (result?.success) return
+      notifications.show({
+        title: 'Unable to Open File Location',
+        message: result?.error || 'The file location could not be opened.',
+        color: 'red',
+      })
+    } catch (error) {
+      notifications.show({
+        title: 'Unable to Open File Location',
+        message: error?.message || 'The file location could not be opened.',
+        color: 'red',
+      })
+    }
+  }
+
+  const handlePlayFile = async (download) => {
+    if (!desktopApi?.playFile) return
+    try {
+      const result = await desktopApi.playFile(download.output_path)
+      if (result?.success) return
+      notifications.show({
+        title: 'Unable to Play File',
+        message: result?.error || 'The file could not be opened for playback.',
+        color: 'red',
+      })
+    } catch (error) {
+      notifications.show({
+        title: 'Unable to Play File',
+        message: error?.message || 'The file could not be opened for playback.',
+        color: 'red',
+      })
+    }
+  }
+
   // Merge WebSocket updates with fetched data
   const enhancedDownloads = downloads?.map((d) => ({
     ...d,
@@ -398,9 +497,12 @@ export default function Downloads() {
                 <DownloadCard
                   key={download.id}
                   download={download}
+                  isDesktop={isDesktop}
                   onCancel={(d) => cancelMutation.mutate(d)}
                   onRetry={(d) => retryMutation.mutate(d)}
                   onDelete={(d) => deleteMutation.mutate(d)}
+                  onOpenFileLocation={handleOpenFileLocation}
+                  onPlayFile={handlePlayFile}
                 />
               ))}
             </Stack>
@@ -423,9 +525,12 @@ export default function Downloads() {
                 <DownloadCard
                   key={download.id}
                   download={download}
+                  isDesktop={isDesktop}
                   onCancel={(d) => cancelMutation.mutate(d)}
                   onRetry={(d) => retryMutation.mutate(d)}
                   onDelete={(d) => deleteMutation.mutate(d)}
+                  onOpenFileLocation={handleOpenFileLocation}
+                  onPlayFile={handlePlayFile}
                 />
               ))}
             </Stack>

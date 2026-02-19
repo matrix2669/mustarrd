@@ -123,7 +123,6 @@ class FileNamer:
         """
         title = program.get("title", "Unknown")
         description = program.get("description", "")
-        channel_name = channel.get("name", "Unknown Channel")
         start_time_str = program.get("start_time")
 
         # Parse start time
@@ -145,7 +144,7 @@ class FileNamer:
         elif program_type == "movie":
             filename = self._generate_movie_filename(title, description, start_time)
         else:
-            filename = self._generate_default_filename(channel_name, title, date_str)
+            filename = self._generate_default_filename(title, date_str)
 
         return self.sanitize_filename(filename) + ".ts"
 
@@ -179,9 +178,9 @@ class FileNamer:
 
         return f"{clean_title} ({year})"
 
-    def _generate_default_filename(self, channel_name: str, title: str, date_str: str) -> str:
+    def _generate_default_filename(self, title: str, date_str: str) -> str:
         """Generate default filename."""
-        return f"{channel_name} - {title} - {date_str}"
+        return f"{title} - {date_str}"
 
 
 # Global instance

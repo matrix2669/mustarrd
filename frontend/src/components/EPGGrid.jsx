@@ -1,11 +1,33 @@
 import { useMemo, useRef, useEffect } from 'react'
 import { Stack, Text, Group, Badge, ScrollArea, Box } from '@mantine/core'
+import { useMediaQuery } from '@mantine/hooks'
 import { IconClock, IconDownload, IconCalendar } from '@tabler/icons-react'
 import dayjs from 'dayjs'
 
-function ProgramBlock({ program, onClick, isPast, isCurrent, isDownloadable, isSchedulable, elementId }) {
+const previousDownloadStatusMeta = {
+  pending: { label: 'Queued', color: 'blue' },
+  downloading: { label: 'Downloading', color: 'blue' },
+  processing: { label: 'Processing', color: 'violet' },
+  completed: { label: 'Downloaded', color: 'green' },
+  failed: { label: 'Failed', color: 'red' },
+  cancelled: { label: 'Cancelled', color: 'gray' },
+}
+
+function ProgramBlock({
+  program,
+  onClick,
+  isPast,
+  isCurrent,
+  isDownloadable,
+  isSchedulable,
+  elementId,
+  previousDownload,
+}) {
   const startTime = dayjs(program.start_time)
   const endTime = dayjs(program.end_time)
+  const isMobile = useMediaQuery('(max-width: 48em)')
+  const previousStatus = previousDownload?.status
+  const previousMeta = (previousStatus && previousDownloadStatusMeta[previousStatus]) || null
 
   const backgroundColor = isCurrent
     ? 'var(--mantine-color-green-light)'
@@ -49,7 +71,12 @@ function ProgramBlock({ program, onClick, isPast, isCurrent, isDownloadable, isS
     >
       <Stack gap={4}>
         <Group justify="space-between" wrap="nowrap">
-          <Text size="sm" fw={500} truncate style={{ flex: 1 }}>
+          <Text
+            size={isMobile ? 'xs' : 'sm'}
+            fw={500}
+            lineClamp={isMobile ? 2 : 1}
+            style={{ flex: 1, minWidth: 0, lineHeight: isMobile ? 1.25 : undefined }}
+          >
             {program.title}
           </Text>
           {ActionIcon && (
@@ -64,6 +91,11 @@ function ProgramBlock({ program, onClick, isPast, isCurrent, isDownloadable, isS
           <Badge size="xs" variant="light" color={isCurrent ? 'green' : isPast ? 'gray' : 'blue'}>
             {program.duration_minutes}m
           </Badge>
+          {previousMeta && (
+            <Badge size="xs" variant="light" color={previousMeta.color}>
+              {previousMeta.label}
+            </Badge>
+          )}
         </Group>
 
         {program.description && (
@@ -76,7 +108,7 @@ function ProgramBlock({ program, onClick, isPast, isCurrent, isDownloadable, isS
   )
 }
 
-function DaySection({ date, programs, onProgramClick }) {
+function DaySection({ date, programs, onProgramClick, getProgramPreviousDownload }) {
   const now = dayjs()
   const isToday = date.isSame(now, 'day')
 
@@ -107,6 +139,9 @@ function DaySection({ date, programs, onProgramClick }) {
           const isDownloadable = isPast && program.has_archive
           const isSchedulable = !isPast
           const elementId = `epg-program-${program.epg_id || program.id || idx}`
+          const previousDownload = getProgramPreviousDownload
+            ? getProgramPreviousDownload(program)
+            : null
 
           return (
             <ProgramBlock
@@ -118,6 +153,7 @@ function DaySection({ date, programs, onProgramClick }) {
               isDownloadable={isDownloadable}
               isSchedulable={isSchedulable}
               elementId={elementId}
+              previousDownload={previousDownload}
             />
           )
         })}
@@ -126,7 +162,12 @@ function DaySection({ date, programs, onProgramClick }) {
   )
 }
 
-export default function EPGGrid({ epgData, onProgramClick, showFuture = false }) {
+export default function EPGGrid({
+  epgData,
+  onProgramClick,
+  showFuture = false,
+  getProgramPreviousDownload = null,
+}) {
   const scrollAreaRef = useRef(null)
   const didAutoScrollRef = useRef(false)
   const now = useMemo(() => dayjs(), [epgData, showFuture])
@@ -256,6 +297,7 @@ export default function EPGGrid({ epgData, onProgramClick, showFuture = false })
                 date={date}
                 programs={programs}
                 onProgramClick={onProgramClick}
+                getProgramPreviousDownload={getProgramPreviousDownload}
               />
             </Box>
           ))}

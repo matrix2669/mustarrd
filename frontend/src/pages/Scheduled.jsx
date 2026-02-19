@@ -12,6 +12,7 @@ import {
   Loader,
   Alert,
   Tooltip,
+  Button,
 } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -26,6 +27,8 @@ import {
   IconCalendar,
   IconDownload,
   IconSettings,
+  IconPlayerPlay,
+  IconFolderOpen,
 } from '@tabler/icons-react'
 import dayjs from 'dayjs'
 import duration from 'dayjs/plugin/duration'
@@ -66,7 +69,7 @@ function getStatusBadge(status) {
   )
 }
 
-function ScheduleCard({ schedule, onCancel, onDelete }) {
+function ScheduleCard({ schedule, isDesktop, onCancel, onDelete, onOpenFileLocation, onPlayFile }) {
   const activeStatuses = ['scheduled', 'queued', 'downloading', 'processing', 'paused_low_space']
   const isActive = activeStatuses.includes(schedule.status)
   const canDelete = !isActive
@@ -77,6 +80,12 @@ function ScheduleCard({ schedule, onCancel, onDelete }) {
   const totalDuration = (schedule.duration_minutes || 0)
     + (schedule.pre_padding_minutes || 0)
     + (schedule.post_padding_minutes || 0)
+  const downloadHref = schedule.download_id
+    ? `/api/downloads/${schedule.download_id}/file?action=download`
+    : null
+  const playHref = schedule.download_id
+    ? `/api/downloads/${schedule.download_id}/file?action=play`
+    : null
 
   return (
     <Card shadow="sm" padding="md" radius="md" withBorder>
@@ -147,6 +156,54 @@ function ScheduleCard({ schedule, onCancel, onDelete }) {
             </Text>
           </Tooltip>
         )}
+
+        {schedule.download_status === 'completed' && schedule.download_id && (
+          <Group gap="xs">
+            {isDesktop ? (
+              <>
+                <Button
+                  size="xs"
+                  variant="light"
+                  leftSection={<IconFolderOpen size={14} />}
+                  onClick={() => onOpenFileLocation(schedule)}
+                >
+                  Open File Location
+                </Button>
+                <Button
+                  size="xs"
+                  variant="default"
+                  leftSection={<IconPlayerPlay size={14} />}
+                  onClick={() => onPlayFile(schedule)}
+                >
+                  Play
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  component="a"
+                  href={downloadHref}
+                  size="xs"
+                  variant="light"
+                  leftSection={<IconDownload size={14} />}
+                >
+                  Download
+                </Button>
+                <Button
+                  component="a"
+                  href={playHref}
+                  target="_blank"
+                  rel="noreferrer"
+                  size="xs"
+                  variant="default"
+                  leftSection={<IconPlayerPlay size={14} />}
+                >
+                  Play
+                </Button>
+              </>
+            )}
+          </Group>
+        )}
       </Stack>
     </Card>
   )
@@ -155,6 +212,8 @@ function ScheduleCard({ schedule, onCancel, onDelete }) {
 export default function Scheduled() {
   const queryClient = useQueryClient()
   const [localItems, setLocalItems] = useState([])
+  const desktopApi = typeof window !== 'undefined' ? window.mustarrdDesktop : null
+  const isDesktop = Boolean(desktopApi?.openFileLocation && desktopApi?.playFile)
 
   const { data: schedules, isLoading, error } = useQuery({
     queryKey: ['schedules'],
@@ -198,6 +257,60 @@ export default function Scheduled() {
       })
     },
   })
+
+  const handleOpenFileLocation = async (schedule) => {
+    if (!desktopApi?.openFileLocation) return
+    if (!schedule.download_output_path) {
+      notifications.show({
+        title: 'Unable to Open File Location',
+        message: 'No downloaded file path is available for this recording.',
+        color: 'red',
+      })
+      return
+    }
+    try {
+      const result = await desktopApi.openFileLocation(schedule.download_output_path)
+      if (result?.success) return
+      notifications.show({
+        title: 'Unable to Open File Location',
+        message: result?.error || 'The file location could not be opened.',
+        color: 'red',
+      })
+    } catch (error) {
+      notifications.show({
+        title: 'Unable to Open File Location',
+        message: error?.message || 'The file location could not be opened.',
+        color: 'red',
+      })
+    }
+  }
+
+  const handlePlayFile = async (schedule) => {
+    if (!desktopApi?.playFile) return
+    if (!schedule.download_output_path) {
+      notifications.show({
+        title: 'Unable to Play File',
+        message: 'No downloaded file path is available for this recording.',
+        color: 'red',
+      })
+      return
+    }
+    try {
+      const result = await desktopApi.playFile(schedule.download_output_path)
+      if (result?.success) return
+      notifications.show({
+        title: 'Unable to Play File',
+        message: result?.error || 'The file could not be opened for playback.',
+        color: 'red',
+      })
+    } catch (error) {
+      notifications.show({
+        title: 'Unable to Play File',
+        message: error?.message || 'The file could not be opened for playback.',
+        color: 'red',
+      })
+    }
+  }
 
   const activeSchedules = localItems?.filter((s) =>
     ['scheduled', 'queued', 'downloading', 'processing', 'paused_low_space'].includes(s.status)
@@ -253,8 +366,11 @@ export default function Scheduled() {
                 <ScheduleCard
                   key={schedule.id}
                   schedule={schedule}
+                  isDesktop={isDesktop}
                   onCancel={(s) => cancelMutation.mutate(s)}
                   onDelete={(s) => deleteMutation.mutate(s)}
+                  onOpenFileLocation={handleOpenFileLocation}
+                  onPlayFile={handlePlayFile}
                 />
               ))}
             </Stack>
@@ -277,8 +393,11 @@ export default function Scheduled() {
                 <ScheduleCard
                   key={schedule.id}
                   schedule={schedule}
+                  isDesktop={isDesktop}
                   onCancel={(s) => cancelMutation.mutate(s)}
                   onDelete={(s) => deleteMutation.mutate(s)}
+                  onOpenFileLocation={handleOpenFileLocation}
+                  onPlayFile={handlePlayFile}
                 />
               ))}
             </Stack>

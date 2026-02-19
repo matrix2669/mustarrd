@@ -24,6 +24,7 @@ async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         await conn.run_sync(_ensure_app_settings_columns)
+        await conn.run_sync(_migrate_app_settings_schema)
         await conn.run_sync(_ensure_account_columns)
         await conn.run_sync(_ensure_download_columns)
         await conn.run_sync(_ensure_epg_program_indexes)
@@ -40,6 +41,7 @@ def _ensure_app_settings_columns(conn):
         "default_post_padding_minutes": "INTEGER DEFAULT 5",
         "min_free_space_gb": "INTEGER DEFAULT 25",
         "launch_on_startup": "BOOLEAN DEFAULT 1",
+        "max_concurrent_post_processing": "INTEGER DEFAULT 1",
     }
 
     for column_name, column_def in additions.items():
@@ -47,6 +49,83 @@ def _ensure_app_settings_columns(conn):
             conn.exec_driver_sql(
                 f"ALTER TABLE app_settings ADD COLUMN {column_name} {column_def}"
             )
+
+
+def _migrate_app_settings_schema(conn):
+    inspector = inspect(conn)
+    if "app_settings" not in inspector.get_table_names():
+        return
+
+    existing_columns = {col["name"] for col in inspector.get_columns("app_settings")}
+    removed_columns = {"remove_commercials", "transcode_quality"}
+    if not removed_columns.intersection(existing_columns):
+        return
+
+    conn.exec_driver_sql(
+        """
+        CREATE TABLE app_settings_new (
+            id INTEGER PRIMARY KEY,
+            download_folder VARCHAR(1000),
+            completed_folder VARCHAR(1000),
+            tv_template VARCHAR(500) DEFAULT '{show} - S{season:02d}E{episode:02d} - {title}',
+            movie_template VARCHAR(500) DEFAULT '{title} ({year})',
+            sports_template VARCHAR(500) DEFAULT '{title} - {date}',
+            default_template VARCHAR(500) DEFAULT '{title} - {date}',
+            max_concurrent_downloads INTEGER DEFAULT 2,
+            min_free_space_gb INTEGER DEFAULT 25,
+            default_pre_padding_minutes INTEGER DEFAULT 1,
+            default_post_padding_minutes INTEGER DEFAULT 5,
+            max_concurrent_post_processing INTEGER DEFAULT 1,
+            transcode_enabled BOOLEAN DEFAULT 1,
+            transcode_format VARCHAR(10) DEFAULT 'mkv',
+            hw_accel VARCHAR(20) DEFAULT 'cpu',
+            delete_original_after_transcode BOOLEAN DEFAULT 1,
+            remux_only BOOLEAN DEFAULT 1,
+            epg_offset_minutes INTEGER DEFAULT 0,
+            show_future_programs BOOLEAN DEFAULT 0,
+            launch_on_startup BOOLEAN DEFAULT 1,
+            comskip_enabled BOOLEAN DEFAULT 0,
+            comskip_path VARCHAR(1000),
+            comskip_ini_path VARCHAR(1000)
+        )
+        """
+    )
+
+    keep_columns = [
+        "id",
+        "download_folder",
+        "completed_folder",
+        "tv_template",
+        "movie_template",
+        "sports_template",
+        "default_template",
+        "max_concurrent_downloads",
+        "min_free_space_gb",
+        "default_pre_padding_minutes",
+        "default_post_padding_minutes",
+        "max_concurrent_post_processing",
+        "transcode_enabled",
+        "transcode_format",
+        "hw_accel",
+        "delete_original_after_transcode",
+        "remux_only",
+        "epg_offset_minutes",
+        "show_future_programs",
+        "launch_on_startup",
+        "comskip_enabled",
+        "comskip_path",
+        "comskip_ini_path",
+    ]
+    copy_columns = [col for col in keep_columns if col in existing_columns]
+    if copy_columns:
+        columns_csv = ", ".join(copy_columns)
+        conn.exec_driver_sql(
+            f"INSERT INTO app_settings_new ({columns_csv}) "
+            f"SELECT {columns_csv} FROM app_settings"
+        )
+
+    conn.exec_driver_sql("DROP TABLE app_settings")
+    conn.exec_driver_sql("ALTER TABLE app_settings_new RENAME TO app_settings")
 
 
 def _ensure_download_columns(conn):

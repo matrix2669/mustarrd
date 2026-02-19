@@ -39,6 +39,7 @@ class SettingsUpdate(BaseModel):
     sports_template: Optional[str] = None
     default_template: Optional[str] = None
     max_concurrent_downloads: Optional[int] = None
+    max_concurrent_post_processing: Optional[int] = None
     min_free_space_gb: Optional[int] = None
     default_pre_padding_minutes: Optional[int] = None
     default_post_padding_minutes: Optional[int] = None
@@ -46,13 +47,11 @@ class SettingsUpdate(BaseModel):
     transcode_enabled: Optional[bool] = None
     transcode_format: Optional[str] = None
     hw_accel: Optional[str] = None
-    transcode_quality: Optional[str] = None
     delete_original_after_transcode: Optional[bool] = None
     remux_only: Optional[bool] = None
     comskip_enabled: Optional[bool] = None
     comskip_path: Optional[str] = None
     comskip_ini_path: Optional[str] = None
-    remove_commercials: Optional[bool] = None
     epg_offset_minutes: Optional[int] = None
     show_future_programs: Optional[bool] = None
     launch_on_startup: Optional[bool] = None
@@ -66,17 +65,16 @@ NON_NULLABLE_FIELDS = {
     "sports_template",
     "default_template",
     "max_concurrent_downloads",
+    "max_concurrent_post_processing",
     "min_free_space_gb",
     "default_pre_padding_minutes",
     "default_post_padding_minutes",
     "transcode_enabled",
     "transcode_format",
     "hw_accel",
-    "transcode_quality",
     "delete_original_after_transcode",
     "remux_only",
     "comskip_enabled",
-    "remove_commercials",
     "epg_offset_minutes",
     "show_future_programs",
     "launch_on_startup",
@@ -164,6 +162,12 @@ async def get_settings(session: AsyncSession = Depends(get_session)):
         await session.commit()
         await session.refresh(settings)
 
+    if settings.max_concurrent_post_processing is None:
+        settings.max_concurrent_post_processing = 1
+        session.add(settings)
+        await session.commit()
+        await session.refresh(settings)
+
     if settings.launch_on_startup is None:
         settings.launch_on_startup = True
         session.add(settings)
@@ -201,6 +205,8 @@ async def update_settings(
             continue
         if field == "epg_offset_minutes" and value is not None:
             value = int(value)
+        if field == "max_concurrent_post_processing" and value is not None:
+            value = max(1, int(value))
         if field in {"default_pre_padding_minutes", "default_post_padding_minutes"} and value is not None:
             value = int(value)
         if field == "min_free_space_gb" and value is not None:
@@ -210,8 +216,6 @@ async def update_settings(
     # If comskip is enabled, ensure transcoding is on.
     if update_dict.get("comskip_enabled") is True:
         settings.transcode_enabled = True
-        if settings.remove_commercials:
-            settings.remux_only = False
 
     await session.commit()
     await session.refresh(settings)
@@ -219,6 +223,8 @@ async def update_settings(
     # Update download manager if max concurrent changed
     if update_data.max_concurrent_downloads is not None:
         download_manager.set_max_concurrent(update_data.max_concurrent_downloads)
+    if update_data.max_concurrent_post_processing is not None:
+        download_manager.set_max_concurrent_post_processing(update_data.max_concurrent_post_processing)
 
     if "epg_offset_minutes" in update_dict:
         epg_service.clear_cache()
@@ -261,7 +267,7 @@ async def get_template_variables():
                 {"name": "title", "description": "Program title"},
                 {"name": "date", "description": "Air date (YYYY-MM-DD)"},
             ],
-            "example": "{channel} - {title} - {date}",
+            "example": "{title} - {date}",
         },
     }
 
@@ -298,9 +304,4 @@ async def get_tools_status():
         },
         "transcode_formats": ["ts", "mp4", "mkv"],
         "hardware_accels": post_processor.get_available_hardware_accels(),
-        "quality_presets": [
-            {"id": "fast", "name": "Fast", "description": "Faster encoding, larger file size"},
-            {"id": "balanced", "name": "Balanced", "description": "Good balance of speed and quality"},
-            {"id": "quality", "name": "Quality", "description": "Best quality, slower encoding"},
-        ],
     }

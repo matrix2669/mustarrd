@@ -1,0 +1,13 @@
+@media (max-width: 48em) {
+  html,
+  body,
+  #root {
+    touch-action: manipulation;
+  }
+
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
