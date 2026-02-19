@@ -5,6 +5,7 @@ from sqlalchemy import select
 from typing import Optional
 import os
 
+from auth import require_admin
 from database import get_session
 from config import (
     ensure_config_files,
@@ -83,7 +84,10 @@ NON_NULLABLE_FIELDS = {
 
 
 @router.get("")
-async def get_settings(session: AsyncSession = Depends(get_session)):
+async def get_settings(
+    _admin: None = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
     """Get app settings."""
     result = await session.execute(select(AppSettings))
     settings = result.scalar_one_or_none()
@@ -188,6 +192,7 @@ async def get_settings(session: AsyncSession = Depends(get_session)):
 @router.put("")
 async def update_settings(
     update_data: SettingsUpdate,
+    _admin: None = Depends(require_admin),
     session: AsyncSession = Depends(get_session)
 ):
     """Update app settings."""
@@ -233,7 +238,7 @@ async def update_settings(
 
 
 @router.get("/templates")
-async def get_template_variables():
+async def get_template_variables(_admin: None = Depends(require_admin)):
     """Get available template variables for filename customization."""
     return {
         "tv_show": {
@@ -273,7 +278,7 @@ async def get_template_variables():
 
 
 @router.get("/tools")
-async def get_tools_status():
+async def get_tools_status(_admin: None = Depends(require_admin)):
     """Check availability of post-processing tools."""
     tool_status = post_processor.get_tool_runtime_status()
     ffmpeg_status = tool_status["ffmpeg"]
@@ -304,4 +309,23 @@ async def get_tools_status():
         },
         "transcode_formats": ["ts", "mp4", "mkv"],
         "hardware_accels": post_processor.get_available_hardware_accels(),
+    }
+
+
+@router.get("/public")
+async def get_public_settings(session: AsyncSession = Depends(get_session)):
+    """Get safe settings values used by public browsing/download flows."""
+    result = await session.execute(select(AppSettings))
+    settings = result.scalar_one_or_none()
+
+    if not settings:
+        settings = AppSettings()
+        session.add(settings)
+        await session.commit()
+        await session.refresh(settings)
+
+    return {
+        "show_future_programs": bool(settings.show_future_programs),
+        "default_pre_padding_minutes": settings.default_pre_padding_minutes or 1,
+        "default_post_padding_minutes": settings.default_post_padding_minutes or 5,
     }

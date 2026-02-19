@@ -42,6 +42,7 @@ def _ensure_app_settings_columns(conn):
         "min_free_space_gb": "INTEGER DEFAULT 25",
         "launch_on_startup": "BOOLEAN DEFAULT 1",
         "max_concurrent_post_processing": "INTEGER DEFAULT 1",
+        "admin_password_hash": "VARCHAR(500)",
     }
 
     for column_name, column_def in additions.items():

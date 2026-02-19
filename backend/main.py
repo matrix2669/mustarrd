@@ -3,12 +3,13 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 from fastapi.responses import FileResponse
 import os
 
 from config import settings
 from database import init_db
-from api import accounts, channels, downloads, settings as settings_api, schedules, vod, epg, logs
+from api import accounts, auth, channels, downloads, settings as settings_api, schedules, vod, epg, logs
 
 
 @asynccontextmanager
@@ -51,8 +52,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.session_secret,
+    same_site="lax",
+    https_only=False,
+)
 
 # API routes
+app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(accounts.router, prefix="/api/accounts", tags=["accounts"])
 app.include_router(channels.router, prefix="/api", tags=["channels"])
 app.include_router(downloads.router, prefix="/api/downloads", tags=["downloads"])

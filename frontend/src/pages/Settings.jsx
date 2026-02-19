@@ -22,6 +22,7 @@ import {
   Divider,
   Paper,
   ScrollArea,
+  PasswordInput,
 } from '@mantine/core'
 import { useMediaQuery } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
@@ -36,9 +37,10 @@ import {
   IconMoon,
   IconCalendar,
   IconDownload,
+  IconLock,
 } from '@tabler/icons-react'
 
-import { settingsApi } from '../api'
+import { authApi, settingsApi } from '../api'
 
 function TemplateSection({ label, template, variables, example, onChange }) {
   return (
@@ -103,6 +105,7 @@ const SECTIONS = [
   { id: 'processing', label: 'Post-Processing', icon: IconWand },
   { id: 'naming', label: 'File Naming', icon: IconFile },
   { id: 'appearance', label: 'Appearance', icon: IconMoon },
+  { id: 'security', label: 'Security', icon: IconLock },
 ]
 
 export default function Settings() {
@@ -115,6 +118,8 @@ export default function Settings() {
   const [desktopStartupSupported, setDesktopStartupSupported] = useState(false)
   const [desktopStartupLoading, setDesktopStartupLoading] = useState(false)
   const [activeSection, setActiveSection] = useState('recording')
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
   const isMobile = useMediaQuery('(max-width: 768px)')
   const { colorScheme, setColorScheme } = useMantineColorScheme()
 
@@ -237,6 +242,47 @@ export default function Settings() {
       })
     },
   })
+
+  const changePasswordMutation = useMutation({
+    mutationFn: ({ current, next }) => authApi.changePassword(current, next),
+    onSuccess: () => {
+      setCurrentPassword('')
+      setNewPassword('')
+      notifications.show({
+        title: 'Password Updated',
+        message: 'Admin password has been changed.',
+        color: 'green',
+      })
+    },
+    onError: (error) => {
+      notifications.show({
+        title: 'Password Change Failed',
+        message: error.message,
+        color: 'red',
+      })
+    },
+  })
+
+  const handleChangePassword = (e) => {
+    e.preventDefault()
+    if (!currentPassword || !newPassword) {
+      notifications.show({
+        title: 'Missing fields',
+        message: 'Enter current and new password.',
+        color: 'yellow',
+      })
+      return
+    }
+    if (newPassword.length < 8) {
+      notifications.show({
+        title: 'Password too short',
+        message: 'New password must be at least 8 characters.',
+        color: 'yellow',
+      })
+      return
+    }
+    changePasswordMutation.mutate({ current: currentPassword, next: newPassword })
+  }
 
   const handleChange = (field, value) => {
     setFormData((prev) => {
@@ -702,12 +748,45 @@ export default function Settings() {
     </Stack>
   )
 
+  const renderSecurity = () => (
+    <Stack gap="lg">
+      <Stack gap={2}>
+        <Text fw={600} size="lg">Security</Text>
+        <Text size="sm" c="dimmed">Change the admin password used to access Settings and Accounts</Text>
+      </Stack>
+
+      <form onSubmit={handleChangePassword}>
+        <Stack gap="sm">
+          <PasswordInput
+            label="Current Admin Password"
+            value={currentPassword}
+            onChange={(e) => setCurrentPassword(e.target.value)}
+            autoComplete="current-password"
+          />
+          <PasswordInput
+            label="New Admin Password"
+            description="Minimum 8 characters"
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            autoComplete="new-password"
+          />
+          <Group justify="flex-end">
+            <Button type="submit" loading={changePasswordMutation.isPending}>
+              Change Password
+            </Button>
+          </Group>
+        </Stack>
+      </form>
+    </Stack>
+  )
+
   const sectionContent = {
     recording: renderRecording,
     guide: renderGuide,
     processing: renderProcessing,
     naming: renderNaming,
     appearance: renderAppearance,
+    security: renderSecurity,
   }
 
   return (

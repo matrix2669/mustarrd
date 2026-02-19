@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Routes, Route, NavLink, Navigate } from 'react-router-dom'
+import { Routes, Route, NavLink, Navigate, Outlet, useLocation } from 'react-router-dom'
 import {
   AppShell,
   Burger,
@@ -7,6 +7,7 @@ import {
   NavLink as MantineNavLink,
   Badge,
   Stack,
+  Button,
 } from '@mantine/core'
 import { useDisclosure } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
@@ -18,7 +19,7 @@ import {
   IconSettings,
   IconListDetails,
 } from '@tabler/icons-react'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import Accounts from './pages/Accounts'
 import Browse from './pages/Browse'
@@ -26,8 +27,23 @@ import Downloads from './pages/Downloads'
 import Scheduled from './pages/Scheduled'
 import Settings from './pages/Settings'
 import Logs from './pages/Logs'
-import { downloadsApi, epgApi, createDownloadWebSocket } from './api'
+import Login from './pages/Login'
+import { authApi, downloadsApi, epgApi, createDownloadWebSocket } from './api'
 import mustarrdLogo from './assets/mustarrdlogo.png'
+
+function ProtectedRoute({ authStatus, authLoading }) {
+  const location = useLocation()
+
+  if (authLoading) {
+    return null
+  }
+
+  if (authStatus?.authenticated) {
+    return <Outlet />
+  }
+
+  return <Navigate to="/login" replace state={{ from: location.pathname }} />
+}
 
 function App() {
   const [opened, { toggle, close }] = useDisclosure()
@@ -35,6 +51,7 @@ function App() {
   const epgToastVisibleRef = useRef(false)
   const epgToastCloseTimerRef = useRef(null)
   const epgToastPendingCloseRef = useRef(false)
+  const queryClient = useQueryClient()
 
   // Fetch download queue for badge
   const { data: queue } = useQuery({
@@ -47,6 +64,22 @@ function App() {
     queryKey: ['epg', 'status'],
     queryFn: epgApi.status,
     refetchInterval: 5000,
+  })
+  const { data: authStatus, isLoading: authLoading } = useQuery({
+    queryKey: ['auth', 'status'],
+    queryFn: authApi.status,
+  })
+
+  const logoutMutation = useMutation({
+    mutationFn: authApi.logout,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['auth', 'status'] })
+      notifications.show({
+        title: 'Logged out',
+        message: 'Admin access is now locked.',
+        color: 'blue',
+      })
+    },
   })
 
   useEffect(() => {
@@ -232,18 +265,35 @@ function App() {
               style={{ borderRadius: 8, marginBottom: 4 }}
             />
           ))}
+          {authStatus?.authenticated ? (
+            <Button
+              variant="light"
+              color="gray"
+              onClick={() => logoutMutation.mutate()}
+              loading={logoutMutation.isPending}
+            >
+              Log Out Admin
+            </Button>
+          ) : (
+            <Button component={NavLink} to="/login" variant="light">
+              Admin Login
+            </Button>
+          )}
         </Stack>
       </AppShell.Navbar>
 
       <AppShell.Main>
         <Routes>
           <Route path="/" element={<Navigate to="/browse" replace />} />
-          <Route path="/accounts" element={<Accounts />} />
+          <Route path="/login" element={<Login />} />
+          <Route element={<ProtectedRoute authStatus={authStatus} authLoading={authLoading} />}>
+            <Route path="/accounts" element={<Accounts />} />
+            <Route path="/settings" element={<Settings />} />
+          </Route>
           <Route path="/browse" element={<Browse />} />
           <Route path="/downloads" element={<Downloads />} />
           <Route path="/scheduled" element={<Scheduled />} />
           <Route path="/logs" element={<Logs />} />
-          <Route path="/settings" element={<Settings />} />
         </Routes>
       </AppShell.Main>
     </AppShell>

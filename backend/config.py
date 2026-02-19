@@ -71,6 +71,7 @@ class Settings(BaseSettings):
     app_name: str = "Catchup DVR"
     debug: bool = False
     timezone: str = "UTC"
+    session_secret: str = "change-me"
 
     # Database
     database_url: str = _default_database_url()
