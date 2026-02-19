@@ -9,7 +9,6 @@ import {
   TextInput,
   NumberInput,
   Button,
-  Accordion,
   Code,
   Loader,
   Alert,
@@ -17,8 +16,11 @@ import {
   Select,
   Badge,
   useMantineColorScheme,
-  useMantineTheme,
   Modal,
+  NavLink,
+  Box,
+  Divider,
+  Paper,
 } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -26,12 +28,12 @@ import {
   IconFolder,
   IconFile,
   IconAlertCircle,
-  IconInfoCircle,
   IconWand,
   IconCheck,
   IconX,
   IconMoon,
   IconCalendar,
+  IconDownload,
 } from '@tabler/icons-react'
 
 import { settingsApi } from '../api'
@@ -59,6 +61,18 @@ function TemplateSection({ label, template, variables, example, onChange }) {
   )
 }
 
+function SettingRow({ label, description, children }) {
+  return (
+    <Group justify="space-between" align="flex-start" wrap="nowrap">
+      <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
+        <Text fw={500} size="sm">{label}</Text>
+        {description && <Text size="xs" c="dimmed">{description}</Text>}
+      </Stack>
+      <Box style={{ flexShrink: 0, paddingTop: 2 }}>{children}</Box>
+    </Group>
+  )
+}
+
 function useBlocker(blocker, when = true) {
   const { navigator } = useContext(UNSAFE_NavigationContext)
 
@@ -81,6 +95,14 @@ function useBlocker(blocker, when = true) {
   }, [navigator, blocker, when])
 }
 
+const SECTIONS = [
+  { id: 'recording', label: 'Recording', icon: IconDownload },
+  { id: 'guide', label: 'Guide', icon: IconCalendar },
+  { id: 'processing', label: 'Post-Processing', icon: IconWand },
+  { id: 'naming', label: 'File Naming', icon: IconFile },
+  { id: 'appearance', label: 'Appearance', icon: IconMoon },
+]
+
 export default function Settings() {
   const queryClient = useQueryClient()
   const [formData, setFormData] = useState(null)
@@ -90,8 +112,9 @@ export default function Settings() {
   const [isSavingAndLeaving, setIsSavingAndLeaving] = useState(false)
   const [desktopStartupSupported, setDesktopStartupSupported] = useState(false)
   const [desktopStartupLoading, setDesktopStartupLoading] = useState(false)
+  const [activeSection, setActiveSection] = useState('recording')
   const { colorScheme, setColorScheme } = useMantineColorScheme()
-  const theme = useMantineTheme()
+
   const blockNavigation = useCallback((tx) => {
     if (!hasChanges) {
       tx.retry()
@@ -102,39 +125,21 @@ export default function Settings() {
   }, [hasChanges])
   useBlocker(blockNavigation, hasChanges)
 
-  const accordionStyles = {
-    item: {
-      borderRadius: theme.radius.md,
-      border: `1px solid ${colorScheme === 'dark' ? theme.colors.dark[6] : theme.colors.gray[5]}`,
-      backgroundColor: colorScheme === 'dark' ? theme.colors.dark[7] : theme.colors.gray[1],
-    },
-    control: {
-      borderRadius: theme.radius.md,
-    },
-    panel: {
-      borderTop: `1px solid ${colorScheme === 'dark' ? theme.colors.dark[6] : theme.colors.gray[3]}`,
-    },
-  }
-
-  // Fetch settings
   const { data: settings, isLoading, error } = useQuery({
     queryKey: ['settings'],
     queryFn: settingsApi.get,
   })
 
-  // Fetch template variables
   const { data: templateInfo } = useQuery({
     queryKey: ['settings', 'templates'],
     queryFn: settingsApi.getTemplates,
   })
 
-  // Fetch tools status
   const { data: toolsStatus } = useQuery({
     queryKey: ['settings', 'tools'],
     queryFn: settingsApi.getTools,
   })
 
-  // Initialize form when settings load
   useEffect(() => {
     if (settings && !formData) {
       setFormData({ ...settings })
@@ -317,6 +322,391 @@ export default function Settings() {
     return null
   }
 
+  const renderRecording = () => (
+    <Stack gap="lg">
+      <Stack gap={2}>
+        <Text fw={600} size="lg">Recording</Text>
+        <Text size="sm" c="dimmed">Folders, concurrency, and default timing for recordings</Text>
+      </Stack>
+
+      <Stack gap="md">
+        <Text size="xs" fw={600} c="dimmed" tt="uppercase" style={{ letterSpacing: '0.06em' }}>Storage</Text>
+        <TextInput
+          label="Download Folder"
+          description="Where files are saved while downloading"
+          value={formData.download_folder}
+          onChange={(e) => handleChange('download_folder', e.target.value)}
+          leftSection={<IconFolder size={16} />}
+        />
+        <TextInput
+          label="Completed Folder"
+          description="Where finished files are moved after processing"
+          value={formData.completed_folder}
+          onChange={(e) => handleChange('completed_folder', e.target.value)}
+          leftSection={<IconFolder size={16} />}
+        />
+      </Stack>
+
+      <Divider variant="dashed" />
+
+      <Stack gap="md">
+        <Text size="xs" fw={600} c="dimmed" tt="uppercase" style={{ letterSpacing: '0.06em' }}>Concurrency</Text>
+        <NumberInput
+          label="Max Concurrent Downloads"
+          description="How many downloads can run simultaneously"
+          min={1}
+          max={5}
+          value={formData.max_concurrent_downloads}
+          onChange={(val) => handleChange('max_concurrent_downloads', val)}
+        />
+        <NumberInput
+          label="Minimum Free Space (GB)"
+          description="Pause scheduled recordings if free disk space drops below this"
+          min={1}
+          max={10000}
+          value={formData.min_free_space_gb}
+          onChange={(val) => handleChange('min_free_space_gb', val)}
+        />
+      </Stack>
+
+      <Divider variant="dashed" />
+
+      <Stack gap="md">
+        <Text size="xs" fw={600} c="dimmed" tt="uppercase" style={{ letterSpacing: '0.06em' }}>Padding Defaults</Text>
+        <Group grow>
+          <NumberInput
+            label="Minutes Before Start"
+            description="Start recordings this many minutes early"
+            min={0}
+            max={120}
+            value={formData.default_pre_padding_minutes}
+            onChange={(val) => handleChange('default_pre_padding_minutes', val)}
+          />
+          <NumberInput
+            label="Minutes After End"
+            description="Keep recording this many minutes past the end"
+            min={0}
+            max={120}
+            value={formData.default_post_padding_minutes}
+            onChange={(val) => handleChange('default_post_padding_minutes', val)}
+          />
+        </Group>
+      </Stack>
+    </Stack>
+  )
+
+  const renderGuide = () => (
+    <Stack gap="lg">
+      <Stack gap={2}>
+        <Text fw={600} size="lg">Guide</Text>
+        <Text size="sm" c="dimmed">How the program guide displays and behaves</Text>
+      </Stack>
+
+      <NumberInput
+        label="EPG Time Offset (hours)"
+        description="Shift guide times if your provider's schedule doesn't match your timezone"
+        min={-12}
+        max={12}
+        step={1}
+        value={(formData.epg_offset_minutes || 0) / 60}
+        onChange={(val) => {
+          const hours = typeof val === 'number' ? val : 0
+          handleChange('epg_offset_minutes', hours * 60)
+        }}
+      />
+
+      <Divider variant="dashed" />
+
+      <SettingRow
+        label="Show future programs"
+        description="Display upcoming programs that can't be downloaded yet. Clicking them schedules a recording — keep the app running."
+      >
+        <Switch
+          checked={formData.show_future_programs || false}
+          onChange={(e) => handleChange('show_future_programs', e.currentTarget.checked)}
+        />
+      </SettingRow>
+    </Stack>
+  )
+
+  const renderProcessing = () => (
+    <Stack gap="lg">
+      <Stack gap={2}>
+        <Text fw={600} size="lg">Post-Processing</Text>
+        <Text size="sm" c="dimmed">Transcoding and commercial removal after download completes</Text>
+      </Stack>
+
+      {toolsStatus && (
+        <Stack gap="xs">
+          <Group gap="md">
+            <Badge
+              color={toolsStatus.ffmpeg?.available ? 'green' : 'red'}
+              variant="light"
+              leftSection={toolsStatus.ffmpeg?.available ? <IconCheck size={12} /> : <IconX size={12} />}
+            >
+              ffmpeg {toolsStatus.ffmpeg?.available ? 'ready' : 'unavailable'}
+            </Badge>
+            <Badge
+              color={toolsStatus.comskip?.available ? 'green' : 'red'}
+              variant="light"
+              leftSection={toolsStatus.comskip?.available ? <IconCheck size={12} /> : <IconX size={12} />}
+            >
+              Comskip {toolsStatus.comskip?.available ? 'ready' : 'unavailable'}
+            </Badge>
+          </Group>
+          {toolsStatus.ffmpeg?.path && (
+            <Text size="xs" c="dimmed">ffmpeg: {toolsStatus.ffmpeg.path}</Text>
+          )}
+          {toolsStatus.ffmpeg?.error && (
+            <Text size="xs" c="red">ffmpeg error: {toolsStatus.ffmpeg.error}</Text>
+          )}
+          {toolsStatus.comskip?.path && (
+            <Text size="xs" c="dimmed">comskip: {toolsStatus.comskip.path}</Text>
+          )}
+          {toolsStatus.comskip?.error && (
+            <Text size="xs" c="red">comskip error: {toolsStatus.comskip.error}</Text>
+          )}
+        </Stack>
+      )}
+
+      <Divider variant="dashed" label="Transcoding" labelPosition="left" />
+
+      <Stack gap="md">
+        <NumberInput
+          label="Max Concurrent Post-Processing"
+          description="How many files can be processed at once (recommended: 1)"
+          min={1}
+          max={10}
+          value={formData.max_concurrent_post_processing ?? 1}
+          onChange={(val) => handleChange('max_concurrent_post_processing', val)}
+        />
+
+        {(formData.max_concurrent_post_processing ?? 1) > 1 && (
+          <Alert icon={<IconAlertCircle size={16} />} color="yellow" variant="light">
+            <Text size="sm">
+              Running multiple conversions at once can saturate your CPU/GPU and disk. Some GPUs also have limited
+              concurrent encoding sessions.
+            </Text>
+          </Alert>
+        )}
+
+        <Select
+          label="Output Format"
+          data={[
+            { value: 'mp4', label: 'MP4 (H.264 + AAC)' },
+            { value: 'mkv', label: 'MKV (best compatibility)' },
+            { value: 'ts', label: 'TS (keep original)' },
+          ]}
+          value={formData.transcode_format || 'mkv'}
+          onChange={(val) => handleChange('transcode_format', val)}
+        />
+
+        <SettingRow
+          label="Remux only (no re-encode)"
+          description="Faster and lossless; may show minor glitches at cut points"
+        >
+          <Switch
+            checked={formData.remux_only !== false}
+            onChange={(e) => handleChange('remux_only', e.currentTarget.checked)}
+          />
+        </SettingRow>
+
+        <SettingRow
+          label="Delete original after processing"
+          description="Remove the source file once transcoding is complete"
+        >
+          <Switch
+            checked={formData.delete_original_after_transcode !== false}
+            onChange={(e) => handleChange('delete_original_after_transcode', e.currentTarget.checked)}
+          />
+        </SettingRow>
+
+        {!formData.remux_only && (
+          <Select
+            label="Hardware Acceleration"
+            description="Use GPU for faster encoding"
+            data={toolsStatus?.hardware_accels?.map(hw => ({
+              value: hw.id,
+              label: hw.name,
+              disabled: !hw.available,
+            })) || [{ value: 'cpu', label: 'CPU (Software)' }]}
+            value={formData.hw_accel || 'cpu'}
+            onChange={(val) => handleChange('hw_accel', val)}
+          />
+        )}
+
+        {!toolsStatus?.ffmpeg?.available && (
+          <Alert color="yellow" variant="light">
+            <Text size="sm">
+              ffmpeg is unavailable. The Docker image includes ffmpeg; install or fix it manually if running locally.
+            </Text>
+          </Alert>
+        )}
+      </Stack>
+
+      <Divider variant="dashed" label="Commercial Detection (Beta)" labelPosition="left" />
+
+      <Stack gap="md">
+        <SettingRow
+          label="Enable Comskip"
+          description="Automatically detect and remove commercials from recordings"
+        >
+          <Switch
+            checked={formData.comskip_enabled || false}
+            onChange={(e) => handleChange('comskip_enabled', e.currentTarget.checked)}
+            disabled={!toolsStatus?.comskip?.available}
+          />
+        </SettingRow>
+
+        {formData.comskip_enabled && (
+          <>
+            <Text size="xs" c="dimmed">
+              Commercials will be cut out and the result remuxed using your transcoding settings above.
+            </Text>
+            <TextInput
+              label="Comskip Binary Path (optional)"
+              description="Custom path to the comskip binary"
+              placeholder="/usr/local/bin/comskip"
+              value={formData.comskip_path || ''}
+              onChange={(e) => handleChange('comskip_path', e.target.value || null)}
+            />
+            <TextInput
+              label="Comskip INI Path (optional)"
+              description="Custom comskip.ini file (leave blank to use the app default)"
+              placeholder="/path/to/comskip.ini"
+              value={formData.comskip_ini_path || ''}
+              onChange={(e) => handleChange('comskip_ini_path', e.target.value || null)}
+            />
+          </>
+        )}
+
+        {!toolsStatus?.comskip?.available && (
+          <Alert color="yellow" variant="light">
+            <Text size="sm">
+              Comskip is unavailable. See{' '}
+              <a href="https://github.com/erikkaashoek/Comskip" target="_blank" rel="noopener noreferrer">
+                github.com/erikkaashoek/Comskip
+              </a>{' '}
+              for installation instructions.
+            </Text>
+          </Alert>
+        )}
+      </Stack>
+    </Stack>
+  )
+
+  const renderNaming = () => (
+    <Stack gap="lg">
+      <Stack gap={2}>
+        <Text fw={600} size="lg">File Naming</Text>
+        <Text size="sm" c="dimmed">
+          Templates for how downloaded files are named. Files get the .ts extension automatically.
+        </Text>
+      </Stack>
+
+      {templateInfo?.tv_show && (
+        <>
+          <Stack gap="xs">
+            <Text fw={500} size="sm">TV Shows</Text>
+            <TemplateSection
+              label="Template"
+              template={formData.tv_template}
+              variables={templateInfo.tv_show.variables}
+              example={templateInfo.tv_show.example}
+              onChange={(val) => handleChange('tv_template', val)}
+            />
+          </Stack>
+          <Divider variant="dashed" />
+        </>
+      )}
+
+      {templateInfo?.movie && (
+        <>
+          <Stack gap="xs">
+            <Text fw={500} size="sm">Movies</Text>
+            <TemplateSection
+              label="Template"
+              template={formData.movie_template}
+              variables={templateInfo.movie.variables}
+              example={templateInfo.movie.example}
+              onChange={(val) => handleChange('movie_template', val)}
+            />
+          </Stack>
+          <Divider variant="dashed" />
+        </>
+      )}
+
+      {templateInfo?.sports && (
+        <>
+          <Stack gap="xs">
+            <Text fw={500} size="sm">Sports</Text>
+            <TemplateSection
+              label="Template"
+              template={formData.sports_template}
+              variables={templateInfo.sports.variables}
+              example={templateInfo.sports.example}
+              onChange={(val) => handleChange('sports_template', val)}
+            />
+          </Stack>
+          <Divider variant="dashed" />
+        </>
+      )}
+
+      {templateInfo?.default && (
+        <Stack gap="xs">
+          <Text fw={500} size="sm">Default (Other Content)</Text>
+          <TemplateSection
+            label="Template"
+            template={formData.default_template}
+            variables={templateInfo.default.variables}
+            example={templateInfo.default.example}
+            onChange={(val) => handleChange('default_template', val)}
+          />
+        </Stack>
+      )}
+    </Stack>
+  )
+
+  const renderAppearance = () => (
+    <Stack gap="lg">
+      <Stack gap={2}>
+        <Text fw={600} size="lg">Appearance</Text>
+        <Text size="sm" c="dimmed">Theme and display preferences</Text>
+      </Stack>
+
+      <SettingRow label="Dark Mode" description="Switch between light and dark interface theme">
+        <Switch
+          checked={colorScheme === 'dark'}
+          onChange={(e) => setColorScheme(e.currentTarget.checked ? 'dark' : 'light')}
+        />
+      </SettingRow>
+
+      {(desktopStartupSupported || desktopStartupLoading) && (
+        <>
+          <Divider variant="dashed" />
+          <SettingRow
+            label="Run app at system startup"
+            description="Automatically launch Mustarrd when you sign in"
+          >
+            <Switch
+              checked={formData.launch_on_startup !== false}
+              disabled={desktopStartupLoading}
+              onChange={(e) => handleChange('launch_on_startup', e.currentTarget.checked)}
+            />
+          </SettingRow>
+        </>
+      )}
+    </Stack>
+  )
+
+  const sectionContent = {
+    recording: renderRecording,
+    guide: renderGuide,
+    processing: renderProcessing,
+    naming: renderNaming,
+    appearance: renderAppearance,
+  }
+
   return (
     <Stack>
       <Modal
@@ -352,6 +742,7 @@ export default function Settings() {
           </Stack>
         </Stack>
       </Modal>
+
       <Group justify="space-between">
         <Title order={2}>Settings</Title>
         <Group>
@@ -370,385 +761,26 @@ export default function Settings() {
         </Group>
       </Group>
 
-      <Card shadow="sm" padding="lg" radius="md" withBorder>
-        <Stack gap="md">
-          <Group gap="xs">
-            <IconFolder size={20} />
-            <Text fw={500}>Download Settings</Text>
-          </Group>
+      <Group align="flex-start" gap="lg" wrap="nowrap">
+        <Paper withBorder radius="md" p="xs" style={{ width: 190, flexShrink: 0 }}>
+          <Stack gap={2}>
+            {SECTIONS.map(({ id, label, icon: Icon }) => (
+              <NavLink
+                key={id}
+                label={label}
+                leftSection={<Icon size={16} />}
+                active={activeSection === id}
+                onClick={() => setActiveSection(id)}
+                styles={{ root: { borderRadius: 6 } }}
+              />
+            ))}
+          </Stack>
+        </Paper>
 
-          <TextInput
-            label="Download Folder"
-            description="Where downloaded files will be saved"
-            value={formData.download_folder}
-            onChange={(e) => handleChange('download_folder', e.target.value)}
-            leftSection={<IconFolder size={16} />}
-          />
-          <TextInput
-            label="Completed Folder"
-            description="Where finished files will be moved"
-            value={formData.completed_folder}
-            onChange={(e) => handleChange('completed_folder', e.target.value)}
-            leftSection={<IconFolder size={16} />}
-          />
-
-          <NumberInput
-            label="Max Concurrent Downloads"
-            description="How many downloads can run at the same time"
-            min={1}
-            max={5}
-            value={formData.max_concurrent_downloads}
-            onChange={(val) => handleChange('max_concurrent_downloads', val)}
-          />
-
-          <NumberInput
-            label="Default Minutes Before Start"
-            description="Start recordings early by default"
-            min={0}
-            max={120}
-            value={formData.default_pre_padding_minutes}
-            onChange={(val) => handleChange('default_pre_padding_minutes', val)}
-          />
-
-          <NumberInput
-            label="Default Minutes After End"
-            description="Keep recordings running after the program ends by default"
-            min={0}
-            max={120}
-            value={formData.default_post_padding_minutes}
-            onChange={(val) => handleChange('default_post_padding_minutes', val)}
-          />
-
-          <NumberInput
-            label="EPG Time Offset (hours)"
-            description="Adjust guide times if your provider's schedule is offset"
-            min={-12}
-            max={12}
-            step={1}
-            value={(formData.epg_offset_minutes || 0) / 60}
-            onChange={(val) => {
-              const hours = typeof val === 'number' ? val : 0
-              handleChange('epg_offset_minutes', hours * 60)
-            }}
-          />
-
-          <Switch
-            label="Show future programs (schedule-only)"
-            description="Show upcoming programs that cannot be downloaded yet. Clicking them schedules recordings, so leave the app running."
-            checked={formData.show_future_programs || false}
-            onChange={(e) => handleChange('show_future_programs', e.currentTarget.checked)}
-          />
-
-          {(desktopStartupSupported || desktopStartupLoading) && (
-            <Switch
-              label="Run app at system startup"
-              description="Automatically launch Mustarrd when you sign in."
-              checked={formData.launch_on_startup !== false}
-              disabled={desktopStartupLoading}
-              onChange={(e) => handleChange('launch_on_startup', e.currentTarget.checked)}
-            />
-          )}
-        </Stack>
-      </Card>
-
-      <Card shadow="sm" padding="lg" radius="md" withBorder>
-        <Stack gap="md">
-          <Group gap="xs">
-            <IconCalendar size={20} />
-            <Text fw={500}>Scheduled Recordings</Text>
-          </Group>
-
-          <NumberInput
-            label="Minimum Free Space (GB)"
-            description="Pause scheduled recordings if free space drops below this amount"
-            min={1}
-            max={10000}
-            value={formData.min_free_space_gb}
-            onChange={(val) => handleChange('min_free_space_gb', val)}
-          />
-        </Stack>
-      </Card>
-
-      <Card shadow="sm" padding="lg" radius="md" withBorder>
-        <Stack gap="md">
-          <Group gap="xs">
-            <IconWand size={20} />
-            <Text fw={500}>Post-Processing</Text>
-          </Group>
-
-          <Alert icon={<IconInfoCircle size={16} />} variant="light">
-            <Text size="sm">
-              Automatically process downloads after completion. Requires working ffmpeg and/or Comskip binaries.
-            </Text>
-          </Alert>
-
-          <NumberInput
-            label="Max Concurrent Post-Processing"
-            description="How many files can be converted at the same time (Recommended: 1). Higher values use much more CPU/GPU and disk I/O."
-            min={1}
-            max={10}
-            value={formData.max_concurrent_post_processing ?? 1}
-            onChange={(val) => handleChange('max_concurrent_post_processing', val)}
-          />
-
-          {(formData.max_concurrent_post_processing ?? 1) > 1 && (
-            <Alert icon={<IconAlertCircle size={16} />} color="yellow" variant="light">
-              <Text size="sm">
-                Running multiple conversions at once can saturate your CPU/GPU and disk. Some GPUs also have limited
-                concurrent encoding sessions.
-              </Text>
-            </Alert>
-          )}
-
-          {toolsStatus && (
-            <Stack gap={6}>
-              <Group gap="md">
-                <Badge
-                  color={toolsStatus.ffmpeg?.available ? 'green' : 'red'}
-                  variant="light"
-                  leftSection={toolsStatus.ffmpeg?.available ? <IconCheck size={12} /> : <IconX size={12} />}
-                >
-                  ffmpeg {toolsStatus.ffmpeg?.available ? 'ready' : 'unavailable'}
-                </Badge>
-                <Badge
-                  color={toolsStatus.comskip?.available ? 'green' : 'red'}
-                  variant="light"
-                  leftSection={toolsStatus.comskip?.available ? <IconCheck size={12} /> : <IconX size={12} />}
-                >
-                  Comskip {toolsStatus.comskip?.available ? 'ready' : 'unavailable'}
-                </Badge>
-              </Group>
-              {toolsStatus.ffmpeg?.path && (
-                <Text size="xs" c="dimmed">ffmpeg: {toolsStatus.ffmpeg.path}</Text>
-              )}
-              {toolsStatus.ffmpeg?.error && (
-                <Text size="xs" c="red">ffmpeg error: {toolsStatus.ffmpeg.error}</Text>
-              )}
-              {toolsStatus.comskip?.path && (
-                <Text size="xs" c="dimmed">comskip: {toolsStatus.comskip.path}</Text>
-              )}
-              {toolsStatus.comskip?.error && (
-                <Text size="xs" c="red">comskip error: {toolsStatus.comskip.error}</Text>
-              )}
-            </Stack>
-          )}
-
-          <Accordion variant="separated" styles={accordionStyles}>
-            <Accordion.Item value="transcode">
-              <Accordion.Control>
-                <Group gap="xs">
-                  <Text>Post-Processing (Advanced)</Text>
-                </Group>
-              </Accordion.Control>
-              <Accordion.Panel>
-                <Stack gap="md">
-                  <Text size="xs" c="dimmed">
-                    By default, downloads are remuxed to MKV using stream copy. Use these options if you want
-                    to change the format or force a re-encode.
-                  </Text>
-
-                  <Select
-                    label="Output Format"
-                    data={[
-                      { value: 'mp4', label: 'MP4 (H.264 + AAC)' },
-                      { value: 'mkv', label: 'MKV (best compatibility)' },
-                      { value: 'ts', label: 'TS (keep original)' },
-                    ]}
-                    value={formData.transcode_format || 'mkv'}
-                    onChange={(val) => handleChange('transcode_format', val)}
-                  />
-
-                  <Switch
-                    label="Remux only (no re-encode)"
-                    description="Faster and lossless; may show minor glitches at cut points."
-                    checked={formData.remux_only !== false}
-                    onChange={(e) => handleChange('remux_only', e.currentTarget.checked)}
-                  />
-
-                  <Switch
-                    label="Delete original after processing"
-                    checked={formData.delete_original_after_transcode !== false}
-                    onChange={(e) => handleChange('delete_original_after_transcode', e.currentTarget.checked)}
-                  />
-
-                  {!formData.remux_only && (
-                    <Select
-                      label="Output Hardware"
-                      description="Use GPU for faster encoding"
-                      data={toolsStatus?.hardware_accels?.map(hw => ({
-                        value: hw.id,
-                        label: hw.name,
-                        disabled: !hw.available,
-                      })) || [{ value: 'cpu', label: 'CPU (Software)' }]}
-                      value={formData.hw_accel || 'cpu'}
-                      onChange={(val) => handleChange('hw_accel', val)}
-                    />
-                  )}
-
-                  {!toolsStatus?.ffmpeg?.available && (
-                    <Alert color="yellow" variant="light">
-                      <Text size="sm">
-                        ffmpeg is unavailable. The Docker image includes ffmpeg; install or fix it manually if running locally.
-                      </Text>
-                    </Alert>
-                  )}
-                </Stack>
-              </Accordion.Panel>
-            </Accordion.Item>
-
-            <Accordion.Item value="comskip">
-              <Accordion.Control>
-                <Group gap="xs">
-                  <Text>Commercial Detection (Comskip) (Beta)</Text>
-                  {formData.comskip_enabled && (
-                    <Badge size="xs" color="blue">Enabled</Badge>
-                  )}
-                </Group>
-              </Accordion.Control>
-              <Accordion.Panel>
-                <Stack gap="md">
-                  <Switch
-                    label="Enable Comskip"
-                    description="Detect and remove commercials from recordings"
-                    checked={formData.comskip_enabled || false}
-                    onChange={(e) => handleChange('comskip_enabled', e.currentTarget.checked)}
-                    disabled={!toolsStatus?.comskip?.available}
-                  />
-
-                  {formData.comskip_enabled && (
-                    <>
-                      <Text size="xs" c="dimmed">
-                        Commercials will be cut out and the result will be remuxed using your advanced settings.
-                      </Text>
-
-                      <TextInput
-                        label="Comskip Path (optional)"
-                        description="Custom path to comskip binary"
-                        placeholder="/usr/local/bin/comskip"
-                        value={formData.comskip_path || ''}
-                        onChange={(e) => handleChange('comskip_path', e.target.value || null)}
-                      />
-
-                      <TextInput
-                        label="Comskip INI Path (optional)"
-                        description="Custom comskip.ini configuration file (leave blank to use the app default)"
-                        placeholder="/path/to/comskip.ini"
-                        value={formData.comskip_ini_path || ''}
-                        onChange={(e) => handleChange('comskip_ini_path', e.target.value || null)}
-                      />
-                    </>
-                  )}
-
-                  {!toolsStatus?.comskip?.available && (
-                    <Alert color="yellow" variant="light">
-                      <Text size="sm">
-                        Comskip is unavailable. See{' '}
-                        <a href="https://github.com/erikkaashoek/Comskip" target="_blank" rel="noopener noreferrer">
-                          github.com/erikkaashoek/Comskip
-                        </a>{' '}
-                        for installation instructions.
-                      </Text>
-                    </Alert>
-                  )}
-                </Stack>
-              </Accordion.Panel>
-            </Accordion.Item>
-          </Accordion>
-        </Stack>
-      </Card>
-
-      <Card shadow="sm" padding="lg" radius="md" withBorder>
-        <Stack gap="md">
-          <Group gap="xs">
-            <IconFile size={20} />
-            <Text fw={500}>Filename Templates</Text>
-          </Group>
-
-          <Alert icon={<IconInfoCircle size={16} />} variant="light">
-            <Text size="sm">
-              Customize how downloaded files are named. Use the variables shown below each field.
-              Files will automatically get the .ts extension.
-            </Text>
-          </Alert>
-
-          <Accordion variant="separated" styles={accordionStyles}>
-            <Accordion.Item value="tv">
-              <Accordion.Control>TV Shows</Accordion.Control>
-              <Accordion.Panel>
-                {templateInfo?.tv_show && (
-                  <TemplateSection
-                    label="TV Show Template"
-                    template={formData.tv_template}
-                    variables={templateInfo.tv_show.variables}
-                    example={templateInfo.tv_show.example}
-                    onChange={(val) => handleChange('tv_template', val)}
-                  />
-                )}
-              </Accordion.Panel>
-            </Accordion.Item>
-
-            <Accordion.Item value="movie">
-              <Accordion.Control>Movies</Accordion.Control>
-              <Accordion.Panel>
-                {templateInfo?.movie && (
-                  <TemplateSection
-                    label="Movie Template"
-                    template={formData.movie_template}
-                    variables={templateInfo.movie.variables}
-                    example={templateInfo.movie.example}
-                    onChange={(val) => handleChange('movie_template', val)}
-                  />
-                )}
-              </Accordion.Panel>
-            </Accordion.Item>
-
-            <Accordion.Item value="sports">
-              <Accordion.Control>Sports</Accordion.Control>
-              <Accordion.Panel>
-                {templateInfo?.sports && (
-                  <TemplateSection
-                    label="Sports Template"
-                    template={formData.sports_template}
-                    variables={templateInfo.sports.variables}
-                    example={templateInfo.sports.example}
-                    onChange={(val) => handleChange('sports_template', val)}
-                  />
-                )}
-              </Accordion.Panel>
-            </Accordion.Item>
-
-            <Accordion.Item value="default">
-              <Accordion.Control>Default (Other Content)</Accordion.Control>
-              <Accordion.Panel>
-                {templateInfo?.default && (
-                  <TemplateSection
-                    label="Default Template"
-                    template={formData.default_template}
-                    variables={templateInfo.default.variables}
-                    example={templateInfo.default.example}
-                    onChange={(val) => handleChange('default_template', val)}
-                  />
-                )}
-              </Accordion.Panel>
-            </Accordion.Item>
-          </Accordion>
-        </Stack>
-      </Card>
-
-      <Card shadow="sm" padding="lg" radius="md" withBorder>
-        <Stack gap="md">
-          <Group gap="xs">
-            <IconMoon size={20} />
-            <Text fw={500}>Appearance</Text>
-          </Group>
-
-          <Switch
-            label="Enable Dark Mode"
-            checked={colorScheme === 'dark'}
-            onChange={(e) => setColorScheme(e.currentTarget.checked ? 'dark' : 'light')}
-          />
-        </Stack>
-      </Card>
+        <Card shadow="sm" padding="lg" radius="md" withBorder style={{ flex: 1, minWidth: 0 }}>
+          {sectionContent[activeSection]?.()}
+        </Card>
+      </Group>
     </Stack>
   )
 }
