@@ -1,10 +1,23 @@
 import { useState } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
-import { Card, Stack, PasswordInput, Button, Text, Title, Alert, Loader } from '@mantine/core'
+import {
+  Card,
+  Stack,
+  PasswordInput,
+  Button,
+  Text,
+  Alert,
+  Loader,
+  Box,
+  Group,
+  Image,
+  useMantineColorScheme,
+} from '@mantine/core'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { IconAlertCircle } from '@tabler/icons-react'
 
 import { authApi } from '../api'
+import mustarrdLogo from '../assets/mustarrdlogo.png'
 
 export default function Login() {
   const [password, setPassword] = useState('')
@@ -13,6 +26,8 @@ export default function Login() {
   const navigate = useNavigate()
   const location = useLocation()
   const fromPath = location.state?.from || '/settings'
+  const { colorScheme } = useMantineColorScheme()
+  const isDark = colorScheme === 'dark'
 
   const { data: status, isLoading } = useQuery({
     queryKey: ['auth', 'status'],
@@ -75,38 +90,119 @@ export default function Login() {
   }
 
   return (
-    <Stack align="center" justify="center" h="calc(100vh - 4rem)">
-      <Card withBorder shadow="sm" w="100%" maw={420} p="lg" radius="md">
-        <Stack>
-          <Title order={3}>{isSetupMode ? 'Set Admin Password' : 'Admin Login'}</Title>
-          <Text size="sm" c="dimmed">
-            {isSetupMode
-              ? 'Create an admin password to lock Settings and Accounts.'
-              : 'Enter the admin password to manage Settings and Accounts.'}
-          </Text>
+    <Box
+      style={{
+        minHeight: 'calc(100vh - 4rem)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '2rem',
+      }}
+    >
+      <style>{`
+        @keyframes mustarrd-rec-pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.15; }
+        }
+      `}</style>
 
-          {error ? (
-            <Alert color="red" icon={<IconAlertCircle size={16} />}>
+      <Card
+        withBorder
+        shadow="md"
+        w="100%"
+        maw={400}
+        radius="lg"
+        p={0}
+        style={{
+          borderTop: '3px solid #f59f00',
+          overflow: 'hidden',
+        }}
+      >
+        {/* Branded header */}
+        <Box px="lg" pt="lg" pb="md">
+          <Group justify="space-between" align="center">
+            <Group gap="xs" align="center">
+              <Image src={mustarrdLogo} h={24} w="auto" />
+              <Text
+                fw={800}
+                size="sm"
+                style={{ letterSpacing: '0.08em' }}
+              >
+                MUSTARRD
+              </Text>
+            </Group>
+            <Group gap={6} align="center">
+              <Box
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: '50%',
+                  background: '#fa5252',
+                  animation: 'mustarrd-rec-pulse 1.5s ease-in-out infinite',
+                }}
+              />
+              <Text
+                size="xs"
+                fw={700}
+                c="red"
+                style={{ letterSpacing: '0.12em' }}
+              >
+                REC
+              </Text>
+            </Group>
+          </Group>
+        </Box>
+
+        <Box
+          style={{
+            height: 1,
+            background: isDark ? '#2C2E33' : '#e9ecef',
+          }}
+        />
+
+        {/* Form */}
+        <Stack px="lg" pt="lg" pb="xl" gap="md">
+          <Stack gap={4}>
+            <Text fw={600} size="xl">
+              {isSetupMode ? 'Set Admin Password' : 'Admin Login'}
+            </Text>
+            <Text size="sm" c="dimmed">
+              {isSetupMode
+                ? 'Create a password to protect Settings and Accounts.'
+                : 'Enter your password to manage Settings and Accounts.'}
+            </Text>
+          </Stack>
+
+          {error && (
+            <Alert color="red" icon={<IconAlertCircle size={16} />} radius="md">
               {error}
             </Alert>
-          ) : null}
+          )}
 
           <form onSubmit={handleSubmit}>
-            <Stack>
+            <Stack gap="sm">
               <PasswordInput
                 label="Password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 autoFocus
                 required
+                size="md"
               />
-              <Button type="submit" loading={isSubmitting}>
+              <Button
+                type="submit"
+                loading={isSubmitting}
+                size="md"
+                color="yellow"
+                fullWidth
+                mt={4}
+              >
                 {isSetupMode ? 'Save Password' : 'Sign In'}
               </Button>
             </Stack>
           </form>
         </Stack>
       </Card>
-    </Stack>
+    </Box>
   )
 }
