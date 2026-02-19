@@ -21,7 +21,9 @@ import {
   Box,
   Divider,
   Paper,
+  ScrollArea,
 } from '@mantine/core'
+import { useMediaQuery } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
@@ -113,6 +115,7 @@ export default function Settings() {
   const [desktopStartupSupported, setDesktopStartupSupported] = useState(false)
   const [desktopStartupLoading, setDesktopStartupLoading] = useState(false)
   const [activeSection, setActiveSection] = useState('recording')
+  const isMobile = useMediaQuery('(max-width: 768px)')
   const { colorScheme, setColorScheme } = useMantineColorScheme()
 
   const blockNavigation = useCallback((tx) => {
@@ -761,26 +764,50 @@ export default function Settings() {
         </Group>
       </Group>
 
-      <Group align="flex-start" gap="lg" wrap="nowrap">
-        <Paper withBorder radius="md" p="xs" style={{ width: 190, flexShrink: 0 }}>
-          <Stack gap={2}>
-            {SECTIONS.map(({ id, label, icon: Icon }) => (
-              <NavLink
-                key={id}
-                label={label}
-                leftSection={<Icon size={16} />}
-                active={activeSection === id}
-                onClick={() => setActiveSection(id)}
-                styles={{ root: { borderRadius: 6 } }}
-              />
-            ))}
-          </Stack>
-        </Paper>
+      {isMobile ? (
+        <Stack gap="md">
+          <Paper withBorder radius="md" p="xs">
+            <ScrollArea type="never">
+              <Group gap={2} wrap="nowrap" pb={2}>
+                {SECTIONS.map(({ id, label, icon: Icon }) => (
+                  <NavLink
+                    key={id}
+                    label={label}
+                    leftSection={<Icon size={16} />}
+                    active={activeSection === id}
+                    onClick={() => setActiveSection(id)}
+                    style={{ borderRadius: 6, flexShrink: 0 }}
+                  />
+                ))}
+              </Group>
+            </ScrollArea>
+          </Paper>
+          <Card shadow="sm" padding="lg" radius="md" withBorder>
+            {sectionContent[activeSection]?.()}
+          </Card>
+        </Stack>
+      ) : (
+        <Group align="flex-start" gap="lg" wrap="nowrap">
+          <Paper withBorder radius="md" p="xs" style={{ width: 190, flexShrink: 0 }}>
+            <Stack gap={2}>
+              {SECTIONS.map(({ id, label, icon: Icon }) => (
+                <NavLink
+                  key={id}
+                  label={label}
+                  leftSection={<Icon size={16} />}
+                  active={activeSection === id}
+                  onClick={() => setActiveSection(id)}
+                  styles={{ root: { borderRadius: 6 } }}
+                />
+              ))}
+            </Stack>
+          </Paper>
 
-        <Card shadow="sm" padding="lg" radius="md" withBorder style={{ flex: 1, minWidth: 0 }}>
-          {sectionContent[activeSection]?.()}
-        </Card>
-      </Group>
+          <Card shadow="sm" padding="lg" radius="md" withBorder style={{ flex: 1, minWidth: 0 }}>
+            {sectionContent[activeSection]?.()}
+          </Card>
+        </Group>
+      )}
     </Stack>
   )
 }
