@@ -354,8 +354,8 @@ export default function Browse() {
 
   // Fetch accounts
   const { data: accounts, isLoading: accountsLoading } = useQuery({
-    queryKey: ['accounts'],
-    queryFn: accountsApi.list,
+    queryKey: ['accounts', 'public'],
+    queryFn: accountsApi.publicList,
   })
 
   // Set default account when loaded
@@ -412,8 +412,8 @@ export default function Browse() {
   }, [globalEpgPages])
 
   const { data: appSettings } = useQuery({
-    queryKey: ['settings'],
-    queryFn: settingsApi.get,
+    queryKey: ['settings', 'public'],
+    queryFn: settingsApi.getPublic,
   })
 
   const { data: downloads = [] } = useQuery({

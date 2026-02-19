@@ -70,8 +70,8 @@ export default function DownloadModal({ opened, onClose, program, channel, accou
   }
 
   const { data: settings } = useQuery({
-    queryKey: ['settings'],
-    queryFn: settingsApi.get,
+    queryKey: ['settings', 'public'],
+    queryFn: settingsApi.getPublic,
   })
 
   useEffect(() => {

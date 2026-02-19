@@ -32,9 +32,10 @@ import {
   IconX,
   IconMoon,
   IconCalendar,
+  IconLock,
 } from '@tabler/icons-react'
 
-import { settingsApi } from '../api'
+import { authApi, settingsApi } from '../api'
 
 function TemplateSection({ label, template, variables, example, onChange }) {
   return (
@@ -90,6 +91,8 @@ export default function Settings() {
   const [isSavingAndLeaving, setIsSavingAndLeaving] = useState(false)
   const [desktopStartupSupported, setDesktopStartupSupported] = useState(false)
   const [desktopStartupLoading, setDesktopStartupLoading] = useState(false)
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
   const { colorScheme, setColorScheme } = useMantineColorScheme()
   const theme = useMantineTheme()
   const blockNavigation = useCallback((tx) => {
@@ -230,6 +233,26 @@ export default function Settings() {
     },
   })
 
+  const changePasswordMutation = useMutation({
+    mutationFn: ({ current, next }) => authApi.changePassword(current, next),
+    onSuccess: () => {
+      setCurrentPassword('')
+      setNewPassword('')
+      notifications.show({
+        title: 'Password Updated',
+        message: 'Admin password has been changed.',
+        color: 'green',
+      })
+    },
+    onError: (error) => {
+      notifications.show({
+        title: 'Password Change Failed',
+        message: error.message,
+        color: 'red',
+      })
+    },
+  })
+
   const handleChange = (field, value) => {
     setFormData((prev) => {
       const next = { ...prev, [field]: value }
@@ -248,6 +271,27 @@ export default function Settings() {
   const handleReset = () => {
     setFormData({ ...settings })
     setHasChanges(false)
+  }
+
+  const handleChangePassword = (e) => {
+    e.preventDefault()
+    if (!currentPassword || !newPassword) {
+      notifications.show({
+        title: 'Missing fields',
+        message: 'Enter current and new password.',
+        color: 'yellow',
+      })
+      return
+    }
+    if (newPassword.length < 8) {
+      notifications.show({
+        title: 'Password too short',
+        message: 'New password must be at least 8 characters.',
+        color: 'yellow',
+      })
+      return
+    }
+    changePasswordMutation.mutate({ current: currentPassword, next: newPassword })
   }
 
   useEffect(() => {
@@ -448,6 +492,40 @@ export default function Settings() {
               onChange={(e) => handleChange('launch_on_startup', e.currentTarget.checked)}
             />
           )}
+        </Stack>
+      </Card>
+
+      <Card shadow="sm" padding="lg" radius="md" withBorder>
+        <Stack gap="md">
+          <Group gap="xs">
+            <IconLock size={20} />
+            <Text fw={500}>Security</Text>
+          </Group>
+
+          <form onSubmit={handleChangePassword}>
+            <Stack gap="sm">
+              <TextInput
+                label="Current Admin Password"
+                type="password"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                autoComplete="current-password"
+              />
+              <TextInput
+                label="New Admin Password"
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                autoComplete="new-password"
+                description="Minimum 8 characters"
+              />
+              <Group justify="flex-end">
+                <Button type="submit" loading={changePasswordMutation.isPending}>
+                  Change Password
+                </Button>
+              </Group>
+            </Stack>
+          </form>
         </Stack>
       </Card>
 

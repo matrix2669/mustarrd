@@ -54,6 +54,7 @@ class AppSettings(Base):
     comskip_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     comskip_path: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     comskip_ini_path: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    admin_password_hash: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     def to_dict(self):
         return {

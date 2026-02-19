@@ -3,6 +3,7 @@ const API_BASE = '/api'
 async function request(endpoint, options = {}) {
   const url = `${API_BASE}${endpoint}`
   const config = {
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       ...options.headers,
@@ -18,7 +19,9 @@ async function request(endpoint, options = {}) {
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Request failed' }))
-    throw new Error(error.detail || 'Request failed')
+    const err = new Error(error.detail || 'Request failed')
+    err.status = response.status
+    throw err
   }
 
   return response.json()
@@ -27,6 +30,7 @@ async function request(endpoint, options = {}) {
 // Accounts
 export const accountsApi = {
   list: () => request('/accounts'),
+  publicList: () => request('/accounts/public'),
   get: (id) => request(`/accounts/${id}`),
   create: (data) => request('/accounts', { method: 'POST', body: data }),
   update: (id, data) => request(`/accounts/${id}`, { method: 'PUT', body: data }),
@@ -108,9 +112,23 @@ export const vodApi = {
 // Settings
 export const settingsApi = {
   get: () => request('/settings'),
+  getPublic: () => request('/settings/public'),
   update: (data) => request('/settings', { method: 'PUT', body: data }),
   getTemplates: () => request('/settings/templates'),
   getTools: () => request('/settings/tools'),
+}
+
+// Authentication
+export const authApi = {
+  status: () => request('/auth/status'),
+  setup: (password) => request('/auth/setup', { method: 'POST', body: { password } }),
+  login: (password) => request('/auth/login', { method: 'POST', body: { password } }),
+  logout: () => request('/auth/logout', { method: 'POST' }),
+  changePassword: (currentPassword, newPassword) =>
+    request('/auth/change-password', {
+      method: 'POST',
+      body: { current_password: currentPassword, new_password: newPassword },
+    }),
 }
 
 // Backend Logs

@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
+from auth import require_admin
 from database import get_session
 from models import XtreamAccount
 from services.epg_ingest_manager import epg_ingest_manager
@@ -39,16 +40,36 @@ class AccountUpdate(BaseModel):
 
 
 @router.get("")
-async def list_accounts(session: AsyncSession = Depends(get_session)):
+async def list_accounts(
+    _admin: None = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
     """List all Xtream accounts."""
     result = await session.execute(select(XtreamAccount).order_by(XtreamAccount.name))
     accounts = result.scalars().all()
     return [acc.to_dict() for acc in accounts]
 
 
+@router.get("/public")
+async def list_accounts_public(session: AsyncSession = Depends(get_session)):
+    """List minimal account info for non-admin browsing flows."""
+    result = await session.execute(select(XtreamAccount).order_by(XtreamAccount.name))
+    accounts = result.scalars().all()
+    return [
+        {
+            "id": acc.id,
+            "name": acc.name,
+            "is_active": acc.is_active,
+            "catchup_days": acc.catchup_days,
+        }
+        for acc in accounts
+    ]
+
+
 @router.post("")
 async def create_account(
     account: AccountCreate,
+    _admin: None = Depends(require_admin),
     session: AsyncSession = Depends(get_session)
 ):
     """Create a new Xtream account (validates connection)."""
@@ -98,6 +119,7 @@ async def create_account(
 @router.get("/{account_id}")
 async def get_account(
     account_id: int,
+    _admin: None = Depends(require_admin),
     session: AsyncSession = Depends(get_session)
 ):
     """Get a specific account."""
@@ -116,6 +138,7 @@ async def get_account(
 async def update_account(
     account_id: int,
     update_data: AccountUpdate,
+    _admin: None = Depends(require_admin),
     session: AsyncSession = Depends(get_session)
 ):
     """Update an account."""
@@ -141,6 +164,7 @@ async def update_account(
 @router.delete("/{account_id}")
 async def delete_account(
     account_id: int,
+    _admin: None = Depends(require_admin),
     session: AsyncSession = Depends(get_session)
 ):
     """Delete an account."""
@@ -161,6 +185,7 @@ async def delete_account(
 @router.post("/{account_id}/test")
 async def test_account(
     account_id: int,
+    _admin: None = Depends(require_admin),
     session: AsyncSession = Depends(get_session)
 ):
     """Test connection to an account."""
