@@ -12,7 +12,7 @@ import '@mantine/notifications/styles.css'
 import './styles.css'
 
 const theme = createTheme({
-  primaryColor: 'blue',
+  primaryColor: 'yellow',
   fontFamily: 'system-ui, -apple-system, sans-serif',
 })
 

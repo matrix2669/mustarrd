@@ -503,14 +503,8 @@ export default function Settings() {
               Comskip {toolsStatus.comskip?.available ? 'ready' : 'unavailable'}
             </Badge>
           </Group>
-          {toolsStatus.ffmpeg?.path && (
-            <Text size="xs" c="dimmed">ffmpeg: {toolsStatus.ffmpeg.path}</Text>
-          )}
           {toolsStatus.ffmpeg?.error && (
             <Text size="xs" c="red">ffmpeg error: {toolsStatus.ffmpeg.error}</Text>
-          )}
-          {toolsStatus.comskip?.path && (
-            <Text size="xs" c="dimmed">comskip: {toolsStatus.comskip.path}</Text>
           )}
           {toolsStatus.comskip?.error && (
             <Text size="xs" c="red">comskip error: {toolsStatus.comskip.error}</Text>
@@ -518,9 +512,10 @@ export default function Settings() {
         </Stack>
       )}
 
-      <Divider variant="dashed" label="Transcoding" labelPosition="left" />
+      <Divider variant="dashed" />
 
       <Stack gap="md">
+        <Text size="xs" fw={600} c="dimmed" tt="uppercase" style={{ letterSpacing: '0.06em' }}>Transcoding</Text>
         <NumberInput
           label="Max Concurrent Post-Processing"
           description="How many files can be processed at once (recommended: 1)"
@@ -593,9 +588,10 @@ export default function Settings() {
         )}
       </Stack>
 
-      <Divider variant="dashed" label="Commercial Detection (Beta)" labelPosition="left" />
+      <Divider variant="dashed" />
 
       <Stack gap="md">
+        <Text size="xs" fw={600} c="dimmed" tt="uppercase" style={{ letterSpacing: '0.06em' }}>Commercial Detection</Text>
         <SettingRow
           label="Enable Comskip"
           description="Automatically detect and remove commercials from recordings"
@@ -851,6 +847,7 @@ export default function Settings() {
                 {SECTIONS.map(({ id, label, icon: Icon }) => (
                   <NavLink
                     key={id}
+                    component="button"
                     label={label}
                     leftSection={<Icon size={16} />}
                     active={activeSection === id}

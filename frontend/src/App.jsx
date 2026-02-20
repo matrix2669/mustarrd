@@ -8,6 +8,9 @@ import {
   Badge,
   Stack,
   Button,
+  Text,
+  Box,
+  Divider,
 } from '@mantine/core'
 import { useDisclosure } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
@@ -29,7 +32,6 @@ import Settings from './pages/Settings'
 import Logs from './pages/Logs'
 import Login from './pages/Login'
 import { authApi, downloadsApi, epgApi, createDownloadWebSocket } from './api'
-import mustarrdLogo from './assets/mustarrdlogo.png'
 
 function ProtectedRoute({ authStatus, authLoading }) {
   const location = useLocation()
@@ -77,7 +79,7 @@ function App() {
       notifications.show({
         title: 'Logged out',
         message: 'Admin access is now locked.',
-        color: 'blue',
+        color: 'yellow',
       })
     },
   })
@@ -213,7 +215,7 @@ function App() {
   }, [])
 
   const navItems = [
-    { icon: IconServer, label: 'Accounts', to: '/accounts' },
+    { icon: IconServer, label: 'Accounts', to: '/accounts', adminOnly: true },
     { icon: IconSearch, label: 'Browse', to: '/browse' },
     {
       icon: IconDownload,
@@ -223,8 +225,8 @@ function App() {
     },
     { icon: IconCalendar, label: 'Scheduled', to: '/scheduled' },
     { icon: IconListDetails, label: 'Logs', to: '/logs' },
-    { icon: IconSettings, label: 'Settings', to: '/settings' },
-  ]
+    { icon: IconSettings, label: 'Settings', to: '/settings', adminOnly: true },
+  ].filter((item) => !item.adminOnly || authStatus?.authenticated)
 
   return (
     <AppShell
@@ -232,21 +234,67 @@ function App() {
       navbar={{ width: 250, breakpoint: 'sm', collapsed: { mobile: !opened } }}
       padding="md"
     >
-      <AppShell.Header hiddenFrom="sm">
-        <Group h="100%" px="md">
+      <AppShell.Header hiddenFrom="sm" style={{ borderBottom: '2px solid #f59f00' }}>
+        <Group h="100%" px="md" justify="space-between">
           <Burger opened={opened} onClick={toggle} size="sm" />
+          <Text
+            style={{
+              fontFamily: "'Bebas Neue', cursive",
+              fontSize: 22,
+              letterSpacing: '0.12em',
+              color: '#f59f00',
+              lineHeight: 1,
+            }}
+          >
+            MUSTARRD
+          </Text>
+          <Group gap={5} align="center">
+            <Box
+              style={{
+                width: 7,
+                height: 7,
+                borderRadius: '50%',
+                background: '#fa5252',
+                animation: 'mustarrd-rec-pulse 1.5s ease-in-out infinite',
+              }}
+            />
+            <Text size="xs" fw={700} c="red" style={{ letterSpacing: '0.12em' }}>
+              REC
+            </Text>
+          </Group>
         </Group>
       </AppShell.Header>
 
-      <AppShell.Navbar p="md">
+      <AppShell.Navbar p="md" style={{ borderTop: '3px solid #f59f00' }}>
         <Stack gap="md">
-          <Group mb="md" justify="center">
-            <img
-              src={mustarrdLogo}
-              alt="Mustarrd"
-              style={{ width: '100%', height: 'auto', maxWidth: 220 }}
-            />
+          <Group mb={4} justify="space-between" align="center" wrap="nowrap">
+            <Text
+              style={{
+                fontFamily: "'Bebas Neue', cursive",
+                fontSize: 28,
+                letterSpacing: '0.12em',
+                color: '#f59f00',
+                lineHeight: 1,
+              }}
+            >
+              MUSTARRD
+            </Text>
+            <Group gap={5} align="center">
+              <Box
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: '50%',
+                  background: '#fa5252',
+                  animation: 'mustarrd-rec-pulse 1.5s ease-in-out infinite',
+                }}
+              />
+              <Text size="xs" fw={700} c="red" style={{ letterSpacing: '0.12em' }}>
+                REC
+              </Text>
+            </Group>
           </Group>
+          <Divider mb={4} />
           {navItems.map((item) => (
             <MantineNavLink
               key={item.to}
