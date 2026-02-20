@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import shutil
 import platform
@@ -511,7 +512,7 @@ class PostProcessor:
             return cmd
         if "-fflags" in cmd or "-err_detect" in cmd:
             return cmd
-        return [cmd[0], "-fflags", "+discardcorrupt", "-err_detect", "ignore_err", *cmd[1:]]
+        return [cmd[0], "-fflags", "+genpts+discardcorrupt", "-err_detect", "ignore_err", *cmd[1:]]
 
     def _prepend_vaapi_env(self, cmd: List[str]) -> List[str]:
         """Run ffmpeg with an explicit LIBVA_DRIVER_NAME prefix for VA-API."""
@@ -525,6 +526,133 @@ class PostProcessor:
         text = str(path)
         text = text.replace("\\", "\\\\")
         return text.replace("'", "'\\''")
+
+    @staticmethod
+    def _primary_av_map_args() -> list:
+        """Map primary video plus first audio track (if present)."""
+        return ["-map", "0:v:0", "-map", "0:a:0?"]
+
+    @staticmethod
+    def _parse_ratio(value: Optional[str]) -> float:
+        if not value or value in ("0/0", "N/A"):
+            return 0.0
+        if "/" in value:
+            try:
+                num, den = value.split("/", 1)
+                den_f = float(den)
+                if den_f == 0:
+                    return 0.0
+                return float(num) / den_f
+            except (ValueError, ZeroDivisionError):
+                return 0.0
+        try:
+            return float(value)
+        except ValueError:
+            return 0.0
+
+    @staticmethod
+    def _as_int(value: Optional[object]) -> int:
+        try:
+            if value is None:
+                return 0
+            return int(value)
+        except (TypeError, ValueError):
+            return 0
+
+    async def _select_best_av_map_args(
+        self,
+        input_path: str,
+        log_callback: Optional[Callable[[str], None]] = None
+    ) -> list:
+        """
+        Select the best video/audio stream indexes using ffprobe.
+        Falls back to primary streams when probing is unavailable.
+        """
+        ffprobe = self._resolve_ffprobe_path()
+        if not ffprobe:
+            return self._primary_av_map_args()
+
+        cmd = [
+            ffprobe,
+            "-v", "error",
+            "-print_format", "json",
+            "-show_entries",
+            "stream=index,codec_type,width,height,avg_frame_rate,bit_rate,channels,disposition",
+            str(input_path),
+        ]
+
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+        except FileNotFoundError:
+            return self._primary_av_map_args()
+
+        stdout, stderr = await process.communicate()
+        if process.returncode != 0:
+            stderr_text = (stderr or b"").decode(errors="ignore").strip()
+            if stderr_text:
+                await self._notify_log(log_callback, f"ffprobe stream probe failed: {stderr_text}")
+            return self._primary_av_map_args()
+
+        try:
+            payload = json.loads((stdout or b"{}").decode(errors="ignore"))
+        except json.JSONDecodeError:
+            return self._primary_av_map_args()
+
+        streams = payload.get("streams", []) if isinstance(payload, dict) else []
+        if not streams:
+            return self._primary_av_map_args()
+
+        video_candidates = []
+        audio_candidates = []
+        for stream in streams:
+            if not isinstance(stream, dict):
+                continue
+            stream_index = self._as_int(stream.get("index"))
+            stream_type = stream.get("codec_type")
+            disposition = stream.get("disposition") or {}
+            is_default = 1 if isinstance(disposition, dict) and disposition.get("default") else 0
+
+            if stream_type == "video":
+                width = self._as_int(stream.get("width"))
+                height = self._as_int(stream.get("height"))
+                fps = self._parse_ratio(stream.get("avg_frame_rate"))
+                bitrate = self._as_int(stream.get("bit_rate"))
+                pixels = max(0, width * height)
+                score = (is_default, pixels, fps, bitrate, -stream_index)
+                video_candidates.append((score, stream_index, width, height, fps, bitrate))
+            elif stream_type == "audio":
+                channels = self._as_int(stream.get("channels"))
+                bitrate = self._as_int(stream.get("bit_rate"))
+                score = (is_default, channels, bitrate, -stream_index)
+                audio_candidates.append((score, stream_index, channels, bitrate))
+
+        if not video_candidates:
+            return self._primary_av_map_args()
+
+        video_candidates.sort(reverse=True)
+        selected_video = video_candidates[0]
+        video_index = selected_video[1]
+
+        if audio_candidates:
+            audio_candidates.sort(reverse=True)
+            selected_audio = audio_candidates[0]
+            audio_index = selected_audio[1]
+            map_args = ["-map", f"0:{video_index}", "-map", f"0:{audio_index}?"]
+        else:
+            map_args = ["-map", f"0:{video_index}"]
+
+        if len(video_candidates) > 1 or len(audio_candidates) > 1:
+            await self._notify_log(
+                log_callback,
+                f"Multiple streams detected; selected video stream 0:{video_index}"
+                + (f" and audio stream 0:{audio_index}." if audio_candidates else " (no audio stream selected).")
+            )
+
+        return map_args
 
     async def transcode(
         self,
@@ -556,6 +684,7 @@ class PostProcessor:
 
         input_file = Path(input_path)
         output_path = input_file.with_suffix(f".{output_format.value}")
+        selected_map_args = await self._select_best_av_map_args(input_path, log_callback)
 
         # If same format and no transcoding needed, skip
         if input_file.suffix.lower() == f".{output_format.value}" and hw_accel == HardwareAccel.CPU:
@@ -573,8 +702,14 @@ class PostProcessor:
 
         if output_format in [OutputFormat.MP4, OutputFormat.MKV]:
             if remux_only:
-                cmd.extend(["-map", "0", "-c", "copy", "-avoid_negative_ts", "make_zero"])
+                if input_file.suffix.lower() == ".ts":
+                    cmd.extend(selected_map_args)
+                else:
+                    cmd.extend(["-map", "0"])
+                cmd.extend(["-c", "copy", "-avoid_negative_ts", "make_zero"])
             else:
+                if input_file.suffix.lower() == ".ts":
+                    cmd.extend(selected_map_args)
                 # Add video encoder args
                 cmd.extend(self._get_encoder_args(
                     hw_accel,
@@ -619,7 +754,7 @@ class PostProcessor:
             if remux_only and output_format in [OutputFormat.MP4, OutputFormat.MKV]:
                 await self._notify_log(
                     log_callback,
-                    "ffmpeg remux failed; retrying with audio re-encode (copy video, AAC audio)."
+                    "ffmpeg remux failed; retrying with full transcode (video+audio)."
                 )
                 if output_path.exists():
                     try:
@@ -634,7 +769,16 @@ class PostProcessor:
                     "-y",
                 ])
                 retry_cmd = self._with_error_tolerant_flags(retry_cmd)
-                retry_cmd.extend(["-map", "0", "-c:v", "copy", "-c:a", "aac", "-avoid_negative_ts", "make_zero"])
+                if input_file.suffix.lower() == ".ts":
+                    retry_cmd.extend(selected_map_args)
+                else:
+                    retry_cmd.extend(["-map", "0"])
+                retry_cmd.extend(self._get_encoder_args(
+                    hw_accel,
+                    self._preferred_video_codec(hw_accel),
+                    quality
+                ))
+                retry_cmd.extend(["-c:a", "aac", "-avoid_negative_ts", "make_zero"])
                 retry_cmd.extend([
                     "-progress", "pipe:1",
                     "-nostats",
@@ -689,121 +833,191 @@ class PostProcessor:
         input_file = Path(input_path)
         output_dir = input_file.parent
 
-        cmd = [self._comskip_path]
+        async def run_comskip_once(source_path: str, progress_prefix: str = "Comskip") -> tuple[int, str]:
+            cmd = [self._comskip_path]
+            if ini_path and os.path.isfile(ini_path):
+                cmd.extend(["--ini", ini_path])
+            cmd.extend([
+                "--output", str(output_dir),
+                str(source_path)
+            ])
 
-        if ini_path and os.path.isfile(ini_path):
-            cmd.extend(["--ini", ini_path])
-
-        cmd.extend([
-            "--output", str(output_dir),
-            str(input_path)
-        ])
-
-        await self._notify_log(
-            log_callback,
-            f"comskip cmd: {' '.join(str(c) for c in cmd)}"
-        )
-
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-
-        percent_pattern = re.compile(r"(\d{1,3})%{1,2}")
-        last_percent: Optional[int] = None
-        stdout_output = ""
-        stderr_output = ""
-        max_output_chars = 24000
-
-        def _append_output(existing: str, addition: str) -> str:
-            combined = existing + addition
-            if len(combined) > max_output_chars:
-                return combined[-max_output_chars:]
-            return combined
-
-        async def read_stream(stream: asyncio.StreamReader, is_stderr: bool):
-            nonlocal last_percent, stdout_output, stderr_output
-            tail = ""
-            while True:
-                chunk = await stream.read(1024)
-                if not chunk:
-                    break
-                decoded = chunk.decode(errors="ignore")
-                text = tail + decoded
-                if is_stderr:
-                    stderr_output = _append_output(stderr_output, decoded)
-                else:
-                    stdout_output = _append_output(stdout_output, decoded)
-                max_percent = None
-                for match in percent_pattern.finditer(text):
-                    try:
-                        percent = int(match.group(1))
-                    except ValueError:
-                        continue
-                    if 0 <= percent <= 100:
-                        if max_percent is None or percent > max_percent:
-                            max_percent = percent
-                if max_percent is not None:
-                    if last_percent is None or max_percent > last_percent:
-                        last_percent = max_percent
-                        await self._notify_log(log_callback, f"Comskip progress: {max_percent}%")
-                        await self._notify_progress(progress_callback, float(max_percent))
-                tail = text[-32:]
-
-        try:
-            await asyncio.gather(
-                read_stream(process.stdout, False),
-                read_stream(process.stderr, True)
-            )
-            await process.wait()
-        except asyncio.CancelledError:
-            await self._terminate_process(process)
-            raise
-
-        returncode = process.returncode if process.returncode is not None else -1
-        combined_output = (stderr_output.strip() or stdout_output.strip())
-        if returncode != 0:
-            excerpt = re.sub(r"\s+", " ", combined_output).strip()
-            if len(excerpt) > 600:
-                excerpt = f"...{excerpt[-600:]}"
-            if excerpt:
-                await self._notify_log(
-                    log_callback,
-                    f"Comskip failed (exit {returncode}): {excerpt}"
-                )
-            raise Exception(
-                f"Comskip exited with code {returncode}"
-                + (f": {excerpt}" if excerpt else "")
-            )
-
-        # Check for EDL file (Edit Decision List)
-        edl_candidates = [
-            input_file.with_suffix(".edl"),
-            output_dir / f"{input_file.name}.edl",
-            output_dir / f"{input_file.stem}.edl",
-        ]
-        for edl_path in edl_candidates:
-            if edl_path.exists():
-                return str(edl_path)
-
-        for pattern in (f"{input_file.stem}*.edl", f"{input_file.name}*.edl"):
-            matches = sorted(output_dir.glob(pattern))
-            if matches:
-                return str(matches[0])
-
-        if combined_output:
-            excerpt = re.sub(r"\s+", " ", combined_output).strip()
-            if len(excerpt) > 400:
-                excerpt = f"...{excerpt[-400:]}"
             await self._notify_log(
                 log_callback,
-                f"Comskip finished without EDL output: {excerpt}"
+                f"{progress_prefix} cmd: {' '.join(str(c) for c in cmd)}"
             )
-        else:
-            await self._notify_log(log_callback, "Comskip finished without EDL output.")
 
-        return None
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+
+            percent_pattern = re.compile(r"(\d{1,3})%{1,2}")
+            last_percent: Optional[int] = None
+            stdout_output = ""
+            stderr_output = ""
+            max_output_chars = 24000
+
+            def _append_output(existing: str, addition: str) -> str:
+                combined = existing + addition
+                if len(combined) > max_output_chars:
+                    return combined[-max_output_chars:]
+                return combined
+
+            async def read_stream(stream: asyncio.StreamReader, is_stderr: bool):
+                nonlocal last_percent, stdout_output, stderr_output
+                tail = ""
+                while True:
+                    chunk = await stream.read(1024)
+                    if not chunk:
+                        break
+                    decoded = chunk.decode(errors="ignore")
+                    text = tail + decoded
+                    if is_stderr:
+                        stderr_output = _append_output(stderr_output, decoded)
+                    else:
+                        stdout_output = _append_output(stdout_output, decoded)
+                    max_percent = None
+                    for match in percent_pattern.finditer(text):
+                        try:
+                            percent = int(match.group(1))
+                        except ValueError:
+                            continue
+                        if 0 <= percent <= 100:
+                            if max_percent is None or percent > max_percent:
+                                max_percent = percent
+                    if max_percent is not None:
+                        if last_percent is None or max_percent > last_percent:
+                            last_percent = max_percent
+                            await self._notify_log(log_callback, f"{progress_prefix} progress: {max_percent}%")
+                            await self._notify_progress(progress_callback, float(max_percent))
+                    tail = text[-32:]
+
+            try:
+                await asyncio.gather(
+                    read_stream(process.stdout, False),
+                    read_stream(process.stderr, True)
+                )
+                await process.wait()
+            except asyncio.CancelledError:
+                await self._terminate_process(process)
+                raise
+
+            returncode = process.returncode if process.returncode is not None else -1
+            combined_output = (stderr_output.strip() or stdout_output.strip())
+            return returncode, combined_output
+
+        def excerpt(text: str, max_len: int) -> str:
+            value = re.sub(r"\s+", " ", text).strip()
+            if len(value) > max_len:
+                return f"...{value[-max_len:]}"
+            return value
+
+        returncode, combined_output = await run_comskip_once(input_path)
+        active_input_file = input_file
+        temp_probe_file: Optional[Path] = None
+
+        if returncode != 0 and input_file.suffix.lower() == ".ts" and self.ffmpeg_available:
+            failed_excerpt = excerpt(combined_output, 600)
+            if failed_excerpt:
+                await self._notify_log(log_callback, f"Comskip failed (exit {returncode}): {failed_excerpt}")
+            await self._notify_log(
+                log_callback,
+                "Comskip failed on TS input; retrying on normalized intermediate file."
+            )
+            selected_map_args = await self._select_best_av_map_args(input_path, log_callback)
+            video_map = selected_map_args[1] if len(selected_map_args) >= 2 else "0:v:0"
+            temp_probe_file = input_file.with_stem(f"{input_file.stem}_comskip_input").with_suffix(".mkv")
+
+            prep_cmd = [self._ffmpeg_path, "-i", str(input_file), "-y"]
+            prep_cmd = self._with_error_tolerant_flags(prep_cmd)
+            prep_cmd.extend(selected_map_args)
+            prep_cmd.extend([
+                "-c:v", "copy",
+                "-c:a", "aac",
+                "-af", "aresample=async=1:first_pts=0",
+                "-avoid_negative_ts", "make_zero",
+                str(temp_probe_file)
+            ])
+            await self._notify_log(
+                log_callback,
+                f"Comskip prep cmd: {' '.join(shlex.quote(str(c)) for c in prep_cmd)}"
+            )
+            prep_process = await asyncio.create_subprocess_exec(
+                *prep_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            _, prep_stderr = await prep_process.communicate()
+
+            if prep_process.returncode != 0:
+                await self._notify_log(
+                    log_callback,
+                    "Comskip prep with audio failed; retrying prep with video-only stream."
+                )
+                video_only_cmd = [self._ffmpeg_path, "-i", str(input_file), "-y"]
+                video_only_cmd = self._with_error_tolerant_flags(video_only_cmd)
+                video_only_cmd.extend([
+                    "-map", video_map,
+                    "-an",
+                    "-c:v", "copy",
+                    "-avoid_negative_ts", "make_zero",
+                    str(temp_probe_file)
+                ])
+                await self._notify_log(
+                    log_callback,
+                    f"Comskip prep cmd (video-only): {' '.join(shlex.quote(str(c)) for c in video_only_cmd)}"
+                )
+                prep_process = await asyncio.create_subprocess_exec(
+                    *video_only_cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                _, prep_stderr = await prep_process.communicate()
+
+            if prep_process.returncode == 0:
+                active_input_file = temp_probe_file
+                returncode, combined_output = await run_comskip_once(
+                    str(temp_probe_file),
+                    progress_prefix="Comskip retry"
+                )
+            else:
+                prep_excerpt = excerpt((prep_stderr or b"").decode(errors="ignore"), 400)
+                if prep_excerpt:
+                    await self._notify_log(log_callback, f"Comskip prep failed: {prep_excerpt}")
+
+        try:
+            if returncode != 0:
+                failed_excerpt = excerpt(combined_output, 600)
+                if failed_excerpt:
+                    await self._notify_log(
+                        log_callback,
+                        f"Comskip failed (exit {returncode}): {failed_excerpt}"
+                    )
+                raise Exception(
+                    f"Comskip exited with code {returncode}"
+                    + (f": {failed_excerpt}" if failed_excerpt else "")
+                )
+
+            edl_path = self._find_edl_for_input(active_input_file, output_dir)
+            if edl_path:
+                return edl_path
+
+            if combined_output:
+                await self._notify_log(
+                    log_callback,
+                    f"Comskip finished without EDL output: {excerpt(combined_output, 400)}"
+                )
+            else:
+                await self._notify_log(log_callback, "Comskip finished without EDL output.")
+            return None
+        finally:
+            if temp_probe_file and temp_probe_file.exists():
+                try:
+                    os.remove(temp_probe_file)
+                except Exception:
+                    pass
 
     async def remove_commercials(
         self,
@@ -887,6 +1101,7 @@ class PostProcessor:
         # Create concat file for ffmpeg
         concat_file = input_file.with_suffix(".concat.txt")
         temp_files = []
+        selected_map_args = await self._select_best_av_map_args(input_path, log_callback)
 
         try:
             await self._notify_log(
@@ -912,6 +1127,7 @@ class PostProcessor:
                 cmd = [self._ffmpeg_path, "-i", str(input_path), "-ss", str(start)]
                 if not omit_to:
                     cmd.extend(["-to", str(end)])
+                cmd.extend(selected_map_args)
                 cmd.extend(["-c", "copy", "-y", str(temp_path)])
                 cmd = self._with_error_tolerant_flags(cmd)
 
@@ -954,8 +1170,10 @@ class PostProcessor:
 
             if output_format in [OutputFormat.MP4, OutputFormat.MKV]:
                 if remux_only:
-                    cmd.extend(["-map", "0", "-c", "copy", "-avoid_negative_ts", "make_zero"])
+                    cmd.extend(self._primary_av_map_args())
+                    cmd.extend(["-c", "copy", "-avoid_negative_ts", "make_zero"])
                 else:
+                    cmd.extend(self._primary_av_map_args())
                     cmd.extend(self._get_encoder_args(
                         hw_accel,
                         self._preferred_video_codec(hw_accel)
@@ -985,7 +1203,7 @@ class PostProcessor:
                 if remux_only and output_format in [OutputFormat.MP4, OutputFormat.MKV]:
                     await self._notify_log(
                         log_callback,
-                        "ffmpeg concat remux failed; retrying with audio re-encode (copy video, AAC audio)."
+                        "ffmpeg concat remux failed; retrying with full transcode (video+audio)."
                     )
                     if output_path.exists():
                         try:
@@ -1001,7 +1219,12 @@ class PostProcessor:
                         "-i", str(concat_file),
                     ])
                     retry_cmd = self._with_error_tolerant_flags(retry_cmd)
-                    retry_cmd.extend(["-map", "0", "-c:v", "copy", "-c:a", "aac", "-avoid_negative_ts", "make_zero"])
+                    retry_cmd.extend(self._primary_av_map_args())
+                    retry_cmd.extend(self._get_encoder_args(
+                        hw_accel,
+                        self._preferred_video_codec(hw_accel)
+                    ))
+                    retry_cmd.extend(["-c:a", "aac", "-avoid_negative_ts", "make_zero"])
                     retry_cmd.extend(["-progress", "pipe:1", "-nostats", "-y", str(output_path)])
                     await self._notify_log(
                         log_callback,
@@ -1060,6 +1283,24 @@ class PostProcessor:
                     os.remove(path)
         except Exception:
             pass
+
+    def _find_edl_for_input(self, input_file: Path, output_dir: Path) -> Optional[str]:
+        """Locate EDL output that corresponds to a specific input media file."""
+        edl_candidates = [
+            input_file.with_suffix(".edl"),
+            output_dir / f"{input_file.name}.edl",
+            output_dir / f"{input_file.stem}.edl",
+        ]
+        for edl_path in edl_candidates:
+            if edl_path.exists():
+                return str(edl_path)
+
+        for pattern in (f"{input_file.stem}*.edl", f"{input_file.name}*.edl"):
+            matches = sorted(output_dir.glob(pattern))
+            if matches:
+                return str(matches[0])
+
+        return None
 
     def _parse_edl(self, edl_path: str) -> list:
         """Parse EDL file and return list of (start, end, type) tuples."""
