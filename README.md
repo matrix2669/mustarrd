@@ -106,6 +106,15 @@ Note: Docker uses absolute paths inside the container:
 Docker builds install ffmpeg via apt, compile comskip from source, and bundle the built frontend into the same image.
 If you run the backend locally (non-Docker), install ffmpeg and comskip manually.
 
+Terminal startup scripts now mirror desktop tool resolution behavior:
+
+- `scripts/dev.sh start`
+- `scripts/oneapp.sh start`
+
+They first look for bundled binaries under `desktop-electron/tools/<platform>-<arch>/` (and fallback variants),
+then use system-installed tools when bundled binaries are absent.
+Any explicit `CATCHUP_FFMPEG_PATH`, `CATCHUP_FFPROBE_PATH`, or `CATCHUP_COMSKIP_PATH` environment variables still take precedence.
+
 ### Desktop apps (macOS and Windows)
 
 The `desktop-electron/` project builds native desktop shells that:

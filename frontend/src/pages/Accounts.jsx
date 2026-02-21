@@ -144,7 +144,7 @@ function AccountCard({ account, onEdit, onDelete, onTest }) {
           </Badge>
         )}
         {account.expiration_date && (
-          <Badge variant="outline" size="sm" color={isExpired ? 'red' : 'blue'}>
+          <Badge variant="outline" size="sm" color={isExpired ? 'red' : 'yellow'}>
             {isExpired ? 'Expired' : `Expires ${dayjs(account.expiration_date).format('MMM D, YYYY')}`}
           </Badge>
         )}
@@ -258,7 +258,7 @@ export default function Accounts() {
       notifications.show({
         title: 'Force EPG Refresh Started',
         message: 'Guide data is being rebuilt for all active accounts.',
-        color: 'blue',
+        color: 'yellow',
       })
     },
     onError: (error) => {

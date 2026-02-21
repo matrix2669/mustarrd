@@ -7,7 +7,6 @@ import {
   NavLink as MantineNavLink,
   Badge,
   Stack,
-  Button,
   Text,
   Box,
   Divider,
@@ -21,6 +20,8 @@ import {
   IconCalendar,
   IconSettings,
   IconListDetails,
+  IconLogout,
+  IconLogin,
 } from '@tabler/icons-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
@@ -191,9 +192,8 @@ function App() {
           id: 'epg-download-progress',
           title: 'EPG download complete',
           message: `${inserted.toLocaleString()} new programs added.`,
-          color: 'green',
           loading: false,
-          autoClose: false,
+          autoClose: 4000,
           withCloseButton: true,
         })
       }
@@ -305,7 +305,7 @@ function App() {
               leftSection={<item.icon size={20} />}
               rightSection={
                 item.badge ? (
-                  <Badge size="sm" variant="filled" color="blue">
+                  <Badge size="sm" variant="filled" color="orange">
                     {item.badge}
                   </Badge>
                 ) : null
@@ -313,19 +313,25 @@ function App() {
               style={{ borderRadius: 8, marginBottom: 4 }}
             />
           ))}
+          <Divider />
           {authStatus?.authenticated ? (
-            <Button
-              variant="light"
-              color="gray"
+            <MantineNavLink
+              component="button"
+              label="Log Out"
+              leftSection={<IconLogout size={20} />}
               onClick={() => logoutMutation.mutate()}
-              loading={logoutMutation.isPending}
-            >
-              Log Out Admin
-            </Button>
+              disabled={logoutMutation.isPending}
+              style={{ borderRadius: 8 }}
+              styles={{ label: { color: 'var(--mantine-color-dimmed)' } }}
+            />
           ) : (
-            <Button component={NavLink} to="/login" variant="light">
-              Admin Login
-            </Button>
+            <MantineNavLink
+              component={NavLink}
+              to="/login"
+              label="Admin Login"
+              leftSection={<IconLogin size={20} />}
+              style={{ borderRadius: 8 }}
+            />
           )}
         </Stack>
       </AppShell.Navbar>

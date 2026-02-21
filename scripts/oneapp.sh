@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BACKEND_DIR="$ROOT/backend"
 FRONTEND_DIR="$ROOT/frontend"
+TOOL_ENV_SCRIPT="$ROOT/scripts/tool-env.sh"
 
 usage() {
   cat <<'EOF'
@@ -85,7 +86,16 @@ start_unified_app() {
   local backend_python
   backend_python="$(resolve_backend_python)"
 
+  if [[ -f "$TOOL_ENV_SCRIPT" ]]; then
+    # shellcheck disable=SC1090
+    source "$TOOL_ENV_SCRIPT"
+    catchup_apply_terminal_tool_env "$ROOT"
+  fi
+
   echo "Starting Mustarrd unified app on http://localhost:4177"
+  [[ -n "${CATCHUP_FFMPEG_PATH:-}" ]] && echo "ffmpeg: $CATCHUP_FFMPEG_PATH"
+  [[ -n "${CATCHUP_FFPROBE_PATH:-}" ]] && echo "ffprobe: $CATCHUP_FFPROBE_PATH"
+  [[ -n "${CATCHUP_COMSKIP_PATH:-}" ]] && echo "comskip: $CATCHUP_COMSKIP_PATH"
   export CATCHUP_FRONTEND_DIST="$FRONTEND_DIR/dist"
   cd "$BACKEND_DIR"
   exec "$backend_python" main.py

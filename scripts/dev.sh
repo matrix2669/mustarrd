@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PID_FILE="/tmp/mustarrd-dev.pids"
+TOOL_ENV_SCRIPT="$ROOT/scripts/tool-env.sh"
 
 BACKEND_VENV="$ROOT/backend/.venv/bin/uvicorn"
 if [[ -x "$BACKEND_VENV" ]]; then
@@ -14,7 +15,16 @@ else
 fi
 
 start_services() {
-  ( cd "$ROOT/backend" && exec "$UVICORN" main:app --host 0.0.0.0 --port 4177 > /tmp/mustarrd-backend.log 2>&1 ) &
+  if [[ -f "$TOOL_ENV_SCRIPT" ]]; then
+    # shellcheck disable=SC1090
+    source "$TOOL_ENV_SCRIPT"
+    catchup_apply_terminal_tool_env "$ROOT"
+  fi
+
+  (
+    cd "$ROOT/backend"
+    exec "$UVICORN" main:app --host 0.0.0.0 --port 4177 > /tmp/mustarrd-backend.log 2>&1
+  ) &
   BACKEND_PID=$!
   ( cd "$ROOT/frontend" && exec npm run dev > /tmp/mustarrd-frontend.log 2>&1 ) &
   FRONTEND_PID=$!
@@ -23,6 +33,9 @@ start_services() {
   echo "Frontend log: /tmp/mustarrd-frontend.log"
   echo "Backend URL: http://localhost:4177"
   echo "Frontend URL: http://localhost:4178"
+  [[ -n "${CATCHUP_FFMPEG_PATH:-}" ]] && echo "ffmpeg: $CATCHUP_FFMPEG_PATH"
+  [[ -n "${CATCHUP_FFPROBE_PATH:-}" ]] && echo "ffprobe: $CATCHUP_FFPROBE_PATH"
+  [[ -n "${CATCHUP_COMSKIP_PATH:-}" ]] && echo "comskip: $CATCHUP_COMSKIP_PATH"
 }
 
 kill_services() {

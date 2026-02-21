@@ -1,12 +1,12 @@
 import { useMemo, useRef, useEffect } from 'react'
-import { Stack, Text, Group, Badge, ScrollArea, Box } from '@mantine/core'
+import { Stack, Text, Group, Badge, ScrollArea, Box, Divider } from '@mantine/core'
 import { useMediaQuery } from '@mantine/hooks'
 import { IconClock, IconDownload, IconCalendar } from '@tabler/icons-react'
 import dayjs from 'dayjs'
 
 const previousDownloadStatusMeta = {
-  pending: { label: 'Queued', color: 'blue' },
-  downloading: { label: 'Downloading', color: 'blue' },
+  pending: { label: 'Queued', color: 'yellow' },
+  downloading: { label: 'Downloading', color: 'yellow' },
   processing: { label: 'Processing', color: 'violet' },
   completed: { label: 'Downloaded', color: 'green' },
   failed: { label: 'Failed', color: 'red' },
@@ -32,7 +32,7 @@ function ProgramBlock({
   const backgroundColor = isCurrent
     ? 'var(--mantine-color-green-light)'
     : isPast && program.has_archive
-    ? 'var(--mantine-color-blue-light)'
+    ? 'rgba(245, 159, 0, 0.1)'
     : isPast
     ? 'var(--mantine-color-dark-5)'
     : 'var(--mantine-color-dark-6)'
@@ -49,46 +49,61 @@ function ProgramBlock({
         borderRadius: 6,
         backgroundColor,
         cursor: isClickable ? 'pointer' : 'default',
-        border: isDownloadable
-          ? '1px solid var(--mantine-color-blue-6)'
+        borderTop: '1px solid transparent',
+        borderRight: '1px solid transparent',
+        borderBottom: '1px solid transparent',
+        borderLeft: isDownloadable
+          ? '3px solid #f59f00'
           : isSchedulable
-          ? '1px solid var(--mantine-color-teal-6)'
-          : '1px solid transparent',
+          ? '3px solid var(--mantine-color-teal-6)'
+          : '3px solid transparent',
         opacity: isPast && !program.has_archive ? 0.5 : 1,
-        transition: 'transform 0.1s, box-shadow 0.1s',
+        transition: 'box-shadow 0.15s, background-color 0.15s',
       }}
       onClick={() => isClickable && onClick(program, { action: isDownloadable ? 'download' : 'schedule' })}
       onMouseEnter={(e) => {
         if (isClickable) {
-          e.currentTarget.style.transform = 'scale(1.02)'
-          e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.3)'
+          e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.35)'
         }
       }}
       onMouseLeave={(e) => {
-        e.currentTarget.style.transform = 'scale(1)'
         e.currentTarget.style.boxShadow = 'none'
       }}
     >
       <Stack gap={4}>
         <Group justify="space-between" wrap="nowrap">
-          <Text
-            size={isMobile ? 'xs' : 'sm'}
-            fw={500}
-            lineClamp={isMobile ? 2 : 1}
-            style={{ flex: 1, minWidth: 0, lineHeight: isMobile ? 1.25 : undefined }}
-          >
-            {program.title}
-          </Text>
+          <Group gap={6} wrap="nowrap" style={{ flex: 1, minWidth: 0 }}>
+            {isCurrent && (
+              <Box
+                style={{
+                  width: 7,
+                  height: 7,
+                  borderRadius: '50%',
+                  background: '#fa5252',
+                  flexShrink: 0,
+                  animation: 'mustarrd-rec-pulse 1.5s ease-in-out infinite',
+                }}
+              />
+            )}
+            <Text
+              size={isMobile ? 'xs' : 'sm'}
+              fw={500}
+              lineClamp={isMobile ? 2 : 1}
+              style={{ minWidth: 0, lineHeight: isMobile ? 1.25 : undefined }}
+            >
+              {program.title}
+            </Text>
+          </Group>
           {ActionIcon && (
             <ActionIcon size={14} style={{ flexShrink: 0 }} opacity={0.7} />
           )}
         </Group>
 
         <Group gap="xs">
-          <Badge size="xs" variant="outline">
-            {startTime.format('h:mm A')} - {endTime.format('h:mm A')}
-          </Badge>
-          <Badge size="xs" variant="light" color={isCurrent ? 'green' : isPast ? 'gray' : 'blue'}>
+          <Text size="xs" c="dimmed">
+            {startTime.format('h:mm A')} – {endTime.format('h:mm A')}
+          </Text>
+          <Badge size="xs" variant="light" color={isCurrent ? 'green' : isPast ? 'gray' : 'yellow'}>
             {program.duration_minutes}m
           </Badge>
           {previousMeta && (
@@ -121,13 +136,26 @@ function DaySection({ date, programs, onProgramClick, getProgramPreviousDownload
 
   return (
     <Stack gap="xs">
-      <Group gap="xs">
-        <Text fw={600} size="sm">
+      <Group gap="xs" align="center">
+        <Text
+          fw={700}
+          size="sm"
+          style={isToday ? {
+            color: '#f59f00',
+            fontFamily: "'Bebas Neue', cursive",
+            fontSize: 16,
+            letterSpacing: '0.08em',
+          } : {
+            color: 'var(--mantine-color-dimmed)',
+            textTransform: 'uppercase',
+            fontSize: 11,
+            letterSpacing: '0.08em',
+          }}
+        >
           {isToday ? 'Today' : date.format('ddd, MMM D')}
         </Text>
-        <Badge size="xs" variant="light">
-          {sortedPrograms.length} programs
-        </Badge>
+        <Divider style={{ flex: 1 }} />
+        <Text size="xs" c="dimmed">{sortedPrograms.length}</Text>
       </Group>
 
       <Stack gap={6}>
@@ -276,7 +304,7 @@ export default function EPGGrid({
           Showing {visiblePrograms.length} programs
         </Text>
         <Group gap="xs">
-          <Badge variant="light" color="blue" leftSection={<IconDownload size={12} />}>
+          <Badge variant="light" color="yellow" leftSection={<IconDownload size={12} />}>
             {downloadableCount} available
           </Badge>
           <Badge variant="light" color="teal" leftSection={<IconCalendar size={12} />}>
@@ -284,10 +312,6 @@ export default function EPGGrid({
           </Badge>
         </Group>
       </Group>
-
-      <Text size="xs" c="dimmed">
-        Click past programs with a blue border to download. Click upcoming programs to schedule.
-      </Text>
 
       <ScrollArea style={{ flex: 1, minHeight: 0 }} ref={scrollAreaRef}>
         <Stack gap="lg">

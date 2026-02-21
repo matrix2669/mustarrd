@@ -21,7 +21,6 @@ import {
   Box,
   Divider,
   Paper,
-  ScrollArea,
   PasswordInput,
 } from '@mantine/core'
 import { useMediaQuery } from '@mantine/hooks'
@@ -841,23 +840,12 @@ export default function Settings() {
 
       {isMobile ? (
         <Stack gap="md">
-          <Paper withBorder radius="md" p="xs">
-            <ScrollArea type="never">
-              <Group gap={2} wrap="nowrap" pb={2}>
-                {SECTIONS.map(({ id, label, icon: Icon }) => (
-                  <NavLink
-                    key={id}
-                    component="button"
-                    label={label}
-                    leftSection={<Icon size={16} />}
-                    active={activeSection === id}
-                    onClick={() => setActiveSection(id)}
-                    style={{ borderRadius: 6, flexShrink: 0 }}
-                  />
-                ))}
-              </Group>
-            </ScrollArea>
-          </Paper>
+          <Select
+            data={SECTIONS.map(({ id, label }) => ({ value: id, label }))}
+            value={activeSection}
+            onChange={(val) => val && setActiveSection(val)}
+            size="sm"
+          />
           <Card shadow="sm" padding="lg" radius="md" withBorder>
             {sectionContent[activeSection]?.()}
           </Card>

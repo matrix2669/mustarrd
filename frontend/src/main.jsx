@@ -1,6 +1,6 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import { MantineProvider, createTheme } from '@mantine/core'
+import { MantineProvider, Title, Notification, createTheme } from '@mantine/core'
 import { Notifications } from '@mantine/notifications'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { unstable_HistoryRouter as HistoryRouter } from 'react-router-dom'
@@ -13,7 +13,25 @@ import './styles.css'
 
 const theme = createTheme({
   primaryColor: 'yellow',
-  fontFamily: 'system-ui, -apple-system, sans-serif',
+  fontFamily: "'DM Sans', system-ui, -apple-system, sans-serif",
+  components: {
+    Title: Title.extend({
+      styles: (_theme, props) => ({
+        root: props.order === 2 ? {
+          paddingBottom: 6,
+          borderBottom: '2px solid #f59f00',
+          display: 'inline-block',
+        } : {},
+      }),
+    }),
+    Notification: Notification.extend({
+      styles: {
+        root: {
+          borderTop: '2px solid #f59f00',
+        },
+      },
+    }),
+  },
 })
 
 const queryClient = new QueryClient({

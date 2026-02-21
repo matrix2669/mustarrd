@@ -50,8 +50,8 @@ function formatDuration(minutes) {
 function getStatusBadge(status) {
   const statusConfig = {
     scheduled: { color: 'gray', icon: IconCalendar, label: 'Scheduled' },
-    queued: { color: 'blue', icon: IconDownload, label: 'Queued' },
-    downloading: { color: 'blue', icon: IconDownload, label: 'Downloading' },
+    queued: { color: 'yellow', icon: IconDownload, label: 'Queued' },
+    downloading: { color: 'yellow', icon: IconDownload, label: 'Downloading' },
     processing: { color: 'teal', icon: IconSettings, label: 'Processing' },
     completed: { color: 'green', icon: IconCheck, label: 'Completed' },
     failed: { color: 'red', icon: IconX, label: 'Failed' },

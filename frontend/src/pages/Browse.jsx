@@ -73,7 +73,7 @@ function ChannelList({ channels, selectedChannel, onSelectChannel, isLoading }) 
                 cursor: 'pointer',
                 backgroundColor:
                   selectedChannel?.stream_id === channel.stream_id
-                    ? 'var(--mantine-color-blue-light)'
+                    ? 'rgba(245, 159, 0, 0.1)'
                     : undefined,
               }}
               onClick={() => onSelectChannel(channel)}
@@ -149,7 +149,7 @@ function CategoryList({ categories, selectedCategory, onSelectCategory, isLoadin
             withBorder
             style={{
               cursor: 'pointer',
-              backgroundColor: selectedCategory == null ? 'var(--mantine-color-blue-light)' : undefined,
+              backgroundColor: selectedCategory == null ? 'rgba(245, 159, 0, 0.1)' : undefined,
             }}
             onClick={() => onSelectCategory(null)}
           >
@@ -167,7 +167,7 @@ function CategoryList({ categories, selectedCategory, onSelectCategory, isLoadin
                 cursor: 'pointer',
                 backgroundColor:
                   selectedCategory === category.category_id
-                    ? 'var(--mantine-color-blue-light)'
+                    ? 'rgba(245, 159, 0, 0.1)'
                     : undefined,
               }}
               onClick={() => onSelectCategory(category.category_id)}
@@ -279,8 +279,8 @@ function getInitialDesktopPanelHeight() {
 }
 
 const previousDownloadStatusMeta = {
-  pending: { label: 'Queued', color: 'blue' },
-  downloading: { label: 'Downloading', color: 'blue' },
+  pending: { label: 'Queued', color: 'yellow' },
+  downloading: { label: 'Downloading', color: 'yellow' },
   processing: { label: 'Processing', color: 'violet' },
   completed: { label: 'Downloaded', color: 'green' },
   failed: { label: 'Failed', color: 'red' },
@@ -730,13 +730,15 @@ export default function Browse() {
             : 'Browse EPG'}
         </Title>
         <Group>
-          <Select
-            placeholder="Select account"
-            data={accountOptions}
-            value={selectedAccountId}
-            onChange={setSelectedAccountId}
-            w={200}
-          />
+          {accountOptions.length > 1 && (
+            <Select
+              placeholder="Select account"
+              data={accountOptions}
+              value={selectedAccountId}
+              onChange={setSelectedAccountId}
+              w={200}
+            />
+          )}
           {browseTab === 'epg' && (
             <Select
               placeholder="All categories"
@@ -767,7 +769,7 @@ export default function Browse() {
         </Tabs.List>
 
         <Tabs.Panel value="epg" pt="md">
-          {isMobile ? (
+          {(isMobile ?? true) ? (
             selectedChannel ? (
               <Card shadow="sm" padding="md" radius="md" withBorder>
                 <Stack>
@@ -1052,7 +1054,7 @@ export default function Browse() {
                                 <Badge
                                   size="xs"
                                   variant="light"
-                                  color={isDownloadable ? 'blue' : isPast ? 'gray' : 'teal'}
+                                  color={isDownloadable ? 'yellow' : isPast ? 'gray' : 'teal'}
                                 >
                                   {actionLabel}
                                 </Badge>

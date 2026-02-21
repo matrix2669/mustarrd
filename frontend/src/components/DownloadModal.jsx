@@ -165,6 +165,7 @@ export default function DownloadModal({ opened, onClose, program, channel, accou
       onClose={onClose}
       title="Download Program"
       size="lg"
+      returnFocus={false}
     >
       <Stack>
         <Stack gap="xs">

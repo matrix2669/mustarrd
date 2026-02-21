@@ -65,7 +65,7 @@ function getFileName(filePath) {
 function getStatusBadge(status) {
   const statusConfig = {
     pending: { color: 'gray', icon: IconClock, label: 'Pending' },
-    downloading: { color: 'blue', icon: IconDownload, label: 'Downloading' },
+    downloading: { color: 'yellow', icon: IconDownload, label: 'Downloading' },
     processing: { color: 'teal', icon: IconSettings, label: 'Processing' },
     completed: { color: 'green', icon: IconCheck, label: 'Completed' },
     failed: { color: 'red', icon: IconX, label: 'Failed' },
@@ -374,7 +374,7 @@ export default function Downloads() {
       notifications.show({
         title: 'Download Restarted',
         message: 'The download has been queued',
-        color: 'blue',
+        color: 'yellow',
       })
     },
     onError: (error) => {

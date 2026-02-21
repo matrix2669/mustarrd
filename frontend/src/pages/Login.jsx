@@ -10,14 +10,12 @@ import {
   Loader,
   Box,
   Group,
-  Image,
   useMantineColorScheme,
 } from '@mantine/core'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { IconAlertCircle } from '@tabler/icons-react'
 
 import { authApi } from '../api'
-import mustarrdLogo from '../assets/mustarrdlogo.png'
 
 export default function Login() {
   const [password, setPassword] = useState('')
@@ -121,16 +119,17 @@ export default function Login() {
         {/* Branded header */}
         <Box px="lg" pt="lg" pb="md">
           <Group justify="space-between" align="center">
-            <Group gap="xs" align="center">
-              <Image src={mustarrdLogo} h={24} w="auto" />
-              <Text
-                fw={800}
-                size="sm"
-                style={{ letterSpacing: '0.08em' }}
-              >
-                MUSTARRD
-              </Text>
-            </Group>
+            <Text
+              style={{
+                fontFamily: "'Bebas Neue', cursive",
+                fontSize: 24,
+                letterSpacing: '0.12em',
+                color: '#f59f00',
+                lineHeight: 1,
+              }}
+            >
+              MUSTARRD
+            </Text>
             <Group gap={6} align="center">
               <Box
                 style={{
