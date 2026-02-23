@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import Optional
 
-from auth import require_admin
+from auth import require_admin, require_admin_websocket
 from database import get_session
 from models import Download, DownloadStatus, XtreamAccount
 from services.download_manager import download_manager
@@ -241,7 +241,10 @@ async def retry_download(
 
 
 @router.websocket("/ws")
-async def download_progress_websocket(websocket: WebSocket):
+async def download_progress_websocket(
+    websocket: WebSocket,
+    _admin: None = Depends(require_admin_websocket),
+):
     """WebSocket for real-time download progress updates."""
     await websocket.accept()
     download_manager.register_websocket(websocket)

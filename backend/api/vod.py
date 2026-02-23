@@ -58,6 +58,7 @@ async def _get_account(session: AsyncSession, account_id: int) -> XtreamAccount:
 @router.get("/movies/categories")
 async def get_movie_categories(
     account_id: int,
+    _admin: None = Depends(require_admin),
     session: AsyncSession = Depends(get_session)
 ):
     account = await _get_account(session, account_id)
@@ -72,6 +73,7 @@ async def get_movie_categories(
 async def get_movies(
     account_id: int,
     category_id: Optional[str] = None,
+    _admin: None = Depends(require_admin),
     session: AsyncSession = Depends(get_session)
 ):
     account = await _get_account(session, account_id)
@@ -86,6 +88,7 @@ async def get_movies(
 async def get_movie_info(
     vod_id: str,
     account_id: int,
+    _admin: None = Depends(require_admin),
     session: AsyncSession = Depends(get_session)
 ):
     account = await _get_account(session, account_id)
@@ -123,6 +126,7 @@ async def download_movie(
 @router.get("/series/categories")
 async def get_series_categories(
     account_id: int,
+    _admin: None = Depends(require_admin),
     session: AsyncSession = Depends(get_session)
 ):
     account = await _get_account(session, account_id)
@@ -137,6 +141,7 @@ async def get_series_categories(
 async def get_series(
     account_id: int,
     category_id: Optional[str] = None,
+    _admin: None = Depends(require_admin),
     session: AsyncSession = Depends(get_session)
 ):
     account = await _get_account(session, account_id)
@@ -151,6 +156,7 @@ async def get_series(
 async def get_series_info(
     series_id: str,
     account_id: int,
+    _admin: None = Depends(require_admin),
     session: AsyncSession = Depends(get_session)
 ):
     account = await _get_account(session, account_id)

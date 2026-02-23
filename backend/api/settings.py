@@ -313,7 +313,10 @@ async def get_tools_status(_admin: None = Depends(require_admin)):
 
 
 @router.get("/public")
-async def get_public_settings(session: AsyncSession = Depends(get_session)):
+async def get_public_settings(
+    _admin: None = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
     """Get safe settings values used by public browsing/download flows."""
     result = await session.execute(select(AppSettings))
     settings = result.scalar_one_or_none()

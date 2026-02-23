@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import Optional
 
+from auth import require_admin
 from database import get_session
 from models import XtreamAccount
 from services.epg_service import epg_service
@@ -15,6 +16,7 @@ router = APIRouter()
 @router.get("/accounts/{account_id}/categories")
 async def get_categories(
     account_id: int,
+    _admin: None = Depends(require_admin),
     session: AsyncSession = Depends(get_session)
 ):
     """Get channel categories for an account."""
@@ -38,6 +40,7 @@ async def get_channels(
     account_id: int,
     category_id: Optional[str] = Query(None),
     catchup_only: bool = Query(True, description="Only show channels with catchup/timeshift support"),
+    _admin: None = Depends(require_admin),
     session: AsyncSession = Depends(get_session)
 ):
     """Get channels for an account, optionally filtered by category."""
@@ -76,6 +79,7 @@ async def get_channel_epg(
     channel_id: str,
     days_back: int = Query(7, ge=1, le=14),
     fresh: bool = Query(False, description="Fetch live channel EPG before falling back to stored guide data"),
+    _admin: None = Depends(require_admin),
     session: AsyncSession = Depends(get_session)
 ):
     """Get EPG data for a specific channel."""
@@ -106,6 +110,7 @@ async def get_catchup_programs(
     account_id: int,
     channel_id: str,
     days_back: int = Query(7, ge=1, le=14),
+    _admin: None = Depends(require_admin),
     session: AsyncSession = Depends(get_session)
 ):
     """Get past programs available for catchup/timeshift."""
@@ -132,6 +137,7 @@ async def get_catchup_programs(
 async def get_channel_info(
     account_id: int,
     channel_id: str,
+    _admin: None = Depends(require_admin),
     session: AsyncSession = Depends(get_session)
 ):
     """Get info for a specific channel."""

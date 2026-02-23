@@ -31,6 +31,7 @@ async def search_epg(
     q: str = Query(..., min_length=2),
     limit: int = Query(100, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    _admin: None = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ):
     result = await session.execute(
@@ -63,7 +64,7 @@ async def search_epg(
 
 
 @router.get("/epg/status")
-async def epg_status():
+async def epg_status(_admin: None = Depends(require_admin)):
     return epg_ingest_manager.get_status()
 
 

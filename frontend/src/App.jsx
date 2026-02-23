@@ -216,7 +216,7 @@ function App() {
 
   const navItems = [
     { icon: IconServer, label: 'Accounts', to: '/accounts', adminOnly: true },
-    { icon: IconSearch, label: 'Browse', to: '/browse' },
+    { icon: IconSearch, label: 'Browse', to: '/browse', adminOnly: true },
     {
       icon: IconDownload,
       label: 'Downloads',
@@ -344,11 +344,11 @@ function App() {
           <Route element={<ProtectedRoute authStatus={authStatus} authLoading={authLoading} />}>
             <Route path="/accounts" element={<Accounts />} />
             <Route path="/settings" element={<Settings />} />
+            <Route path="/browse" element={<Browse />} />
             <Route path="/downloads" element={<Downloads />} />
             <Route path="/scheduled" element={<Scheduled />} />
             <Route path="/logs" element={<Logs />} />
           </Route>
-          <Route path="/browse" element={<Browse />} />
         </Routes>
       </AppShell.Main>
     </AppShell>

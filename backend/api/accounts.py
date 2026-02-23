@@ -51,7 +51,10 @@ async def list_accounts(
 
 
 @router.get("/public")
-async def list_accounts_public(session: AsyncSession = Depends(get_session)):
+async def list_accounts_public(
+    _admin: None = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
     """List minimal account info for non-admin browsing flows."""
     result = await session.execute(select(XtreamAccount).order_by(XtreamAccount.name))
     accounts = result.scalars().all()
