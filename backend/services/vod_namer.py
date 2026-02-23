@@ -1,4 +1,5 @@
 import os
+import re
 from typing import Optional
 
 from services.file_namer import file_namer
@@ -12,7 +13,11 @@ def _safe_extension(ext: Optional[str]) -> str:
     if not ext:
         return "mp4"
     cleaned = ext.strip().lstrip(".")
-    return cleaned or "mp4"
+    if not cleaned:
+        return "mp4"
+    if not re.fullmatch(r"[A-Za-z0-9]{1,8}", cleaned):
+        return "mp4"
+    return cleaned.lower()
 
 
 def movie_output_path(download_folder: str, title: str, year: Optional[int], extension: Optional[str]) -> str:

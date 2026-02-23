@@ -1,3 +1,5 @@
+import ipaddress
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,6 +12,7 @@ from auth import (
     verify_password,
 )
 from database import get_session
+from config import settings
 
 
 router = APIRouter()
@@ -22,6 +25,18 @@ class PasswordPayload(BaseModel):
 class ChangePasswordPayload(BaseModel):
     current_password: str = Field(min_length=1, max_length=128)
     new_password: str = Field(min_length=8, max_length=128)
+
+
+def _is_local_or_private_client(host: str | None) -> bool:
+    if not host:
+        return False
+    if host in {"localhost", "127.0.0.1", "::1"}:
+        return True
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return ip.is_loopback or ip.is_private
 
 
 @router.get("/status")
@@ -48,6 +63,13 @@ async def setup_auth(
 
     if app_settings.admin_password_hash:
         raise HTTPException(status_code=400, detail="Admin password is already configured")
+    if not settings.allow_remote_setup:
+        client_host = request.client.host if request.client else None
+        if not _is_local_or_private_client(client_host):
+            raise HTTPException(
+                status_code=403,
+                detail="Initial setup is restricted to local/private network clients",
+            )
 
     app_settings.admin_password_hash = hash_password(payload.password)
     await session.commit()

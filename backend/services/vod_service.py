@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Optional
+from urllib.parse import urlparse
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,6 +24,23 @@ def _extract_year(text: Optional[str]) -> Optional[int]:
     return file_namer.extract_year(text)
 
 
+def _trusted_direct_source(direct_source: Optional[str], account_server_url: str) -> Optional[str]:
+    if not direct_source:
+        return None
+    try:
+        parsed_source = urlparse(direct_source)
+        parsed_account = urlparse(account_server_url)
+    except Exception:
+        return None
+    if parsed_source.scheme not in {"http", "https"}:
+        return None
+    if not parsed_source.hostname or not parsed_account.hostname:
+        return None
+    if parsed_source.hostname != parsed_account.hostname:
+        return None
+    return direct_source
+
+
 async def build_movie_download(
     session: AsyncSession,
     account_id: int,
@@ -44,8 +62,9 @@ async def build_movie_download(
     year = _extract_year(release_date) or _extract_year(title)
     output_path = movie_output_path(download_folder, title, year, container_extension)
 
-    if direct_source:
-        source_url = direct_source
+    trusted_direct_source = _trusted_direct_source(direct_source, account.server_url)
+    if trusted_direct_source:
+        source_url = trusted_direct_source
     else:
         client = XtreamClient(account.server_url, account.username, account.password)
         source_url = client.build_vod_url(vod_id, container_extension)
@@ -98,8 +117,9 @@ async def build_episode_download(
         container_extension,
     )
 
-    if direct_source:
-        source_url = direct_source
+    trusted_direct_source = _trusted_direct_source(direct_source, account.server_url)
+    if trusted_direct_source:
+        source_url = trusted_direct_source
     else:
         client = XtreamClient(account.server_url, account.username, account.password)
         source_url = client.build_series_url(episode_id, container_extension)

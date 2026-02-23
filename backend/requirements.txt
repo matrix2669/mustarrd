@@ -10,3 +10,4 @@ pydantic-settings>=2.6.0
 python-multipart>=0.0.17
 websockets>=14.0
 itsdangerous>=2.2.0
+defusedxml>=0.7.1

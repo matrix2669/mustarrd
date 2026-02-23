@@ -54,7 +54,6 @@ class Download(Base):
             "program_start": self.program_start.isoformat() if self.program_start else None,
             "program_end": self.program_end.isoformat() if self.program_end else None,
             "duration_minutes": self.duration_minutes,
-            "source_url": self.source_url,
             "output_path": self.output_path,
             "status": self.status,
             "progress": self.progress,

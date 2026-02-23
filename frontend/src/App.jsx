@@ -222,9 +222,10 @@ function App() {
       label: 'Downloads',
       to: '/downloads',
       badge: activeDownloads > 0 ? activeDownloads : null,
+      adminOnly: true,
     },
-    { icon: IconCalendar, label: 'Scheduled', to: '/scheduled' },
-    { icon: IconListDetails, label: 'Logs', to: '/logs' },
+    { icon: IconCalendar, label: 'Scheduled', to: '/scheduled', adminOnly: true },
+    { icon: IconListDetails, label: 'Logs', to: '/logs', adminOnly: true },
     { icon: IconSettings, label: 'Settings', to: '/settings', adminOnly: true },
   ].filter((item) => !item.adminOnly || authStatus?.authenticated)
 
@@ -343,11 +344,11 @@ function App() {
           <Route element={<ProtectedRoute authStatus={authStatus} authLoading={authLoading} />}>
             <Route path="/accounts" element={<Accounts />} />
             <Route path="/settings" element={<Settings />} />
+            <Route path="/downloads" element={<Downloads />} />
+            <Route path="/scheduled" element={<Scheduled />} />
+            <Route path="/logs" element={<Logs />} />
           </Route>
           <Route path="/browse" element={<Browse />} />
-          <Route path="/downloads" element={<Downloads />} />
-          <Route path="/scheduled" element={<Scheduled />} />
-          <Route path="/logs" element={<Logs />} />
         </Routes>
       </AppShell.Main>
     </AppShell>

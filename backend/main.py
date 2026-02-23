@@ -56,7 +56,7 @@ app.add_middleware(
     SessionMiddleware,
     secret_key=settings.session_secret,
     same_site="lax",
-    https_only=False,
+    https_only=settings.session_https_only,
 )
 
 # API routes

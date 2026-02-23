@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import Optional
 
+from auth import require_admin
 from database import get_session
 from models import ScheduledRecording, ScheduledStatus, XtreamAccount, Download
 from services.download_manager import download_manager
@@ -84,7 +85,10 @@ def _map_download_status(status: str) -> str:
 
 
 @router.get("")
-async def list_schedules(session: AsyncSession = Depends(get_session)):
+async def list_schedules(
+    _admin: None = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
     result = await session.execute(
         select(ScheduledRecording).order_by(ScheduledRecording.program_start.desc())
     )
@@ -125,6 +129,7 @@ async def list_schedules(session: AsyncSession = Depends(get_session)):
 @router.post("")
 async def create_schedule(
     data: ScheduleCreate,
+    _admin: None = Depends(require_admin),
     session: AsyncSession = Depends(get_session)
 ):
     result = await session.execute(
@@ -212,6 +217,7 @@ async def create_schedule(
 @router.delete("/{schedule_id}")
 async def cancel_schedule(
     schedule_id: int,
+    _admin: None = Depends(require_admin),
     session: AsyncSession = Depends(get_session)
 ):
     result = await session.execute(

@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import Optional
 
+from auth import require_admin
 from database import get_session
 from models import XtreamAccount
 from services.xtream_client import XtreamClient
@@ -98,6 +99,7 @@ async def get_movie_info(
 @router.post("/movies/download")
 async def download_movie(
     data: MovieDownloadRequest,
+    _admin: None = Depends(require_admin),
     session: AsyncSession = Depends(get_session)
 ):
     try:
@@ -162,6 +164,7 @@ async def get_series_info(
 @router.post("/series/download")
 async def download_series(
     data: SeriesDownloadRequest,
+    _admin: None = Depends(require_admin),
     session: AsyncSession = Depends(get_session)
 ):
     downloads = []

@@ -3,6 +3,7 @@ from pathlib import Path
 import os
 import shutil
 import sys
+import secrets
 
 
 def _default_data_root() -> Path:
@@ -71,7 +72,9 @@ class Settings(BaseSettings):
     app_name: str = "Catchup DVR"
     debug: bool = False
     timezone: str = "UTC"
-    session_secret: str = "change-me"
+    session_secret: str = secrets.token_urlsafe(48)
+    session_https_only: bool = not _using_desktop_mode()
+    allow_remote_setup: bool = False
 
     # Database
     database_url: str = _default_database_url()

@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_, func
 
+from auth import require_admin
 from database import get_session
 from models import XtreamAccount, AppSettings, EPGProgram
 from services.epg_service import epg_service
@@ -67,7 +68,10 @@ async def epg_status():
 
 
 @router.post("/epg/refresh")
-async def trigger_epg_refresh(request: EPGRefreshRequest):
+async def trigger_epg_refresh(
+    request: EPGRefreshRequest,
+    _admin: None = Depends(require_admin),
+):
     status = epg_ingest_manager.get_status()
     if status.get("running"):
         raise HTTPException(status_code=409, detail="EPG refresh is already running")

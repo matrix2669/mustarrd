@@ -2,10 +2,11 @@ import asyncio
 import base64
 import gzip
 import io
-import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Iterable, Optional
+from xml.etree.ElementTree import Element
 
+from defusedxml import ElementTree as ET
 from sqlalchemy import delete, insert, select, func
 
 from config import settings as app_settings
@@ -473,7 +474,7 @@ class EPGIngestManager:
             return dt.replace(tzinfo=timezone.utc)
         return None
 
-    def _extract_text(self, elem: ET.Element, tag: str) -> Optional[str]:
+    def _extract_text(self, elem: Element, tag: str) -> Optional[str]:
         child = elem.find(tag)
         if child is not None and child.text:
             return child.text.strip()

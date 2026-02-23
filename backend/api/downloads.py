@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import Optional
 
+from auth import require_admin
 from database import get_session
 from models import Download, DownloadStatus, XtreamAccount
 from services.download_manager import download_manager
@@ -36,7 +37,10 @@ class FilenamePreview(BaseModel):
 
 
 @router.get("")
-async def list_downloads(session: AsyncSession = Depends(get_session)):
+async def list_downloads(
+    _admin: None = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
     """List all downloads (queue + history)."""
     result = await session.execute(
         select(Download).order_by(Download.created_at.desc())
@@ -46,13 +50,13 @@ async def list_downloads(session: AsyncSession = Depends(get_session)):
 
 
 @router.get("/queue")
-async def get_download_queue():
+async def get_download_queue(_admin: None = Depends(require_admin)):
     """Get pending and active downloads."""
     return await download_manager.get_queue()
 
 
 @router.get("/history")
-async def get_download_history():
+async def get_download_history(_admin: None = Depends(require_admin)):
     """Get completed, failed, and cancelled downloads."""
     return await download_manager.get_history()
 
@@ -60,6 +64,7 @@ async def get_download_history():
 @router.post("/preview-filename")
 async def preview_filename(
     data: FilenamePreview,
+    _admin: None = Depends(require_admin),
     session: AsyncSession = Depends(get_session)
 ):
     """Preview the auto-generated filename for a program."""
@@ -94,6 +99,7 @@ async def preview_filename(
 @router.post("")
 async def create_download(
     data: DownloadCreate,
+    _admin: None = Depends(require_admin),
     session: AsyncSession = Depends(get_session)
 ):
     """Queue a new download."""
@@ -123,6 +129,7 @@ async def create_download(
 @router.get("/{download_id}")
 async def get_download(
     download_id: int,
+    _admin: None = Depends(require_admin),
     session: AsyncSession = Depends(get_session)
 ):
     """Get a specific download."""
@@ -141,6 +148,7 @@ async def get_download(
 async def get_download_file(
     download_id: int,
     action: str = Query(default="download", pattern="^(download|play)$"),
+    _admin: None = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ):
     """Serve a completed download file for browser download/play actions."""
@@ -177,6 +185,7 @@ async def get_download_file(
 @router.delete("/{download_id}")
 async def cancel_download(
     download_id: int,
+    _admin: None = Depends(require_admin),
     session: AsyncSession = Depends(get_session)
 ):
     """Cancel or remove a download."""
@@ -206,6 +215,7 @@ async def cancel_download(
 @router.post("/{download_id}/retry")
 async def retry_download(
     download_id: int,
+    _admin: None = Depends(require_admin),
     session: AsyncSession = Depends(get_session)
 ):
     """Retry a failed download."""

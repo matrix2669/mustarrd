@@ -3,7 +3,8 @@ import hashlib
 import hmac
 import os
 
-from fastapi import Depends, HTTPException, Request
+from fastapi import Depends, HTTPException, WebSocket
+from starlette.requests import HTTPConnection
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -62,14 +63,27 @@ def verify_password(password: str, password_hash: str) -> bool:
 
 
 async def require_admin(
-    request: Request,
+    request: HTTPConnection,
     session: AsyncSession = Depends(get_session),
+) -> None:
+    await _require_admin_connection(request, session)
+
+
+async def require_admin_websocket(
+    websocket: WebSocket,
+    session: AsyncSession = Depends(get_session),
+) -> None:
+    await _require_admin_connection(websocket, session)
+
+
+async def _require_admin_connection(
+    request: HTTPConnection,
+    session: AsyncSession,
 ) -> None:
     app_settings = await get_or_create_app_settings(session)
 
-    # First-run behavior: keep pages open until an admin password is configured.
     if not app_settings.admin_password_hash:
-        return
+        raise HTTPException(status_code=403, detail="Admin password not configured")
 
     if request.session.get(SESSION_ADMIN_KEY) is True:
         return
