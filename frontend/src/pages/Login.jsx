@@ -23,7 +23,7 @@ export default function Login() {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const location = useLocation()
-  const fromPath = location.state?.from || '/settings'
+  const fromPath = location.state?.from || '/onboarding'
   const { colorScheme } = useMantineColorScheme()
   const isDark = colorScheme === 'dark'
 
@@ -37,7 +37,7 @@ export default function Login() {
     mutationFn: (value) => authApi.setup(value),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['auth', 'status'] })
-      navigate(fromPath, { replace: true })
+      navigate('/onboarding', { replace: true })
     },
     onError: (err) => {
       setError(err.message)
@@ -167,8 +167,8 @@ export default function Login() {
             </Text>
             <Text size="sm" c="dimmed">
               {isSetupMode
-                ? 'Create a password to protect Settings and Accounts.'
-                : 'Enter your password to manage Settings and Accounts.'}
+                ? 'Create a password to protect Settings.'
+                : 'Enter your password to manage Settings.'}
             </Text>
           </Stack>
 

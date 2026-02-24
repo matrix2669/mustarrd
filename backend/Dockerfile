@@ -135,4 +135,4 @@ EXPOSE 4177
 
 # Run the application
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "4177"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "4177", "--no-access-log"]

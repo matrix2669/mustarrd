@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useContext } from 'react'
-import { UNSAFE_NavigationContext } from 'react-router-dom'
+import { UNSAFE_NavigationContext, useSearchParams } from 'react-router-dom'
 import {
   Title,
   Card,
@@ -37,9 +37,13 @@ import {
   IconCalendar,
   IconDownload,
   IconLock,
+  IconServer,
+  IconListDetails,
 } from '@tabler/icons-react'
 
 import { authApi, settingsApi } from '../api'
+import AccountsSection from '../components/settings/AccountsSection'
+import LogsSection from '../components/settings/LogsSection'
 
 function TemplateSection({ label, template, variables, example, onChange }) {
   return (
@@ -99,12 +103,14 @@ function useBlocker(blocker, when = true) {
 }
 
 const SECTIONS = [
+  { id: 'accounts', label: 'Accounts', icon: IconServer },
   { id: 'recording', label: 'Recording', icon: IconDownload },
   { id: 'guide', label: 'Guide', icon: IconCalendar },
   { id: 'processing', label: 'Post-Processing', icon: IconWand },
   { id: 'naming', label: 'File Naming', icon: IconFile },
   { id: 'appearance', label: 'Appearance', icon: IconMoon },
   { id: 'security', label: 'Security', icon: IconLock },
+  { id: 'logs', label: 'Logs', icon: IconListDetails },
 ]
 
 export default function Settings() {
@@ -117,6 +123,7 @@ export default function Settings() {
   const [desktopStartupSupported, setDesktopStartupSupported] = useState(false)
   const [desktopStartupLoading, setDesktopStartupLoading] = useState(false)
   const [activeSection, setActiveSection] = useState('recording')
+  const [searchParams, setSearchParams] = useSearchParams()
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const isMobile = useMediaQuery('(max-width: 768px)')
@@ -131,6 +138,22 @@ export default function Settings() {
     setLeaveModalOpen(true)
   }, [hasChanges])
   useBlocker(blockNavigation, hasChanges)
+
+  useEffect(() => {
+    const requestedSection = searchParams.get('section')
+    if (!requestedSection) return
+    const valid = SECTIONS.some((section) => section.id === requestedSection)
+    setActiveSection(valid ? requestedSection : 'recording')
+  }, [searchParams])
+
+  const selectSection = useCallback((sectionId) => {
+    const valid = SECTIONS.some((section) => section.id === sectionId)
+    const resolved = valid ? sectionId : 'recording'
+    setActiveSection(resolved)
+    const next = new URLSearchParams(searchParams)
+    next.set('section', resolved)
+    setSearchParams(next, { replace: true })
+  }, [searchParams, setSearchParams])
 
   const { data: settings, isLoading, error } = useQuery({
     queryKey: ['settings'],
@@ -747,7 +770,7 @@ export default function Settings() {
     <Stack gap="lg">
       <Stack gap={2}>
         <Text fw={600} size="lg">Security</Text>
-        <Text size="sm" c="dimmed">Change the admin password used to access Settings and Accounts</Text>
+        <Text size="sm" c="dimmed">Change the admin password used to access Settings</Text>
       </Stack>
 
       <form onSubmit={handleChangePassword}>
@@ -782,7 +805,11 @@ export default function Settings() {
     naming: renderNaming,
     appearance: renderAppearance,
     security: renderSecurity,
+    accounts: () => <AccountsSection showTitle={false} />,
+    logs: () => <LogsSection showTitle={false} />,
   }
+  const configSections = new Set(['recording', 'guide', 'processing', 'naming', 'appearance', 'security'])
+  const inConfigSection = configSections.has(activeSection)
 
   return (
     <Stack>
@@ -823,18 +850,20 @@ export default function Settings() {
       <Group justify="space-between">
         <Title order={2}>Settings</Title>
         <Group>
-          {hasChanges && (
+          {hasChanges && inConfigSection && (
             <Button variant="subtle" onClick={handleReset}>
               Discard Changes
             </Button>
           )}
-          <Button
-            onClick={handleSave}
-            loading={updateMutation.isPending}
-            disabled={!hasChanges}
-          >
-            Save Settings
-          </Button>
+          {inConfigSection && (
+            <Button
+              onClick={handleSave}
+              loading={updateMutation.isPending}
+              disabled={!hasChanges}
+            >
+              Save Settings
+            </Button>
+          )}
         </Group>
       </Group>
 
@@ -843,7 +872,7 @@ export default function Settings() {
           <Select
             data={SECTIONS.map(({ id, label }) => ({ value: id, label }))}
             value={activeSection}
-            onChange={(val) => val && setActiveSection(val)}
+            onChange={(val) => val && selectSection(val)}
             size="sm"
           />
           <Card shadow="sm" padding="lg" radius="md" withBorder>
@@ -860,7 +889,7 @@ export default function Settings() {
                   label={label}
                   leftSection={<Icon size={16} />}
                   active={activeSection === id}
-                  onClick={() => setActiveSection(id)}
+                  onClick={() => selectSection(id)}
                   styles={{ root: { borderRadius: 6 } }}
                 />
               ))}

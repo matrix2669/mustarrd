@@ -14,25 +14,23 @@ import {
 import { useDisclosure } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
 import {
-  IconServer,
   IconSearch,
   IconDownload,
   IconCalendar,
   IconSettings,
-  IconListDetails,
   IconLogout,
   IconLogin,
 } from '@tabler/icons-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
-import Accounts from './pages/Accounts'
 import Browse from './pages/Browse'
 import Downloads from './pages/Downloads'
 import Scheduled from './pages/Scheduled'
 import Settings from './pages/Settings'
-import Logs from './pages/Logs'
 import Login from './pages/Login'
-import { authApi, downloadsApi, epgApi, createDownloadWebSocket } from './api'
+import DownloadPlayer from './pages/DownloadPlayer'
+import Onboarding from './pages/Onboarding'
+import { authApi, downloadsApi, epgApi, onboardingApi, createDownloadWebSocket } from './api'
 
 function ProtectedRoute({ authStatus, authLoading }) {
   const location = useLocation()
@@ -48,6 +46,20 @@ function ProtectedRoute({ authStatus, authLoading }) {
   return <Navigate to="/login" replace state={{ from: location.pathname }} />
 }
 
+function OnboardingGate({ onboardingStatus, onboardingLoading }) {
+  const location = useLocation()
+
+  if (onboardingLoading) {
+    return null
+  }
+
+  if (onboardingStatus?.completed === false && location.pathname !== '/onboarding') {
+    return <Navigate to="/onboarding" replace state={{ from: location.pathname }} />
+  }
+
+  return <Outlet />
+}
+
 function App() {
   const [opened, { toggle, close }] = useDisclosure()
   const [activeDownloads, setActiveDownloads] = useState(0)
@@ -56,21 +68,30 @@ function App() {
   const epgToastPendingCloseRef = useRef(false)
   const queryClient = useQueryClient()
 
+  const { data: authStatus, isLoading: authLoading } = useQuery({
+    queryKey: ['auth', 'status'],
+    queryFn: authApi.status,
+  })
+
   // Fetch download queue for badge
   const { data: queue } = useQuery({
     queryKey: ['downloads', 'queue'],
     queryFn: downloadsApi.getQueue,
     refetchInterval: 5000,
+    enabled: Boolean(authStatus?.authenticated),
   })
 
   const { data: epgStatus } = useQuery({
     queryKey: ['epg', 'status'],
     queryFn: epgApi.status,
     refetchInterval: 5000,
+    enabled: Boolean(authStatus?.authenticated),
   })
-  const { data: authStatus, isLoading: authLoading } = useQuery({
-    queryKey: ['auth', 'status'],
-    queryFn: authApi.status,
+  const { data: onboardingStatus, isLoading: onboardingLoading } = useQuery({
+    queryKey: ['onboarding', 'status'],
+    queryFn: onboardingApi.status,
+    enabled: Boolean(authStatus?.authenticated),
+    refetchOnWindowFocus: true,
   })
 
   const logoutMutation = useMutation({
@@ -203,6 +224,7 @@ function App() {
 
   // WebSocket for real-time updates
   useEffect(() => {
+    if (!authStatus?.authenticated) return undefined
     const ws = createDownloadWebSocket((data) => {
       if (data.type === 'progress') {
         if (data.status === 'completed' || data.status === 'failed' || data.status === 'cancelled') {
@@ -212,10 +234,9 @@ function App() {
     })
 
     return () => ws.close()
-  }, [])
+  }, [authStatus?.authenticated])
 
   const navItems = [
-    { icon: IconServer, label: 'Accounts', to: '/accounts', adminOnly: true },
     { icon: IconSearch, label: 'Browse', to: '/browse', adminOnly: true },
     {
       icon: IconDownload,
@@ -225,7 +246,6 @@ function App() {
       adminOnly: true,
     },
     { icon: IconCalendar, label: 'Scheduled', to: '/scheduled', adminOnly: true },
-    { icon: IconListDetails, label: 'Logs', to: '/logs', adminOnly: true },
     { icon: IconSettings, label: 'Settings', to: '/settings', adminOnly: true },
   ].filter((item) => !item.adminOnly || authStatus?.authenticated)
 
@@ -342,12 +362,16 @@ function App() {
           <Route path="/" element={<Navigate to="/browse" replace />} />
           <Route path="/login" element={<Login />} />
           <Route element={<ProtectedRoute authStatus={authStatus} authLoading={authLoading} />}>
-            <Route path="/accounts" element={<Accounts />} />
-            <Route path="/settings" element={<Settings />} />
-            <Route path="/browse" element={<Browse />} />
-            <Route path="/downloads" element={<Downloads />} />
-            <Route path="/scheduled" element={<Scheduled />} />
-            <Route path="/logs" element={<Logs />} />
+            <Route path="/onboarding" element={<Onboarding />} />
+            <Route element={<OnboardingGate onboardingStatus={onboardingStatus} onboardingLoading={onboardingLoading} />}>
+              <Route path="/accounts" element={<Navigate to="/settings?section=accounts" replace />} />
+              <Route path="/settings" element={<Settings />} />
+              <Route path="/browse" element={<Browse />} />
+              <Route path="/downloads" element={<Downloads />} />
+              <Route path="/downloads/:downloadId/play" element={<DownloadPlayer />} />
+              <Route path="/scheduled" element={<Scheduled />} />
+              <Route path="/logs" element={<Navigate to="/settings?section=logs" replace />} />
+            </Route>
           </Route>
         </Routes>
       </AppShell.Main>

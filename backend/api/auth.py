@@ -1,4 +1,5 @@
 import ipaddress
+import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -16,6 +17,12 @@ from config import settings
 
 
 router = APIRouter()
+RATE_LIMIT_WINDOW_SECONDS = 15 * 60
+RATE_LIMITS = {
+    "setup": 6,
+    "login": 15,
+}
+_attempt_log: dict[tuple[str, str], list[float]] = {}
 
 
 class PasswordPayload(BaseModel):
@@ -39,6 +46,23 @@ def _is_local_or_private_client(host: str | None) -> bool:
     return ip.is_loopback or ip.is_private
 
 
+def _client_key(request: Request) -> str:
+    host = request.client.host if request.client else "unknown"
+    return host or "unknown"
+
+
+def _enforce_rate_limit(action: str, request: Request):
+    now = time.monotonic()
+    key = (action, _client_key(request))
+    max_attempts = RATE_LIMITS[action]
+    attempts = _attempt_log.setdefault(key, [])
+    cutoff = now - RATE_LIMIT_WINDOW_SECONDS
+    attempts[:] = [attempt for attempt in attempts if attempt >= cutoff]
+    if len(attempts) >= max_attempts:
+        raise HTTPException(status_code=429, detail="Too many authentication attempts")
+    attempts.append(now)
+
+
 @router.get("/status")
 async def auth_status(
     request: Request,
@@ -59,6 +83,7 @@ async def setup_auth(
     request: Request,
     session: AsyncSession = Depends(get_session),
 ):
+    _enforce_rate_limit("setup", request)
     app_settings = await get_or_create_app_settings(session)
 
     if app_settings.admin_password_hash:
@@ -89,13 +114,14 @@ async def login_auth(
     request: Request,
     session: AsyncSession = Depends(get_session),
 ):
+    _enforce_rate_limit("login", request)
     app_settings = await get_or_create_app_settings(session)
 
     if not app_settings.admin_password_hash:
         raise HTTPException(status_code=400, detail="Admin password is not configured")
 
     if not verify_password(payload.password, app_settings.admin_password_hash):
-        raise HTTPException(status_code=401, detail="Invalid password")
+        raise HTTPException(status_code=401, detail="Authentication failed")
 
     request.session[SESSION_ADMIN_KEY] = True
 

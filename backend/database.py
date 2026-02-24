@@ -43,6 +43,10 @@ def _ensure_app_settings_columns(conn):
         "launch_on_startup": "BOOLEAN DEFAULT 1",
         "max_concurrent_post_processing": "INTEGER DEFAULT 1",
         "admin_password_hash": "VARCHAR(500)",
+        "onboarding_dismissed": "BOOLEAN DEFAULT 0",
+        "onboarding_processing_confirmed": "BOOLEAN DEFAULT 0",
+        "onboarding_comskip_confirmed": "BOOLEAN DEFAULT 0",
+        "onboarding_selected_profile": "VARCHAR(64)",
     }
 
     for column_name, column_def in additions.items():
@@ -87,7 +91,12 @@ def _migrate_app_settings_schema(conn):
             launch_on_startup BOOLEAN DEFAULT 1,
             comskip_enabled BOOLEAN DEFAULT 0,
             comskip_path VARCHAR(1000),
-            comskip_ini_path VARCHAR(1000)
+            comskip_ini_path VARCHAR(1000),
+            admin_password_hash VARCHAR(500),
+            onboarding_dismissed BOOLEAN DEFAULT 0,
+            onboarding_processing_confirmed BOOLEAN DEFAULT 0,
+            onboarding_comskip_confirmed BOOLEAN DEFAULT 0,
+            onboarding_selected_profile VARCHAR(64)
         )
         """
     )
@@ -116,6 +125,11 @@ def _migrate_app_settings_schema(conn):
         "comskip_enabled",
         "comskip_path",
         "comskip_ini_path",
+        "admin_password_hash",
+        "onboarding_dismissed",
+        "onboarding_processing_confirmed",
+        "onboarding_comskip_confirmed",
+        "onboarding_selected_profile",
     ]
     copy_columns = [col for col in keep_columns if col in existing_columns]
     if copy_columns:

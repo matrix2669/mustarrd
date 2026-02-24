@@ -1,7 +1,8 @@
 import mimetypes
 from pathlib import Path
-from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from urllib.parse import quote
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, conint
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -17,6 +18,74 @@ from services.download_builder import build_download_from_program
 
 
 router = APIRouter()
+STREAM_CHUNK_SIZE = 1024 * 1024
+
+
+def _build_content_disposition(disposition: str, filename: str) -> str:
+    """
+    Build a header-safe Content-Disposition value.
+    Uses RFC 5987 filename* for UTF-8 and a conservative ASCII fallback.
+    """
+    fallback = "".join(ch if 32 <= ord(ch) <= 126 and ch not in {'"', '\\'} else "_" for ch in filename)
+    if not fallback:
+        fallback = "download.bin"
+    encoded = quote(filename, safe="")
+    return f"{disposition}; filename=\"{fallback}\"; filename*=UTF-8''{encoded}"
+
+
+def _iter_file_bytes(file_path: Path, start: int, end: int):
+    with file_path.open("rb") as fh:
+        fh.seek(start)
+        remaining = end - start + 1
+        while remaining > 0:
+            chunk = fh.read(min(STREAM_CHUNK_SIZE, remaining))
+            if not chunk:
+                break
+            remaining -= len(chunk)
+            yield chunk
+
+
+def _resolve_byte_range(range_header: str, file_size: int) -> tuple[int, int]:
+    """
+    Parse single-range header forms:
+    - bytes=start-end
+    - bytes=start-
+    - bytes=-suffix_len
+    """
+    if not range_header.startswith("bytes="):
+        raise ValueError("Invalid range unit")
+    value = range_header[len("bytes="):].strip()
+    if "," in value:
+        raise ValueError("Multiple ranges are not supported")
+    if "-" not in value:
+        raise ValueError("Invalid range format")
+
+    start_raw, end_raw = value.split("-", 1)
+    start_raw = start_raw.strip()
+    end_raw = end_raw.strip()
+
+    if start_raw == "":
+        # suffix range: last N bytes
+        suffix_len = int(end_raw)
+        if suffix_len <= 0:
+            raise ValueError("Invalid suffix length")
+        if suffix_len >= file_size:
+            return 0, file_size - 1
+        return file_size - suffix_len, file_size - 1
+
+    start = int(start_raw)
+    if start < 0 or start >= file_size:
+        raise ValueError("Range start out of bounds")
+
+    if end_raw == "":
+        return start, file_size - 1
+
+    end = int(end_raw)
+    if end < start:
+        raise ValueError("Invalid range end")
+    if end >= file_size:
+        end = file_size - 1
+    return start, end
 
 
 class DownloadCreate(BaseModel):
@@ -147,6 +216,7 @@ async def get_download(
 @router.get("/{download_id}/file")
 async def get_download_file(
     download_id: int,
+    request: Request,
     action: str = Query(default="download", pattern="^(download|play)$"),
     _admin: None = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
@@ -172,8 +242,43 @@ async def get_download_file(
 
     media_type = mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
     disposition = "inline" if action == "play" else "attachment"
-    safe_filename = file_path.name.replace('"', "")
-    headers = {"Content-Disposition": f'{disposition}; filename="{safe_filename}"'}
+    headers = {"Content-Disposition": _build_content_disposition(disposition, file_path.name)}
+
+    if action == "play":
+        file_size = file_path.stat().st_size
+        if file_size <= 0:
+            raise HTTPException(status_code=404, detail="Downloaded file is empty")
+        headers["Accept-Ranges"] = "bytes"
+        # Tell nginx-style proxies not to buffer full response before streaming.
+        headers["X-Accel-Buffering"] = "no"
+
+        range_header = request.headers.get("range") if request else None
+        if range_header:
+            try:
+                start, end = _resolve_byte_range(range_header, file_size)
+            except (TypeError, ValueError):
+                raise HTTPException(
+                    status_code=416,
+                    detail="Invalid Range header",
+                    headers={"Content-Range": f"bytes */{file_size}"},
+                )
+
+            length = end - start + 1
+            headers["Content-Range"] = f"bytes {start}-{end}/{file_size}"
+            headers["Content-Length"] = str(length)
+            return StreamingResponse(
+                _iter_file_bytes(file_path, start, end),
+                status_code=206,
+                media_type=media_type,
+                headers=headers,
+            )
+
+        headers["Content-Length"] = str(file_size)
+        return StreamingResponse(
+            _iter_file_bytes(file_path, 0, file_size - 1),
+            media_type=media_type,
+            headers=headers,
+        )
 
     return FileResponse(
         path=str(file_path),

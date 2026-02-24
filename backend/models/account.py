@@ -30,7 +30,6 @@ class XtreamAccount(Base):
             "server_url": self.server_url,
             "username": self.username,
             "is_active": self.is_active,
-            "catchup_days": self.catchup_days,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "last_used": self.last_used.isoformat() if self.last_used else None,
             "last_epg_backfill_at": self.last_epg_backfill_at.isoformat() if self.last_epg_backfill_at else None,

@@ -1,21 +1,29 @@
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.types import ASGIApp, Receive, Scope, Send
 from starlette.middleware.sessions import SessionMiddleware
 from fastapi.responses import FileResponse
+from sqlalchemy import select
+from starlette.responses import JSONResponse
 import os
 
 from config import settings
-from database import init_db
-from api import accounts, auth, channels, downloads, settings as settings_api, schedules, vod, epg, logs
+from database import async_session_maker, init_db
+from api import accounts, auth, channels, downloads, settings as settings_api, schedules, vod, epg, logs, onboarding
+from models import AppSettings
+from services.server_log_bridge import start_server_log_bridge, stop_server_log_bridge
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
     await init_db()
+    logging.getLogger("uvicorn.access").disabled = True
+    start_server_log_bridge(asyncio.get_running_loop())
 
     # Initialize background tasks
     from services.download_manager import download_manager
@@ -30,6 +38,7 @@ async def lifespan(app: FastAPI):
     yield
 
     # Shutdown
+    stop_server_log_bridge()
     download_task.cancel()
     post_process_task.cancel()
     schedule_task.cancel()
@@ -44,7 +53,53 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+SETUP_ALLOWED_PATHS = {
+    "/api/auth/status",
+    "/api/auth/setup",
+    "/api/health",
+}
+
+
+async def _is_admin_password_configured() -> bool:
+    try:
+        async with async_session_maker() as session:
+            result = await session.execute(select(AppSettings.admin_password_hash).limit(1))
+            password_hash = result.scalar_one_or_none()
+            return bool(password_hash)
+    except Exception:
+        return False
+
+
+class SetupLockdownMiddleware:
+    def __init__(self, app: ASGIApp):
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send):
+        path = scope.get("path", "")
+        scope_type = scope.get("type")
+        if path.startswith("/api") and path not in SETUP_ALLOWED_PATHS and not await _is_admin_password_configured():
+            if scope_type == "http" and scope.get("method") != "OPTIONS":
+                response = JSONResponse(
+                    status_code=423,
+                    content={"detail": "Initial admin setup is required"},
+                )
+                await response(scope, receive, send)
+                return
+            if scope_type == "websocket":
+                await send(
+                    {
+                        "type": "websocket.close",
+                        "code": 1008,
+                        "reason": "Initial admin setup is required",
+                    }
+                )
+                return
+
+        await self.app(scope, receive, send)
+
+
 # CORS for frontend development
+app.add_middleware(SetupLockdownMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:4178", "http://127.0.0.1:4178"],
@@ -69,6 +124,7 @@ app.include_router(vod.router, prefix="/api/vod", tags=["vod"])
 app.include_router(settings_api.router, prefix="/api/settings", tags=["settings"])
 app.include_router(epg.router, prefix="/api", tags=["epg"])
 app.include_router(logs.router, prefix="/api", tags=["logs"])
+app.include_router(onboarding.router, prefix="/api/onboarding", tags=["onboarding"])
 
 
 @app.get("/api/health")
@@ -123,4 +179,4 @@ async def frontend_routes(full_path: str):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=4177, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=4177, reload=True, access_log=False)

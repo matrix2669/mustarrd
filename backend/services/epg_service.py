@@ -39,6 +39,34 @@ class EPGService:
 
         return XtreamClient(account.server_url, account.username, account.password)
 
+    @staticmethod
+    def archive_days_for_channel(channel: dict) -> int:
+        value = channel.get("tv_archive_duration")
+        try:
+            days = int(value)
+        except (TypeError, ValueError):
+            return 0
+        return max(0, min(days, 365))
+
+    async def get_channel_archive_days(
+        self,
+        session: AsyncSession,
+        account_id: int,
+        channel_id: str,
+    ) -> int:
+        client = await self._get_client(session, account_id)
+        try:
+            channels = await client.get_live_streams()
+        finally:
+            await client.close()
+
+        channel = next((ch for ch in channels if str(ch.get("stream_id")) == str(channel_id)), None)
+        if not channel:
+            return 0
+        if int(channel.get("tv_archive", 0) or 0) != 1:
+            return 0
+        return self.archive_days_for_channel(channel)
+
     async def get_categories(self, session: AsyncSession, account_id: int) -> list:
         """Get channel categories for an account."""
         client = await self._get_client(session, account_id)
@@ -81,17 +109,13 @@ class EPGService:
         if use_cache and not prefer_live and self._is_cache_valid(cache_key):
             return self._cache[cache_key]["data"]
 
-        # Prefer DB-backed EPG if available
-        account_result = await session.execute(
-            select(XtreamAccount).where(XtreamAccount.id == account_id)
-        )
-        account = account_result.scalar_one_or_none()
-
-        max_days = account.catchup_days if account else 7
+        archive_days = await self.get_channel_archive_days(session, account_id, channel_id)
+        if archive_days <= 0:
+            return []
         if days_back is None:
-            days_back = max_days
+            days_back = archive_days
         else:
-            days_back = min(days_back, max_days)
+            days_back = min(days_back, archive_days)
 
         cutoff = datetime.now(timezone.utc) - timedelta(days=days_back)
 

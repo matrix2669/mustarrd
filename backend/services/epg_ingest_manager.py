@@ -183,7 +183,6 @@ class EPGIngestManager:
                 await self._log("XMLTV response was empty.", level="warning", account=account)
 
             now_utc = datetime.now(timezone.utc)
-            cutoff = now_utc - timedelta(days=account.catchup_days)
             earliest_start_by_channel: dict[str, datetime] = {}
 
             async with async_session_maker() as session:
@@ -199,12 +198,24 @@ class EPGIngestManager:
                             )
                         )
                     else:
-                        await session.execute(
-                            delete(EPGProgram).where(
-                                EPGProgram.account_id == account.id,
-                                EPGProgram.end_time < cutoff,
+                        for stream_id, info in channel_maps["stream_info"].items():
+                            archive_days = int(info.get("archive_days") or 0)
+                            if archive_days <= 0:
+                                await session.execute(
+                                    delete(EPGProgram).where(
+                                        EPGProgram.account_id == account.id,
+                                        EPGProgram.channel_id == stream_id,
+                                    )
+                                )
+                                continue
+                            channel_cutoff = now_utc - timedelta(days=archive_days)
+                            await session.execute(
+                                delete(EPGProgram).where(
+                                    EPGProgram.account_id == account.id,
+                                    EPGProgram.channel_id == stream_id,
+                                    EPGProgram.end_time < channel_cutoff,
+                                )
                             )
-                        )
 
                 async with session.begin():
                     earliest_rows = await session.execute(
@@ -241,7 +252,7 @@ class EPGIngestManager:
                     program_iter = self._iter_programs(
                         xmltv_bytes,
                         channel_maps,
-                        cutoff,
+                        now_utc,
                     )
 
                     batch: list[dict] = []
@@ -269,17 +280,21 @@ class EPGIngestManager:
                     if batch:
                         batch, inserted = await flush_batch(batch)
 
-            backfill_targets: list[tuple[dict, datetime]] = []
+            backfill_targets: list[tuple[dict, datetime, int]] = []
             for channel in catchup_channels:
                 stream_id = str(channel.get("stream_id"))
                 if not stream_id:
                     continue
+                archive_days = epg_service.archive_days_for_channel(channel)
+                if archive_days <= 0:
+                    continue
+                channel_cutoff = now_utc - timedelta(days=archive_days)
                 channel_earliest = earliest_start_by_channel.get(stream_id)
                 if channel_earliest is None:
-                    backfill_targets.append((channel, now_utc))
+                    backfill_targets.append((channel, now_utc, archive_days))
                     continue
-                if channel_earliest > cutoff:
-                    backfill_targets.append((channel, channel_earliest))
+                if channel_earliest > channel_cutoff:
+                    backfill_targets.append((channel, channel_earliest, archive_days))
 
             should_backfill = force or self._should_backfill(account, now_utc)
             if backfill_targets and should_backfill:
@@ -291,7 +306,7 @@ class EPGIngestManager:
                 processed, inserted = await self._backfill_from_api(
                     client=client,
                     channel_targets=backfill_targets,
-                    cutoff=cutoff,
+                    now_utc=now_utc,
                     processed=processed,
                     inserted=inserted,
                     account_id=account.id,
@@ -336,6 +351,7 @@ class EPGIngestManager:
             stream_info[stream_id] = {
                 "name": name or stream_id,
                 "has_archive": int(ch.get("tv_archive", 0) or 0) == 1,
+                "archive_days": epg_service.archive_days_for_channel(ch),
             }
 
             xmltv_id = self._extract_xmltv_id(ch)
@@ -355,7 +371,7 @@ class EPGIngestManager:
         self,
         xmltv_bytes: bytes,
         channel_maps: dict,
-        cutoff: datetime,
+        now_utc: datetime,
     ) -> Iterable[dict]:
         stream_by_xmltv_id = channel_maps["stream_by_xmltv_id"]
         stream_by_name = channel_maps["stream_by_name"]
@@ -400,7 +416,12 @@ class EPGIngestManager:
 
             start_utc = start_dt.astimezone(timezone.utc)
             end_utc = end_dt.astimezone(timezone.utc)
-            if end_utc < cutoff:
+            archive_days = int(stream_info[stream_id].get("archive_days") or 0)
+            if archive_days <= 0:
+                elem.clear()
+                continue
+            channel_cutoff = now_utc - timedelta(days=archive_days)
+            if end_utc < channel_cutoff:
                 elem.clear()
                 continue
 
@@ -625,8 +646,8 @@ class EPGIngestManager:
     async def _backfill_from_api(
         self,
         client: XtreamClient,
-        channel_targets: list[tuple[dict, datetime]],
-        cutoff: datetime,
+        channel_targets: list[tuple[dict, datetime, int]],
+        now_utc: datetime,
         processed: int,
         inserted: int,
         account_id: int,
@@ -651,14 +672,17 @@ class EPGIngestManager:
                     inserted += rowcount
                 batch = []
 
-            for index, (channel, backfill_end) in enumerate(channel_targets, start=1):
+            for index, (channel, backfill_end, archive_days) in enumerate(channel_targets, start=1):
                 stream_id = str(channel.get("stream_id"))
                 if not stream_id:
+                    continue
+                if archive_days <= 0:
                     continue
                 channel_name = (channel.get("name") or stream_id).strip()
                 xmltv_id = self._extract_xmltv_id(channel)
                 channel_has_archive = self._bool_from_value(channel.get("tv_archive"), fallback=True)
                 backfill_end = self._ensure_aware(backfill_end) or datetime.now(timezone.utc)
+                channel_cutoff = now_utc - timedelta(days=archive_days)
 
                 try:
                     epg_entries = await client.get_epg(stream_id)
@@ -682,7 +706,7 @@ class EPGIngestManager:
 
                     start_utc = datetime.fromtimestamp(start_ts, tz=timezone.utc)
                     end_utc = datetime.fromtimestamp(stop_ts, tz=timezone.utc)
-                    if end_utc < cutoff or start_utc >= backfill_end:
+                    if end_utc < channel_cutoff or start_utc >= backfill_end:
                         continue
 
                     duration_minutes = int((end_utc - start_utc).total_seconds() / 60)

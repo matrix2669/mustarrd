@@ -18,6 +18,7 @@ import {
 } from '@mantine/core'
 import { useDebouncedValue, useMediaQuery, useViewportSize } from '@mantine/hooks'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
+import { Link } from 'react-router-dom'
 import {
   IconSearch,
   IconAlertCircle,
@@ -276,6 +277,14 @@ function getInitialDesktopPanelHeight() {
     return 520
   }
   return Math.max(360, Math.floor(window.innerHeight - 180))
+}
+
+function formatArchiveDuration(days) {
+  const parsed = Number(days)
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return 'No archive'
+  }
+  return `${Math.floor(parsed)} days`
 }
 
 const previousDownloadStatusMeta = {
@@ -714,7 +723,17 @@ export default function Browse() {
   if (!accounts?.length) {
     return (
       <Alert icon={<IconAlertCircle size={16} />} title="No Accounts" color="blue">
-        Please add an Xtream Codes account in the Accounts page first.
+        <Stack gap="xs">
+          <Text size="sm">Add an Xtream account to start browsing and recording.</Text>
+          <Group gap="xs">
+            <Button size="xs" component={Link} to="/onboarding">
+              Open Setup
+            </Button>
+            <Button size="xs" variant="light" component={Link} to="/settings?section=accounts">
+              Add Account
+            </Button>
+          </Group>
+        </Stack>
       </Alert>
     )
   }
@@ -809,7 +828,7 @@ export default function Browse() {
                       </Group>
                       {selectedChannel && (
                         <Badge variant="light" leftSection={<IconClock size={12} />}>
-                          {selectedChannel.tv_archive_duration || 7} days
+                          {formatArchiveDuration(selectedChannel.tv_archive_duration)}
                         </Badge>
                       )}
                     </Group>
@@ -924,7 +943,7 @@ export default function Browse() {
                     </Group>
                     {selectedChannel && (
                       <Badge variant="light" leftSection={<IconClock size={12} />}>
-                        {selectedChannel.tv_archive_duration || 7} days
+                        {formatArchiveDuration(selectedChannel.tv_archive_duration)}
                       </Badge>
                     )}
                   </Group>

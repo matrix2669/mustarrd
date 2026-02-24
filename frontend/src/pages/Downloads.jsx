@@ -94,7 +94,7 @@ function DownloadCard({ download, isDesktop, onCancel, onRetry, onDelete, onOpen
   const transcodeIndeterminate = Boolean(download.transcode_indeterminate)
   const completedFileName = getFileName(download.output_path)
   const downloadHref = `/api/downloads/${download.id}/file?action=download`
-  const playHref = `/api/downloads/${download.id}/file?action=play`
+  const playHref = `/downloads/${download.id}/play`
 
   const formatStagePercent = (value, indeterminate = false) => {
     if (indeterminate) return '...'
@@ -267,8 +267,6 @@ function DownloadCard({ download, isDesktop, onCancel, onRetry, onDelete, onOpen
                 <Button
                   component="a"
                   href={playHref}
-                  target="_blank"
-                  rel="noreferrer"
                   size="xs"
                   variant="default"
                   leftSection={<IconPlayerPlay size={14} />}

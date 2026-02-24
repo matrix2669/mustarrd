@@ -12,9 +12,10 @@ async def get_logs(
     limit: int = Query(300, ge=1, le=2000),
     source: str | None = Query(None),
     level: str | None = Query(None),
+    view: str = Query("basic", pattern="^(detailed|basic|minimal)$"),
     _admin: None = Depends(require_admin),
 ):
-    return await backend_log_stream.list_entries(limit=limit, source=source, level=level)
+    return await backend_log_stream.list_entries(limit=limit, source=source, level=level, view=view)
 
 
 @router.websocket("/logs/ws")

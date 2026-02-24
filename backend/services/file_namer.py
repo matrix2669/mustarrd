@@ -18,8 +18,9 @@ class FileNamer:
     def sanitize_filename(name: str) -> str:
         """Remove invalid characters for filesystem."""
         # Remove stylized "New" markers used in some EPG titles
-        name = re.sub(r'\bᴺᵉʷ\s*-\s*', '', name)
-        name = re.sub(r'\bᴺᵉʷ\b', '', name)
+        name = re.sub(r'[\[\(\-–—|:]*\s*ᴺᵉʷ\s*[\]\)]*\s*(?:-\s*)?', ' ', name)
+        # Remove stylized "Live" markers frequently injected by providers
+        name = re.sub(r'[\[\(\-–—|:]*\s*ᴸᶦᵛᵉ\s*[\]\)]*\s*(?:-\s*)?', ' ', name)
 
         # Replace invalid characters with spaces
         invalid_chars = r'[<>:"/\\|?*]'

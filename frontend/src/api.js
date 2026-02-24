@@ -131,13 +131,29 @@ export const authApi = {
     }),
 }
 
+export const onboardingApi = {
+  status: () => request('/onboarding/status'),
+  applyProcessingProfile: (profile) =>
+    request('/onboarding/processing-profile', {
+      method: 'POST',
+      body: { profile },
+    }),
+  setComskipPolicy: (enabled, acknowledgeUnavailable = false) =>
+    request('/onboarding/comskip-policy', {
+      method: 'POST',
+      body: { enabled, acknowledge_unavailable: acknowledgeUnavailable },
+    }),
+  dismiss: () => request('/onboarding/dismiss', { method: 'POST' }),
+}
+
 // Backend Logs
 export const logsApi = {
-  list: (limit = 300, source = null, level = null) => {
+  list: (limit = 300, source = null, level = null, view = 'basic') => {
     const params = new URLSearchParams()
     params.append('limit', String(limit))
     if (source) params.append('source', source)
     if (level) params.append('level', level)
+    params.append('view', view)
     return request(`/logs?${params.toString()}`)
   },
 }

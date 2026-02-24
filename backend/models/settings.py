@@ -55,6 +55,10 @@ class AppSettings(Base):
     comskip_path: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     comskip_ini_path: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     admin_password_hash: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    onboarding_dismissed: Mapped[bool] = mapped_column(Boolean, default=False)
+    onboarding_processing_confirmed: Mapped[bool] = mapped_column(Boolean, default=False)
+    onboarding_comskip_confirmed: Mapped[bool] = mapped_column(Boolean, default=False)
+    onboarding_selected_profile: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     def to_dict(self):
         return {
@@ -81,4 +85,8 @@ class AppSettings(Base):
             "epg_offset_minutes": self.epg_offset_minutes,
             "show_future_programs": self.show_future_programs,
             "launch_on_startup": self.launch_on_startup,
+            "onboarding_dismissed": self.onboarding_dismissed,
+            "onboarding_processing_confirmed": self.onboarding_processing_confirmed,
+            "onboarding_comskip_confirmed": self.onboarding_comskip_confirmed,
+            "onboarding_selected_profile": self.onboarding_selected_profile,
         }

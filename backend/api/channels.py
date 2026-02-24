@@ -59,11 +59,14 @@ async def get_channels(
 
             if catchup_only:
                 # Filter to only channels with catchup enabled
-                channels = [ch for ch in channels if ch.get("tv_archive", 0) == 1]
+                channels = [
+                    ch for ch in channels
+                    if ch.get("tv_archive", 0) == 1 and epg_service.archive_days_for_channel(ch) > 0
+                ]
 
             # Add archive duration info
             for ch in channels:
-                ch["tv_archive_duration"] = ch.get("tv_archive_duration", account.catchup_days)
+                ch["tv_archive_duration"] = epg_service.archive_days_for_channel(ch)
 
             return channels
         finally:
@@ -92,7 +95,10 @@ async def get_channel_epg(
         raise HTTPException(status_code=404, detail="Account not found")
 
     try:
-        actual_days = min(days_back, account.catchup_days)
+        channel_archive_days = await epg_service.get_channel_archive_days(session, account_id, channel_id)
+        actual_days = min(days_back, channel_archive_days)
+        if actual_days <= 0:
+            return []
         epg_data = await epg_service.get_epg_for_channel(
             session,
             account_id,
@@ -123,8 +129,10 @@ async def get_catchup_programs(
         raise HTTPException(status_code=404, detail="Account not found")
 
     try:
-        # Use the account's catchup_days setting as the maximum
-        actual_days = min(days_back, account.catchup_days)
+        channel_archive_days = await epg_service.get_channel_archive_days(session, account_id, channel_id)
+        actual_days = min(days_back, channel_archive_days)
+        if actual_days <= 0:
+            return []
         programs = await epg_service.get_past_programs(
             session, account_id, channel_id, actual_days
         )

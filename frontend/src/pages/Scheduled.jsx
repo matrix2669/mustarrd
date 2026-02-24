@@ -84,7 +84,7 @@ function ScheduleCard({ schedule, isDesktop, onCancel, onDelete, onOpenFileLocat
     ? `/api/downloads/${schedule.download_id}/file?action=download`
     : null
   const playHref = schedule.download_id
-    ? `/api/downloads/${schedule.download_id}/file?action=play`
+    ? `/downloads/${schedule.download_id}/play`
     : null
 
   return (
@@ -192,8 +192,6 @@ function ScheduleCard({ schedule, isDesktop, onCancel, onDelete, onOpenFileLocat
                 <Button
                   component="a"
                   href={playHref}
-                  target="_blank"
-                  rel="noreferrer"
                   size="xs"
                   variant="default"
                   leftSection={<IconPlayerPlay size={14} />}

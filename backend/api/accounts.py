@@ -27,7 +27,6 @@ class AccountCreate(BaseModel):
     server_url: str
     username: str
     password: str
-    catchup_days: int = 7
 
 
 class AccountUpdate(BaseModel):
@@ -36,7 +35,6 @@ class AccountUpdate(BaseModel):
     username: str | None = None
     password: str | None = None
     is_active: bool | None = None
-    catchup_days: int | None = None
 
 
 @router.get("")
@@ -63,7 +61,6 @@ async def list_accounts_public(
             "id": acc.id,
             "name": acc.name,
             "is_active": acc.is_active,
-            "catchup_days": acc.catchup_days,
         }
         for acc in accounts
     ]
@@ -103,7 +100,6 @@ async def create_account(
         server_url=account.server_url,
         username=account.username,
         password=account.password,
-        catchup_days=account.catchup_days,
         max_connections=user_info.get("max_connections"),
         active_connections=user_info.get("active_cons"),
         expiration_date=exp_date,

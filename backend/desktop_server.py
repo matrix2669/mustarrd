@@ -18,4 +18,5 @@ if __name__ == "__main__":
         host=os.environ.get("CATCHUP_DESKTOP_HOST", "127.0.0.1"),
         port=_get_port(),
         reload=False,
+        access_log=False,
     )
