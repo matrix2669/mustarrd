@@ -102,7 +102,7 @@ class SetupLockdownMiddleware:
 app.add_middleware(SetupLockdownMiddleware)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:4178", "http://127.0.0.1:4178"],
+    allow_origins=[o.strip() for o in settings.cors_origins.split(",") if o.strip()],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

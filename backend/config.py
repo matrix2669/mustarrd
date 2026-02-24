@@ -1,4 +1,5 @@
 from pydantic_settings import BaseSettings
+from pydantic import Field
 from pathlib import Path
 import os
 import shutil
@@ -45,6 +46,31 @@ def legacy_desktop_completed_folder() -> str:
     return str(_default_data_root() / "completed")
 
 
+def _session_secret_file() -> Path:
+    """Returns the path where the auto-generated session secret is persisted."""
+    if _using_docker_paths():
+        return Path("/app/config/session_secret")
+    return _default_data_root() / "session_secret"
+
+
+def _load_or_create_session_secret() -> str:
+    """Load a persisted session secret or generate and save one on first run.
+
+    The secret is stored in the config/data directory so it survives restarts
+    without any user configuration. Set CATCHUP_SESSION_SECRET in the environment
+    to override with a specific value.
+    """
+    secret_file = _session_secret_file()
+    if secret_file.exists():
+        secret = secret_file.read_text().strip()
+        if secret:
+            return secret
+    secret = secrets.token_urlsafe(48)
+    secret_file.parent.mkdir(parents=True, exist_ok=True)
+    secret_file.write_text(secret)
+    return secret
+
+
 def _default_database_url() -> str:
     if _using_docker_paths():
         return "sqlite+aiosqlite:////app/config/catchup_dvr.db"
@@ -72,9 +98,16 @@ class Settings(BaseSettings):
     app_name: str = "Catchup DVR"
     debug: bool = False
     timezone: str = "UTC"
-    session_secret: str = secrets.token_urlsafe(48)
+    # Auto-generated on first run and persisted to the config directory so
+    # sessions survive restarts with no user action required. Override with
+    # CATCHUP_SESSION_SECRET env var to supply your own value.
+    session_secret: str = Field(default_factory=_load_or_create_session_secret)
     session_https_only: bool = not _using_desktop_mode()
     allow_remote_setup: bool = False
+    # Comma-separated list of allowed CORS origins for the frontend.
+    # Override with CATCHUP_CORS_ORIGINS when the frontend is served from
+    # a non-localhost address (e.g. "http://192.168.1.50:4178").
+    cors_origins: str = "http://localhost:4178,http://127.0.0.1:4178"
 
     # Database
     database_url: str = _default_database_url()

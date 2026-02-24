@@ -1,96 +1,28 @@
 ![Mustarrd Logo](https://github.com/razzamatazm/mustarrd/blob/main/frontend/src/assets/mustarrdlogo.png "Mustarrd Logo")
-# Mustarrd - The IPTV Catchup DVR
+# Mustarrd — IPTV Catchup DVR
 
-A web application that connects to Xtream Codes IPTV servers, displays past EPG programs, and directly download catchup/timeshift content with smart file naming.
+Mustarrd connects to your IPTV provider and lets you download past programs — think of it as a DVR for your IPTV catchup library. Browse your provider's program guide, pick anything from the last few days, and download it with a properly named file ready for Plex, Jellyfin, or just your hard drive.
 
 ## Features
 
-- **Account Management**: Add and manage multiple Xtream Codes IPTV accounts
-- **EPG Browser**: Browse channels and view past EPG data with catchup availability
-- **Smart Downloads**: Automatically generate filenames based on content type (TV shows, movies, sports, etc.)
-- **Download Queue**: Manage concurrent downloads with progress tracking
-- **Commercial Removal**: Uses Comskip to remove commercials for shows.
-- **GPU and CPU Re-encoding**: Convert your program to MKV and get steadier playback and seeking.
-- **Real-time Updates**: WebSocket-based progress updates for downloads
-- **Customizable Templates**: Configure filename templates for different content types
+- **Browse past programs** — scroll back through your provider's program guide (EPG) and see what's available to download
+- **Smart file naming** — TV shows, movies, and sports get automatically named in the right format (`Breaking Bad - S01E01 - Pilot.ts`, `The Matrix (1999).ts`, etc.)
+- **Download queue** — queue multiple programs and watch them download in real time
+- **Commercial skip** — optional Comskip integration removes commercials before saving
+- **Re-encoding** — optional GPU/CPU transcoding to MKV for steadier playback and seeking
+- **Scheduled recordings** — set programs to download automatically when they air
+- **Multiple accounts** — connect more than one IPTV provider
 
+## Requirements
 
-## Quick Start
+- An IPTV subscription with **catchup / timeshift support** (must use the Xtream Codes protocol)
+- **Docker** — recommended install method, everything is bundled
 
-### Development
+> Not sure if your provider supports catchup? Check if they give you a "catchup days" value or mention timeshift in their plan details.
 
-1. **Backend API + workers**:
-   ```bash
-   cd backend
-   python -m venv venv
-   source venv/bin/activate  # or `venv\Scripts\activate` on Windows
-   pip install -r requirements.txt
-   python main.py
-   ```
-   Backend runs on http://localhost:4177.
+## Install
 
-2. **Frontend dev server (optional for UI development)**:
-   ```bash
-   cd frontend
-   npm install
-   npm run dev
-   ```
-   Frontend runs on http://localhost:4178 and proxies API calls to `:4177`.
-
-3. **Single-process local app mode**:
-   ```bash
-   cd frontend
-   npm install
-   npm run build
-   cd ../backend
-   python main.py
-   ```
-   UI + API are both served from http://localhost:4177.
-
-### Baremetal Install (One App)
-
-Use the helper script to install dependencies and run a unified app (frontend + API served by backend on `:4177`):
-
-```bash
-./scripts/oneapp.sh install
-./scripts/oneapp.sh start
-```
-
-### Docker
-
-```bash
-docker-compose up -d
-```
-
-Access the unified app at http://localhost:4177 (UI + API in one container).
-
-#### Docker volumes
-
-For docker-compose, you only need three host folders:
-
-```
-./config      -> /app/config
-./downloads   -> /app/downloads
-./completed   -> /app/completed
-```
-
-The database is stored at `./config/catchup_dvr.db`, working downloads at `./downloads/`,
-and finished files are moved to `./completed/`.
-On first run, `comskip.ini` is copied into `./config/comskip.ini` and set as the default.
-
-Timezone display can be set via environment variable:
-`CATCHUP_TIMEZONE` (e.g., `America/Los_Angeles`).
-
-#### Quick Start (Docker)
-
-```bash
-git clone https://github.com/razzamatazm/mustarrd.git
-cd mustarrd
-mkdir -p config downloads completed
-docker-compose up -d
-```
-
-#### Quick Start (Docker, no clone)
+### Docker (Recommended)
 
 ```bash
 curl -O https://raw.githubusercontent.com/razzamatazm/mustarrd/main/docker-compose.yml
@@ -98,91 +30,118 @@ mkdir -p config downloads completed
 docker compose up -d
 ```
 
-Note: Docker uses absolute paths inside the container:
-`/app/config`, `/app/downloads`, and `/app/completed`.
+Then open **http://localhost:4177** in your browser.
 
-### Tools (ffmpeg + comskip)
+That's it. ffmpeg, Comskip, and the frontend are all bundled in the image.
 
-Docker builds install ffmpeg via apt, compile comskip from source, and bundle the built frontend into the same image.
-If you run the backend locally (non-Docker), install ffmpeg and comskip manually.
+### Desktop App (macOS / Windows)
 
-Terminal startup scripts now mirror desktop tool resolution behavior:
+Download the latest release from the [Releases page](https://github.com/razzamatazm/mustarrd/releases). Open the app — it runs a local server and opens the UI automatically.
 
-- `scripts/dev.sh start`
-- `scripts/oneapp.sh start`
+### Baremetal / Linux Server
 
-They first look for bundled binaries under `desktop-electron/tools/<platform>-<arch>/` (and fallback variants),
-then use system-installed tools when bundled binaries are absent.
-Any explicit `CATCHUP_FFMPEG_PATH`, `CATCHUP_FFPROBE_PATH`, or `CATCHUP_COMSKIP_PATH` environment variables still take precedence.
+```bash
+./scripts/oneapp.sh install
+./scripts/oneapp.sh start
+```
 
-### Desktop apps (macOS and Windows)
+Open **http://localhost:4177**. You'll need ffmpeg installed on your system (`apt install ffmpeg`). Comskip is optional.
 
-The `desktop-electron/` project builds native desktop shells that:
+## First Run
 
-- start the bundled backend server
-- load the UI from `http://127.0.0.1:4177`
-- hide to tray/menu bar on close while the server keeps running
+1. Open **http://localhost:4177**
+2. You'll be prompted to **set an admin password** — do this before anyone else on your network can reach the page
+3. Go to **Accounts → Add Account** and enter your IPTV provider details:
+   - Server URL (e.g. `https://your-provider.com`)
+   - Username and password (from your provider)
+   - Catchup days (how far back you can download — your provider sets this limit)
+4. Mustarrd will sync your provider's channel list and program guide. This takes a minute or two on first load.
+5. Go to **Browse**, pick a channel, and start downloading.
 
-Build steps and scripts are documented in `desktop-electron/README.md`.
+## How to Use
 
-## Configuration
+### Browse and Download a Program
 
-Environment variables (can be set in `.env` file in backend directory):
+1. Go to **Browse** and select an account
+2. Click a channel to open its program guide
+3. Programs with a **blue border** have catchup available — click one to open the download dialog
+4. Review the auto-generated filename (edit if needed) and click **Download**
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `CATCHUP_DATABASE_URL` | SQLite database URL | `sqlite+aiosqlite:////app/config/catchup_dvr.db` |
-| `CATCHUP_DEFAULT_DOWNLOAD_FOLDER` | Download location | `/app/downloads` |
-| `CATCHUP_DEFAULT_COMPLETED_FOLDER` | Completed location | `/app/completed` |
-| `CATCHUP_MAX_CONCURRENT_DOWNLOADS` | Max simultaneous downloads | `2` |
-| `CATCHUP_DEBUG` | Enable debug mode | `false` |
+### Monitor Downloads
 
-If you run the backend locally (non-Docker), set these paths to your local folders.
+- Go to the **Downloads** page to see active downloads with progress bars
+- Failed downloads can be retried from the same page
 
-## Usage
+### Schedule a Recording
 
-### 1. Add an Account
-
-1. Go to the **Accounts** page
-2. Click "Add Account"
-3. Enter your Xtream Codes server details:
-   - Server URL (e.g., `https://provider.example.com`)
-   - Username
-   - Password
-   - Catchup days available (how many days back you can download)
-
-### 2. Browse Channels
-
-1. Go to the **Browse** page
-2. Select an account from the dropdown
-3. Optionally filter by category
-4. Click a channel to view its EPG
-
-### 3. Download a Program
-
-1. In the EPG timeline, programs with catchup available have a blue border
-2. Click on a past program to open the download modal
-3. Review the auto-generated filename (edit if needed)
-4. Click "Download" to add to queue
-
-### 4. Monitor Downloads
-
-- Go to the **Downloads** page
-- View active downloads with progress bars
-- Retry failed downloads or view history
+- Browse to an upcoming program and use the **Schedule** option to download it automatically when it airs
 
 ## Smart Filename Detection
 
-The app automatically detects content types and generates appropriate filenames:
+Mustarrd reads the program title and automatically formats the filename for your media library:
 
-| Type | Detection | Example Output |
-|------|-----------|----------------|
-| TV Show | Season/episode patterns (S01E01) | `Breaking Bad - S01E01 - Pilot.ts` |
-| Sports | Keywords (vs, NFL, NBA, etc.) | `NFL - Dolphins vs Chargers - 2026-01-28.ts` |
-| Movie | Movie category keywords | `The Matrix (1999).ts` |
-| Default | Everything else | `ESPN - SportsCenter - 2026-01-28.ts` |
+| Type | Example Output |
+|------|----------------|
+| TV Show (S01E01 pattern) | `Breaking Bad - S01E01 - Pilot.ts` |
+| Sports | `NFL - Dolphins vs Chargers - 2026-01-28.ts` |
+| Movie | `The Matrix (1999).ts` |
+| Everything else | `ESPN - SportsCenter - 2026-01-28.ts` |
 
+Filename templates are customizable in Settings if you want a different format.
 
+## Where Your Files Go
+
+| Folder | Contents |
+|--------|----------|
+| `./downloads/` | In-progress downloads and temp files |
+| `./completed/` | Finished files — point this at your media library |
+| `./config/` | Database, settings, and Comskip config — keep this private |
+
+Change the `./completed/` path in `docker-compose.yml` to point directly at your Plex or Jellyfin media folder.
+
+## Configuration
+
+Most users never need to touch these. Set them in `docker-compose.yml` or a `backend/.env` file.
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `CATCHUP_TIMEZONE` | Timezone for the program guide display | `UTC` |
+| `CATCHUP_DEFAULT_DOWNLOAD_FOLDER` | In-progress download location | `/app/downloads` |
+| `CATCHUP_DEFAULT_COMPLETED_FOLDER` | Finished file location | `/app/completed` |
+| `CATCHUP_MAX_CONCURRENT_DOWNLOADS` | Max simultaneous downloads | `2` |
+| `CATCHUP_SESSION_SECRET` | Session signing key — auto-generated and persisted to `./config/session_secret` on first run; only set this manually to rotate or share across instances | *(auto)* |
+| `CATCHUP_CORS_ORIGINS` | Comma-separated allowed frontend origins; only needed when the UI is accessed from a non-localhost address | `http://localhost:4178,...` |
+| `CATCHUP_SESSION_HTTPS_ONLY` | Require HTTPS for session cookies | `true` (desktop: `false`) |
+| `CATCHUP_ALLOW_REMOTE_SETUP` | Allow password setup from non-local IPs | `false` |
+| `CATCHUP_FFMPEG_PATH` | Path to ffmpeg binary | *(auto-detected)* |
+| `CATCHUP_COMSKIP_PATH` | Path to comskip binary | *(auto-detected)* |
+| `CATCHUP_DATABASE_URL` | SQLite database URL | `sqlite+aiosqlite:////app/config/catchup_dvr.db` |
+| `CATCHUP_DEBUG` | Enable debug logging | `false` |
+
+## Development
+
+**Backend** (FastAPI, port 4177):
+```bash
+cd backend
+python -m venv venv
+source venv/bin/activate  # or `venv\Scripts\activate` on Windows
+pip install -r requirements.txt
+python main.py
+```
+
+**Frontend** (React + Vite, port 4178, proxies `/api` to 4177):
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+**Docker** (full stack):
+```bash
+docker-compose up -d
+```
+
+See `desktop-electron/README.md` for building the macOS/Windows desktop app.
 
 ## License
 

@@ -9,6 +9,7 @@ from sqlalchemy import select
 from typing import Optional
 
 from auth import require_admin, require_admin_websocket
+from config import settings
 from database import get_session
 from models import Download, DownloadStatus, XtreamAccount
 from services.download_manager import download_manager
@@ -236,7 +237,13 @@ async def get_download_file(
     if not download.output_path:
         raise HTTPException(status_code=404, detail="No file path available for this download")
 
-    file_path = Path(download.output_path).expanduser()
+    file_path = Path(download.output_path).expanduser().resolve()
+    allowed_roots = [
+        Path(settings.default_download_folder).expanduser().resolve(),
+        Path(settings.default_completed_folder).expanduser().resolve(),
+    ]
+    if not any(file_path.is_relative_to(root) for root in allowed_roots):
+        raise HTTPException(status_code=403, detail="Access denied")
     if not file_path.is_file():
         raise HTTPException(status_code=404, detail="Downloaded file was not found on disk")
 

@@ -22,4 +22,11 @@ services:
       # Match host user/group IDs to avoid permission issues on mounted volumes.
       - PUID=1000
       - PGID=1000
+      # Session secret is auto-generated on first run and persisted to ./config
+      # so sessions survive restarts automatically. Only set this manually if you
+      # need to share a secret across multiple instances or rotate it on demand.
+      # - CATCHUP_SESSION_SECRET=your-secret-here
+      # Comma-separated CORS origins. Only needed if your frontend is accessed
+      # from a non-localhost address (e.g. a LAN IP or custom domain).
+      # - CATCHUP_CORS_ORIGINS=http://192.168.1.50:4178
     restart: unless-stopped
