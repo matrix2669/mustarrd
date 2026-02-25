@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from auth import require_admin
+from auth import require_admin, require_admin_or_download_user, AuthContext
 from database import get_session
 from models import XtreamAccount
 from services.epg_ingest_manager import epg_ingest_manager
@@ -54,7 +54,7 @@ async def list_accounts(
 
 @router.get("/public")
 async def list_accounts_public(
-    _admin: None = Depends(require_admin),
+    _auth: AuthContext = Depends(require_admin_or_download_user),
     session: AsyncSession = Depends(get_session),
 ):
     """List minimal account info for non-admin browsing flows."""

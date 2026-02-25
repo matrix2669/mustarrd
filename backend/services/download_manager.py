@@ -9,10 +9,12 @@ from typing import Optional, Callable, Dict, Set, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 
-from models import Download, DownloadStatus, AppSettings, XtreamAccount
+from models import Download, DownloadStatus, AppSettings, XtreamAccount, PlexServer
 from config import settings as app_settings, is_docker_env
 from database import async_session_maker
 from services.log_stream import backend_log_stream
+from services.credential_crypto import credential_crypto
+from services.plex_service import plex_service
 
 
 class DownloadManager:
@@ -25,8 +27,9 @@ class DownloadManager:
         self._account_active_counts: Dict[int, int] = {}
         self._cancelled: Set[int] = set()
         self._progress_callbacks: Dict[int, Callable] = {}
-        self._websocket_connections: Set = set()
+        self._websocket_connections: Dict[Any, Dict[str, Any]] = {}
         self._stage_progress: Dict[int, Dict[str, Any]] = {}
+        self._download_owners: Dict[int, int | None] = {}
         self._max_concurrent = 2
         self._max_concurrent_post_processing = 1
         self._running = False
@@ -40,11 +43,14 @@ class DownloadManager:
         except Exception:
             self._max_concurrent_post_processing = 1
 
-    def register_websocket(self, websocket):
-        self._websocket_connections.add(websocket)
+    def register_websocket(self, websocket, auth_context=None):
+        self._websocket_connections[websocket] = {
+            "is_admin": bool(getattr(auth_context, "is_admin", False)),
+            "user_id": getattr(auth_context, "user_id", None),
+        }
 
     def unregister_websocket(self, websocket):
-        self._websocket_connections.discard(websocket)
+        self._websocket_connections.pop(websocket, None)
 
     def _track_active_download(self, download_id: int, account_id: Optional[int]) -> None:
         if account_id is None:
@@ -96,15 +102,21 @@ class DownloadManager:
                 snapshot[key] = value
         self._stage_progress[download_id] = snapshot
 
+        owner_id = await self._resolve_download_owner(download_id)
+
         dead_connections = set()
-        for ws in self._websocket_connections:
+        for ws, ws_auth in list(self._websocket_connections.items()):
             try:
+                if not ws_auth.get("is_admin"):
+                    if owner_id is None or ws_auth.get("user_id") != owner_id:
+                        continue
                 await ws.send_json(message)
             except Exception:
                 dead_connections.add(ws)
 
         # Clean up dead connections
-        self._websocket_connections -= dead_connections
+        for ws in dead_connections:
+            self._websocket_connections.pop(ws, None)
         if status in [
             DownloadStatus.COMPLETED.value,
             DownloadStatus.FAILED.value,
@@ -128,14 +140,19 @@ class DownloadManager:
             "message": message,
         }
 
+        owner_id = await self._resolve_download_owner(download_id)
         dead_connections = set()
-        for ws in self._websocket_connections:
+        for ws, ws_auth in list(self._websocket_connections.items()):
             try:
+                if not ws_auth.get("is_admin"):
+                    if owner_id is None or ws_auth.get("user_id") != owner_id:
+                        continue
                 await ws.send_json(payload)
             except Exception:
                 dead_connections.add(ws)
 
-        self._websocket_connections -= dead_connections
+        for ws in dead_connections:
+            self._websocket_connections.pop(ws, None)
         await backend_log_stream.emit(
             source="download",
             message=message,
@@ -178,6 +195,7 @@ class DownloadManager:
             session.add(download)
             await session.commit()
             await session.refresh(download)
+            self._download_owners[download.id] = download.requested_by_user_id
 
             await self._queue.put(download.id)
             await self._broadcast_log(
@@ -563,6 +581,7 @@ class DownloadManager:
                     download_id,
                     f"Download completed: {os.path.basename(completed_path)}"
                 )
+                await self._trigger_plex_refresh(completed_path)
 
             except asyncio.CancelledError:
                 # Download was cancelled
@@ -634,6 +653,7 @@ class DownloadManager:
                         await session.commit()
                         await self._broadcast_progress(download_id, 100, DownloadStatus.COMPLETED.value)
                         await self._broadcast_log(download_id, "Post-processing recovery: finalized completed output.")
+                        await self._trigger_plex_refresh(completed_path)
                         return
 
                     raise Exception("Missing input file for post-processing.")
@@ -648,6 +668,7 @@ class DownloadManager:
                     await session.commit()
                     await self._broadcast_progress(download_id, 100, DownloadStatus.COMPLETED.value)
                     await self._broadcast_log(download_id, "Post-processing disabled; finalized completed output.")
+                    await self._trigger_plex_refresh(completed_path)
                     return
 
                 await self._broadcast_log(download_id, "Post-processing started.")
@@ -688,6 +709,7 @@ class DownloadManager:
                     download_id,
                     f"Post-processing completed: {os.path.basename(completed_path)}"
                 )
+                await self._trigger_plex_refresh(completed_path)
 
             except asyncio.CancelledError:
                 result = await session.execute(
@@ -723,6 +745,54 @@ class DownloadManager:
                     error=str(e)
                 )
                 await self._broadcast_log(download_id, f"Post-processing failed: {e}", level="error")
+
+    async def _resolve_download_owner(self, download_id: int) -> int | None:
+        if download_id in self._download_owners:
+            return self._download_owners.get(download_id)
+        try:
+            async with async_session_maker() as session:
+                result = await session.execute(
+                    select(Download.requested_by_user_id).where(Download.id == download_id)
+                )
+                owner_id = result.scalar_one_or_none()
+                self._download_owners[download_id] = owner_id
+                return owner_id
+        except Exception:
+            return None
+
+    async def _trigger_plex_refresh(self, completed_path: str) -> None:
+        try:
+            async with async_session_maker() as session:
+                result = await session.execute(
+                    select(PlexServer).where(PlexServer.enabled.is_(True)).limit(1)
+                )
+                plex_server = result.scalar_one_or_none()
+                if not plex_server:
+                    return
+                section_ids = plex_service.parse_section_ids(plex_server.library_section_ids)
+                if not section_ids:
+                    return
+                token = credential_crypto.decrypt(
+                    plex_server.access_token_encrypted or plex_server.token_encrypted
+                )
+                results = await plex_service.trigger_library_refresh(
+                    plex_server.base_url,
+                    token,
+                    section_ids,
+                )
+                failures = [r for r in results if not r.get("ok")]
+                if failures:
+                    await backend_log_stream.emit(
+                        source="download",
+                        level="warning",
+                        message=f"Plex refresh had failures for {len(failures)} section(s).",
+                    )
+        except Exception as exc:
+            await backend_log_stream.emit(
+                source="download",
+                level="warning",
+                message=f"Plex refresh skipped: {exc}",
+            )
 
     def _resolve_completed_folder(self, settings: Optional[AppSettings]) -> str:
         if settings and settings.completed_folder and not settings.completed_folder.startswith("./data"):

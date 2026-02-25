@@ -96,6 +96,8 @@ class ScheduledManager:
                         custom_filename=schedule.custom_filename,
                         pre_padding_minutes=schedule.pre_padding_minutes,
                         post_padding_minutes=schedule.post_padding_minutes,
+                        requested_by_user_id=schedule.requested_by_user_id,
+                        request_source=schedule.request_source or "admin",
                     )
 
                     download = await download_manager.queue_download(download)

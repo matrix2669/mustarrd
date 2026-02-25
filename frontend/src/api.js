@@ -19,8 +19,13 @@ async function request(endpoint, options = {}) {
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Request failed' }))
-    const err = new Error(error.detail || 'Request failed')
+    let detail = error?.detail ?? 'Request failed'
+    if (typeof detail === 'object' && detail !== null) {
+      detail = detail.message || detail.error || JSON.stringify(detail)
+    }
+    const err = new Error(String(detail))
     err.status = response.status
+    err.payload = error
     throw err
   }
 
@@ -121,14 +126,53 @@ export const settingsApi = {
 // Authentication
 export const authApi = {
   status: () => request('/auth/status'),
-  setup: (password) => request('/auth/setup', { method: 'POST', body: { password } }),
+  adminBootstrapStatus: () => request('/auth/admin-bootstrap/status'),
+  adminBootstrapComplete: (username, legacyPassword) =>
+    request('/auth/admin-bootstrap/complete', {
+      method: 'POST',
+      body: { username, legacy_password: legacyPassword },
+    }),
+  setup: (password, username = null) =>
+    request('/auth/setup', { method: 'POST', body: { password, username } }),
+  loginCredentials: (username, password) =>
+    request('/auth/login-credentials', { method: 'POST', body: { username, password } }),
   login: (password) => request('/auth/login', { method: 'POST', body: { password } }),
+  userLogin: (username, password) =>
+    request('/auth/user/login', { method: 'POST', body: { username, password } }),
+  plexStart: () => request('/auth/plex/login/start', { method: 'POST' }),
+  plexComplete: (pinId) =>
+    request('/auth/plex/login/complete', { method: 'POST', body: { pin_id: pinId } }),
   logout: () => request('/auth/logout', { method: 'POST' }),
   changePassword: (currentPassword, newPassword) =>
     request('/auth/change-password', {
       method: 'POST',
       body: { current_password: currentPassword, new_password: newPassword },
     }),
+  getPreferences: () => request('/auth/preferences'),
+  updatePreferences: (showFuturePrograms) =>
+    request('/auth/preferences', { method: 'PUT', body: { show_future_programs: showFuturePrograms } }),
+  validateSetupToken: (token) => request(`/auth/user/setup/${encodeURIComponent(token)}`),
+  completeSetupToken: (token, password) =>
+    request(`/auth/user/setup/${encodeURIComponent(token)}`, { method: 'POST', body: { password } }),
+  generateSetupLink: (userId) => request(`/admin/users/${userId}/setup-link`, { method: 'POST' }),
+}
+
+export const adminUsersApi = {
+  list: () => request('/admin/users'),
+  create: (data) => request('/admin/users', { method: 'POST', body: data }),
+  update: (id, data) => request(`/admin/users/${id}`, { method: 'PATCH', body: data }),
+  delete: (id) => request(`/admin/users/${id}`, { method: 'DELETE' }),
+}
+
+export const adminPlexApi = {
+  get: () => request('/admin/plex/integration'),
+  save: (data) => request('/admin/plex/integration', { method: 'PUT', body: data }),
+  connectStart: () => request('/admin/plex/connect/start', { method: 'POST' }),
+  connectComplete: (pinId) => request('/admin/plex/connect/complete', { method: 'POST', body: { pin_id: pinId } }),
+  listResources: () => request('/admin/plex/resources'),
+  listLibraries: (resourceId) => request(`/admin/plex/resources/${encodeURIComponent(resourceId)}/libraries`, { method: 'POST' }),
+  test: (data) => request('/admin/plex/server/test', { method: 'POST', body: data }),
+  listUsers: () => request('/admin/plex/server/users'),
 }
 
 export const onboardingApi = {

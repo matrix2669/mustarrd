@@ -15,9 +15,10 @@ import {
   Image,
   Tabs,
   Button,
+  Switch,
 } from '@mantine/core'
 import { useDebouncedValue, useMediaQuery, useViewportSize } from '@mantine/hooks'
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import {
   IconSearch,
@@ -29,7 +30,7 @@ import {
 } from '@tabler/icons-react'
 import dayjs from 'dayjs'
 
-import { accountsApi, channelsApi, downloadsApi, epgApi, settingsApi, vodApi } from '../api'
+import { accountsApi, authApi, channelsApi, downloadsApi, epgApi, settingsApi, vodApi } from '../api'
 import EPGGrid from '../components/EPGGrid'
 import DownloadModal from '../components/DownloadModal'
 import ScheduleModal from '../components/ScheduleModal'
@@ -332,6 +333,7 @@ function buildProgramSelectionKey(program, fallbackChannelId = null) {
 }
 
 export default function Browse() {
+  const queryClient = useQueryClient()
   const [selectedAccountId, setSelectedAccountId] = useState(null)
   const [selectedCategory, setSelectedCategory] = useState(null)
   const [selectedChannel, setSelectedChannel] = useState(null)
@@ -423,6 +425,17 @@ export default function Browse() {
   const { data: appSettings } = useQuery({
     queryKey: ['settings', 'public'],
     queryFn: settingsApi.getPublic,
+  })
+  const { data: preferences } = useQuery({
+    queryKey: ['auth', 'preferences'],
+    queryFn: authApi.getPreferences,
+  })
+  const updatePreferencesMutation = useMutation({
+    mutationFn: (value) => authApi.updatePreferences(value),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['auth', 'preferences'] })
+      queryClient.invalidateQueries({ queryKey: ['settings', 'public'] })
+    },
   })
 
   const { data: downloads = [] } = useQuery({
@@ -749,6 +762,12 @@ export default function Browse() {
             : 'Browse EPG'}
         </Title>
         <Group>
+          <Switch
+            label="Show Future Programs"
+            checked={Boolean(preferences?.show_future_programs ?? appSettings?.show_future_programs)}
+            onChange={(event) => updatePreferencesMutation.mutate(event.currentTarget.checked)}
+            disabled={updatePreferencesMutation.isPending}
+          />
           {accountOptions.length > 1 && (
             <Select
               placeholder="Select account"
@@ -850,7 +869,7 @@ export default function Browse() {
                           <EPGGrid
                             epgData={filteredEpgData}
                             onProgramClick={handleProgramClick}
-                            showFuture={appSettings?.show_future_programs}
+                            showFuture={Boolean(preferences?.show_future_programs ?? appSettings?.show_future_programs)}
                             getProgramPreviousDownload={(program) =>
                               getProgramPreviousDownload(program, selectedChannel?.stream_id)
                             }
@@ -965,7 +984,7 @@ export default function Browse() {
                         <EPGGrid
                           epgData={filteredEpgData}
                           onProgramClick={handleProgramClick}
-                          showFuture={appSettings?.show_future_programs}
+                          showFuture={Boolean(preferences?.show_future_programs ?? appSettings?.show_future_programs)}
                           getProgramPreviousDownload={(program) =>
                             getProgramPreviousDownload(program, selectedChannel?.stream_id)
                           }

@@ -4,7 +4,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_, func
 
-from auth import require_admin
+from auth import require_admin_or_download_user, AuthContext
 from database import get_session
 from models import XtreamAccount, AppSettings, EPGProgram
 from services.epg_service import epg_service
@@ -31,7 +31,7 @@ async def search_epg(
     q: str = Query(..., min_length=2),
     limit: int = Query(100, ge=1, le=200),
     offset: int = Query(0, ge=0),
-    _admin: None = Depends(require_admin),
+    _admin: None = Depends(require_admin_or_download_user),
     session: AsyncSession = Depends(get_session),
 ):
     result = await session.execute(
@@ -64,14 +64,14 @@ async def search_epg(
 
 
 @router.get("/epg/status")
-async def epg_status(_admin: None = Depends(require_admin)):
+async def epg_status(_admin: None = Depends(require_admin_or_download_user)):
     return epg_ingest_manager.get_status()
 
 
 @router.post("/epg/refresh")
 async def trigger_epg_refresh(
     request: EPGRefreshRequest,
-    _admin: None = Depends(require_admin),
+    _admin: None = Depends(require_admin_or_download_user),
 ):
     status = epg_ingest_manager.get_status()
     if status.get("running"):

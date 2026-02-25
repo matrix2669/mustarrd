@@ -8,10 +8,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import Optional
 
-from auth import require_admin, require_admin_websocket
+from auth import (
+    require_admin_or_download_user,
+    require_admin_or_download_user_websocket,
+    AuthContext,
+)
 from config import settings
 from database import get_session
-from models import Download, DownloadStatus, XtreamAccount
+from models import Download, DownloadStatus, XtreamAccount, User
 from services.download_manager import download_manager
 from services.file_namer import file_namer
 from services.epg_service import epg_service
@@ -106,35 +110,98 @@ class FilenamePreview(BaseModel):
     program: dict
 
 
+async def _attach_requested_by(
+    session: AsyncSession,
+    rows: list[dict],
+    auth: AuthContext,
+) -> list[dict]:
+    if not rows:
+        return rows
+
+    if not auth.is_admin:
+        if auth.user:
+            for row in rows:
+                row["requested_by"] = {
+                    "user_id": auth.user.id,
+                    "username": auth.user.username,
+                    "display_name": auth.user.display_name,
+                    "provider": auth.provider,
+                    "role": auth.user.role,
+                }
+        return rows
+
+    ids = {row.get("requested_by_user_id") for row in rows if row.get("requested_by_user_id")}
+    if not ids:
+        return rows
+    result = await session.execute(select(User).where(User.id.in_(ids)))
+    users = {u.id: u for u in result.scalars().all()}
+    for row in rows:
+        rid = row.get("requested_by_user_id")
+        if not rid:
+            row["requested_by"] = None
+            continue
+        user = users.get(rid)
+        row["requested_by"] = (
+            {
+                "user_id": user.id,
+                "username": user.username,
+                "display_name": user.display_name,
+                "provider": row.get("request_source"),
+                "role": user.role,
+            }
+            if user
+            else {
+                "user_id": rid,
+                "username": None,
+                "display_name": "Unknown",
+                "provider": row.get("request_source"),
+                "role": "unknown",
+            }
+        )
+    return rows
+
+
 @router.get("")
 async def list_downloads(
-    _admin: None = Depends(require_admin),
+    auth: AuthContext = Depends(require_admin_or_download_user),
     session: AsyncSession = Depends(get_session),
 ):
     """List all downloads (queue + history)."""
-    result = await session.execute(
-        select(Download).order_by(Download.created_at.desc())
-    )
+    query = select(Download).order_by(Download.created_at.desc())
+    if not auth.is_admin:
+        query = query.where(Download.requested_by_user_id == auth.user_id)
+    result = await session.execute(query)
     downloads = result.scalars().all()
-    return [download_manager.merge_progress_snapshot(d.to_dict()) for d in downloads]
+    payload = [download_manager.merge_progress_snapshot(d.to_dict()) for d in downloads]
+    return await _attach_requested_by(session, payload, auth)
 
 
 @router.get("/queue")
-async def get_download_queue(_admin: None = Depends(require_admin)):
+async def get_download_queue(
+    auth: AuthContext = Depends(require_admin_or_download_user),
+    session: AsyncSession = Depends(get_session),
+):
     """Get pending and active downloads."""
-    return await download_manager.get_queue()
+    queue = await download_manager.get_queue()
+    filtered = queue if auth.is_admin else [d for d in queue if d.get("requested_by_user_id") == auth.user_id]
+    return await _attach_requested_by(session, filtered, auth)
 
 
 @router.get("/history")
-async def get_download_history(_admin: None = Depends(require_admin)):
+async def get_download_history(
+    auth: AuthContext = Depends(require_admin_or_download_user),
+    session: AsyncSession = Depends(get_session),
+):
     """Get completed, failed, and cancelled downloads."""
-    return await download_manager.get_history()
+    history = await download_manager.get_history()
+    filtered = history if auth.is_admin else [d for d in history if d.get("requested_by_user_id") == auth.user_id]
+    return await _attach_requested_by(session, filtered, auth)
 
 
 @router.post("/preview-filename")
 async def preview_filename(
     data: FilenamePreview,
-    _admin: None = Depends(require_admin),
+    _auth: AuthContext = Depends(require_admin_or_download_user),
     session: AsyncSession = Depends(get_session)
 ):
     """Preview the auto-generated filename for a program."""
@@ -169,7 +236,7 @@ async def preview_filename(
 @router.post("")
 async def create_download(
     data: DownloadCreate,
-    _admin: None = Depends(require_admin),
+    auth: AuthContext = Depends(require_admin_or_download_user),
     session: AsyncSession = Depends(get_session)
 ):
     """Queue a new download."""
@@ -183,6 +250,8 @@ async def create_download(
             custom_filename=data.custom_filename,
             pre_padding_minutes=data.pre_padding_minutes or 0,
             post_padding_minutes=data.post_padding_minutes or 0,
+            requested_by_user_id=auth.user_id if not auth.is_admin else None,
+            request_source=auth.provider if not auth.is_admin else "admin",
         )
     except ValueError as exc:
         message = str(exc)
@@ -193,19 +262,20 @@ async def create_download(
     # Queue the download
     download = await download_manager.queue_download(download)
 
-    return download.to_dict()
+    return (await _attach_requested_by(session, [download.to_dict()], auth))[0]
 
 
 @router.get("/{download_id}")
 async def get_download(
     download_id: int,
-    _admin: None = Depends(require_admin),
+    auth: AuthContext = Depends(require_admin_or_download_user),
     session: AsyncSession = Depends(get_session)
 ):
     """Get a specific download."""
-    result = await session.execute(
-        select(Download).where(Download.id == download_id)
-    )
+    query = select(Download).where(Download.id == download_id)
+    if not auth.is_admin:
+        query = query.where(Download.requested_by_user_id == auth.user_id)
+    result = await session.execute(query)
     download = result.scalar_one_or_none()
 
     if not download:
@@ -219,13 +289,14 @@ async def get_download_file(
     download_id: int,
     request: Request,
     action: str = Query(default="download", pattern="^(download|play)$"),
-    _admin: None = Depends(require_admin),
+    auth: AuthContext = Depends(require_admin_or_download_user),
     session: AsyncSession = Depends(get_session),
 ):
     """Serve a completed download file for browser download/play actions."""
-    result = await session.execute(
-        select(Download).where(Download.id == download_id)
-    )
+    query = select(Download).where(Download.id == download_id)
+    if not auth.is_admin:
+        query = query.where(Download.requested_by_user_id == auth.user_id)
+    result = await session.execute(query)
     download = result.scalar_one_or_none()
 
     if not download:
@@ -297,13 +368,14 @@ async def get_download_file(
 @router.delete("/{download_id}")
 async def cancel_download(
     download_id: int,
-    _admin: None = Depends(require_admin),
+    auth: AuthContext = Depends(require_admin_or_download_user),
     session: AsyncSession = Depends(get_session)
 ):
     """Cancel or remove a download."""
-    result = await session.execute(
-        select(Download).where(Download.id == download_id)
-    )
+    query = select(Download).where(Download.id == download_id)
+    if not auth.is_admin:
+        query = query.where(Download.requested_by_user_id == auth.user_id)
+    result = await session.execute(query)
     download = result.scalar_one_or_none()
 
     if not download:
@@ -327,13 +399,14 @@ async def cancel_download(
 @router.post("/{download_id}/retry")
 async def retry_download(
     download_id: int,
-    _admin: None = Depends(require_admin),
+    auth: AuthContext = Depends(require_admin_or_download_user),
     session: AsyncSession = Depends(get_session)
 ):
     """Retry a failed download."""
-    result = await session.execute(
-        select(Download).where(Download.id == download_id)
-    )
+    query = select(Download).where(Download.id == download_id)
+    if not auth.is_admin:
+        query = query.where(Download.requested_by_user_id == auth.user_id)
+    result = await session.execute(query)
     download = result.scalar_one_or_none()
 
     if not download:
@@ -355,11 +428,11 @@ async def retry_download(
 @router.websocket("/ws")
 async def download_progress_websocket(
     websocket: WebSocket,
-    _admin: None = Depends(require_admin_websocket),
+    auth: AuthContext = Depends(require_admin_or_download_user_websocket),
 ):
     """WebSocket for real-time download progress updates."""
     await websocket.accept()
-    download_manager.register_websocket(websocket)
+    download_manager.register_websocket(websocket, auth)
 
     try:
         while True:

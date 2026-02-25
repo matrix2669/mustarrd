@@ -45,6 +45,8 @@ class ScheduledRecording(Base):
     status: Mapped[str] = mapped_column(String(50), default=ScheduledStatus.SCHEDULED.value)
     status_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     download_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    requested_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    request_source: Mapped[str] = mapped_column(String(32), default="admin")
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
@@ -83,6 +85,8 @@ class ScheduledRecording(Base):
             "status": self.status,
             "status_message": self.status_message,
             "download_id": self.download_id,
+            "requested_by_user_id": self.requested_by_user_id,
+            "request_source": self.request_source,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
             "available_at": available_at.isoformat() if available_at else None,

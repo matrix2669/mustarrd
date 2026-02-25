@@ -45,6 +45,8 @@ async def build_download_from_program(
     custom_filename: Optional[str] = None,
     pre_padding_minutes: int = 0,
     post_padding_minutes: int = 0,
+    requested_by_user_id: Optional[int] = None,
+    request_source: str = "admin",
 ) -> Download:
     result = await session.execute(
         select(XtreamAccount).where(XtreamAccount.id == account_id)
@@ -103,4 +105,6 @@ async def build_download_from_program(
         source_url=source_url,
         output_path=os.path.join(download_folder, filename),
         status=DownloadStatus.PENDING.value,
+        requested_by_user_id=requested_by_user_id,
+        request_source=request_source,
     )

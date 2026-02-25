@@ -13,7 +13,20 @@ import os
 
 from config import settings
 from database import async_session_maker, init_db
-from api import accounts, auth, channels, downloads, settings as settings_api, schedules, vod, epg, logs, onboarding
+from api import (
+    accounts,
+    auth,
+    channels,
+    downloads,
+    settings as settings_api,
+    schedules,
+    vod,
+    epg,
+    logs,
+    onboarding,
+    admin_users,
+    admin_plex,
+)
 from models import AppSettings
 from services.server_log_bridge import start_server_log_bridge, stop_server_log_bridge
 
@@ -125,6 +138,8 @@ app.include_router(settings_api.router, prefix="/api/settings", tags=["settings"
 app.include_router(epg.router, prefix="/api", tags=["epg"])
 app.include_router(logs.router, prefix="/api", tags=["logs"])
 app.include_router(onboarding.router, prefix="/api/onboarding", tags=["onboarding"])
+app.include_router(admin_users.router, prefix="/api/admin", tags=["admin-users"])
+app.include_router(admin_plex.router, prefix="/api/admin", tags=["admin-plex"])
 
 
 @app.get("/api/health")

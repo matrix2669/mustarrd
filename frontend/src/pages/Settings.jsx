@@ -14,6 +14,7 @@ import {
   Alert,
   Switch,
   Select,
+  MultiSelect,
   Badge,
   useMantineColorScheme,
   Modal,
@@ -39,9 +40,12 @@ import {
   IconLock,
   IconServer,
   IconListDetails,
+  IconUsers,
+  IconPlus,
+  IconTrash,
 } from '@tabler/icons-react'
 
-import { authApi, settingsApi } from '../api'
+import { adminPlexApi, adminUsersApi, authApi, settingsApi } from '../api'
 import AccountsSection from '../components/settings/AccountsSection'
 import LogsSection from '../components/settings/LogsSection'
 
@@ -104,6 +108,8 @@ function useBlocker(blocker, when = true) {
 
 const SECTIONS = [
   { id: 'accounts', label: 'Accounts', icon: IconServer },
+  { id: 'users', label: 'Users', icon: IconUsers },
+  { id: 'plex', label: 'Plex Integration', icon: IconServer },
   { id: 'recording', label: 'Recording', icon: IconDownload },
   { id: 'guide', label: 'Guide', icon: IconCalendar },
   { id: 'processing', label: 'Post-Processing', icon: IconWand },
@@ -126,6 +132,22 @@ export default function Settings() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
+  const [newUserName, setNewUserName] = useState('')
+  const [newUserDisplayName, setNewUserDisplayName] = useState('')
+  const [newUserPassword, setNewUserPassword] = useState('')
+  const [plexFormDirty, setPlexFormDirty] = useState(false)
+  const [plexFormHydrated, setPlexFormHydrated] = useState(false)
+  const [plexForm, setPlexForm] = useState({
+    resource_id: '',
+    resource_name: '',
+    base_url: '',
+    machine_identifier: '',
+    library_section_ids: [],
+    auto_allow_all_server_users: true,
+    enabled: true,
+  })
+  const [plexResources, setPlexResources] = useState([])
+  const [plexLibraries, setPlexLibraries] = useState([])
   const isMobile = useMediaQuery('(max-width: 768px)')
   const { colorScheme, setColorScheme } = useMantineColorScheme()
 
@@ -158,17 +180,52 @@ export default function Settings() {
   const { data: settings, isLoading, error } = useQuery({
     queryKey: ['settings'],
     queryFn: settingsApi.get,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   })
 
   const { data: templateInfo } = useQuery({
     queryKey: ['settings', 'templates'],
     queryFn: settingsApi.getTemplates,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   })
 
   const { data: toolsStatus } = useQuery({
     queryKey: ['settings', 'tools'],
     queryFn: settingsApi.getTools,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   })
+  const { data: managedUsers = [] } = useQuery({
+    queryKey: ['admin', 'users'],
+    queryFn: adminUsersApi.list,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+  })
+  const { data: plexConfig } = useQuery({
+    queryKey: ['admin', 'plex'],
+    queryFn: adminPlexApi.get,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+  })
+
+  useEffect(() => {
+    if (!plexConfig) return
+    if (plexFormHydrated && plexFormDirty) return
+    setPlexForm((prev) => ({
+      ...prev,
+      resource_id: plexConfig.resource_id || '',
+      resource_name: plexConfig.resource_name || '',
+      base_url: plexConfig.base_url || '',
+      machine_identifier: plexConfig.machine_identifier || '',
+      library_section_ids: plexConfig.library_section_ids || [],
+      auto_allow_all_server_users: Boolean(plexConfig.auto_allow_all_server_users),
+      enabled: Boolean(plexConfig.enabled),
+    }))
+    setPlexFormHydrated(true)
+    setPlexFormDirty(false)
+  }, [plexConfig, plexFormDirty, plexFormHydrated])
 
   useEffect(() => {
     if (settings && !formData) {
@@ -284,6 +341,119 @@ export default function Settings() {
       })
     },
   })
+  const createUserMutation = useMutation({
+    mutationFn: adminUsersApi.create,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'users'] })
+      setNewUserName('')
+      setNewUserDisplayName('')
+      setNewUserPassword('')
+      notifications.show({ title: 'User Added', message: 'Download-only user created.', color: 'green' })
+    },
+    onError: (error) => {
+      notifications.show({ title: 'Error', message: error.message, color: 'red' })
+    },
+  })
+  const deleteUserMutation = useMutation({
+    mutationFn: adminUsersApi.delete,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'users'] })
+      notifications.show({ title: 'User Removed', message: 'User deleted.', color: 'green' })
+    },
+    onError: (error) => {
+      notifications.show({ title: 'Error', message: error.message, color: 'red' })
+    },
+  })
+  const savePlexMutation = useMutation({
+    mutationFn: adminPlexApi.save,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'plex'] })
+      setPlexFormDirty(false)
+      notifications.show({ title: 'Plex Saved', message: 'Plex server settings updated.', color: 'green' })
+    },
+    onError: (error) => {
+      notifications.show({ title: 'Error', message: error.message, color: 'red' })
+    },
+  })
+  const listPlexResourcesMutation = useMutation({
+    mutationFn: adminPlexApi.listResources,
+    onSuccess: (resources) => {
+      setPlexResources(resources || [])
+    },
+    onError: (error) => {
+      notifications.show({ title: 'Plex Resources Failed', message: error.message, color: 'red' })
+    },
+  })
+  const listPlexLibrariesMutation = useMutation({
+    mutationFn: (resourceId) => adminPlexApi.listLibraries(resourceId),
+    onSuccess: (data) => {
+      setPlexLibraries(data?.libraries || [])
+      if (data?.base_url) {
+        updatePlexForm((prev) => ({
+          ...prev,
+          base_url: data.base_url,
+        }))
+      }
+    },
+    onError: (error) => {
+      notifications.show({ title: 'Plex Libraries Failed', message: error.message, color: 'red' })
+    },
+  })
+  const connectPlexStartMutation = useMutation({
+    mutationFn: adminPlexApi.connectStart,
+    onSuccess: (data) => {
+      const popup = window.open(data.auth_url, '_blank', 'noopener,noreferrer')
+      const pollMs = Math.max(1, Number(data.poll_interval_seconds || 2)) * 1000
+      const timeoutMs = Math.max(30, Number(data.expires_in || 300)) * 1000
+      const startedAt = Date.now()
+      const pinId = data.id
+      const timer = setInterval(async () => {
+        if (Date.now() - startedAt > timeoutMs) {
+          clearInterval(timer)
+          notifications.show({ title: 'Plex Connection Timeout', message: 'Please try again.', color: 'yellow' })
+          return
+        }
+        try {
+          await adminPlexApi.connectComplete(pinId)
+          clearInterval(timer)
+          try {
+            if (popup && !popup.closed) popup.close()
+          } catch {
+            // noop
+          }
+          notifications.show({ title: 'Plex Connected', message: 'Choose a server to continue.', color: 'green' })
+          listPlexResourcesMutation.mutate()
+        } catch (error) {
+          if ((error.message || '').includes('not complete')) {
+            return
+          }
+          clearInterval(timer)
+          notifications.show({ title: 'Plex Connection Failed', message: error.message, color: 'red' })
+        }
+      }, pollMs)
+    },
+    onError: (error) => {
+      notifications.show({ title: 'Plex Connection Failed', message: error.message, color: 'red' })
+    },
+  })
+
+  const updatePlexForm = (updater) => {
+    setPlexForm((prev) => (typeof updater === 'function' ? updater(prev) : { ...prev, ...updater }))
+    setPlexFormDirty(true)
+  }
+
+  useEffect(() => {
+    if (activeSection !== 'plex') return
+    if (!plexResources.length) {
+      listPlexResourcesMutation.mutate()
+    }
+  }, [activeSection, plexResources.length])
+
+  useEffect(() => {
+    if (!plexForm.resource_id || activeSection !== 'plex') return
+    if (plexLibraries.length > 0) return
+    listPlexLibrariesMutation.mutate(plexForm.resource_id)
+  }, [activeSection, plexForm.resource_id, plexLibraries.length])
 
   const handleChangePassword = (e) => {
     e.preventDefault()
@@ -798,6 +968,168 @@ export default function Settings() {
     </Stack>
   )
 
+  const renderUsers = () => (
+    <Stack gap="md">
+      <Text fw={600}>Download-Only Users</Text>
+      <Alert color="blue" variant="light">
+        <Group justify="space-between" align="center" wrap="nowrap">
+          <Text size="sm">Plex Integration controls Plex-based sign-in and server/library sync.</Text>
+          <Button size="xs" variant="light" onClick={() => selectSection('plex')}>Open Plex Integration</Button>
+        </Group>
+      </Alert>
+      <Group grow align="flex-end">
+        <TextInput
+          label="Username"
+          placeholder="john"
+          value={newUserName}
+          onChange={(e) => setNewUserName(e.target.value)}
+        />
+        <TextInput
+          label="Display Name"
+          placeholder="John"
+          value={newUserDisplayName}
+          onChange={(e) => setNewUserDisplayName(e.target.value)}
+        />
+        <PasswordInput
+          label="Password"
+          placeholder="Min 8 chars"
+          value={newUserPassword}
+          onChange={(e) => setNewUserPassword(e.target.value)}
+        />
+      </Group>
+      <Group justify="flex-end">
+        <Button
+          leftSection={<IconPlus size={14} />}
+          onClick={() =>
+            createUserMutation.mutate({
+              username: newUserName,
+              display_name: newUserDisplayName || null,
+              password: newUserPassword || null,
+              status: 'active',
+            })
+          }
+          disabled={!newUserName}
+          loading={createUserMutation.isPending}
+        >
+          Add User
+        </Button>
+      </Group>
+      <Divider />
+      <Stack gap="xs">
+        {managedUsers.map((user) => (
+          <Group key={user.id} justify="space-between">
+            <Stack gap={0}>
+              <Text fw={500}>{user.display_name || user.username || `User ${user.id}`}</Text>
+              <Text size="xs" c="dimmed">
+                {user.username || 'Plex-only identity'} · {user.status}
+              </Text>
+            </Stack>
+            <Button
+              variant="light"
+              color="red"
+              leftSection={<IconTrash size={14} />}
+              onClick={() => deleteUserMutation.mutate(user.id)}
+              loading={deleteUserMutation.isPending}
+            >
+              Delete
+            </Button>
+          </Group>
+        ))}
+        {managedUsers.length === 0 && (
+          <Text size="sm" c="dimmed">No download-only users yet.</Text>
+        )}
+      </Stack>
+    </Stack>
+  )
+
+  const renderPlex = () => (
+    <Stack gap="md">
+      <Text fw={600}>Plex Integration</Text>
+      <Group justify="space-between" align="center">
+        <Button
+          variant="light"
+          onClick={() => connectPlexStartMutation.mutate()}
+          loading={connectPlexStartMutation.isPending}
+        >
+          Connect Plex Account
+        </Button>
+        <Button
+          variant="subtle"
+          onClick={() => listPlexResourcesMutation.mutate()}
+          loading={listPlexResourcesMutation.isPending}
+        >
+          Refresh Servers
+        </Button>
+      </Group>
+
+      <Select
+        label="Plex Server"
+        placeholder="Select an owned server"
+        data={plexResources.map((r) => ({
+          value: r.resource_id,
+          label: `${r.name}${r.platform ? ` (${r.platform})` : ''}`,
+        }))}
+        value={plexForm.resource_id || null}
+        onChange={(value) => {
+          if (!value) return
+          const selected = plexResources.find((r) => r.resource_id === value)
+          updatePlexForm((prev) => ({
+            ...prev,
+            resource_id: value,
+            resource_name: selected?.name || '',
+            machine_identifier: selected?.machine_identifier || null,
+            base_url: selected?.base_url || '',
+          }))
+          listPlexLibrariesMutation.mutate(value)
+        }}
+      />
+
+      <MultiSelect
+        label="Libraries to Refresh"
+        placeholder="Choose one or more libraries"
+        data={plexLibraries.map((lib) => ({
+          value: String(lib.id),
+          label: `${lib.title}${lib.type ? ` (${lib.type})` : ''}`,
+        }))}
+        value={(plexForm.library_section_ids || []).map((v) => String(v))}
+        onChange={(values) => updatePlexForm((prev) => ({ ...prev, library_section_ids: values }))}
+        searchable
+      />
+
+      <Switch
+        label="Enable Plex auto access for all server users"
+        checked={plexForm.auto_allow_all_server_users}
+        onChange={(e) =>
+          updatePlexForm((prev) => ({ ...prev, auto_allow_all_server_users: e.currentTarget.checked }))
+        }
+      />
+      <Switch
+        label="Enable Plex auth integration"
+        checked={plexForm.enabled}
+        onChange={(e) => updatePlexForm((prev) => ({ ...prev, enabled: e.currentTarget.checked }))}
+      />
+      <Group justify="flex-end">
+        <Button
+          onClick={() =>
+            savePlexMutation.mutate({
+              resource_id: plexForm.resource_id,
+              resource_name: plexForm.resource_name || null,
+              base_url: plexForm.base_url,
+              machine_identifier: plexForm.machine_identifier || null,
+              library_section_ids: (plexForm.library_section_ids || []).map((s) => String(s)),
+              auto_allow_all_server_users: plexForm.auto_allow_all_server_users,
+              enabled: plexForm.enabled,
+            })
+          }
+          disabled={!plexForm.resource_id || !plexForm.base_url}
+          loading={savePlexMutation.isPending}
+        >
+          Save Plex Integration
+        </Button>
+      </Group>
+    </Stack>
+  )
+
   const sectionContent = {
     recording: renderRecording,
     guide: renderGuide,
@@ -805,6 +1137,8 @@ export default function Settings() {
     naming: renderNaming,
     appearance: renderAppearance,
     security: renderSecurity,
+    users: renderUsers,
+    plex: renderPlex,
     accounts: () => <AccountsSection showTitle={false} />,
     logs: () => <LogsSection showTitle={false} />,
   }

@@ -50,6 +50,8 @@ async def build_movie_download(
     container_extension: Optional[str],
     direct_source: Optional[str] = None,
     release_date: Optional[str] = None,
+    requested_by_user_id: Optional[int] = None,
+    request_source: str = "admin",
 ) -> Download:
     result = await session.execute(select(XtreamAccount).where(XtreamAccount.id == account_id))
     account = result.scalar_one_or_none()
@@ -85,6 +87,8 @@ async def build_movie_download(
         output_path=output_path,
         status=DownloadStatus.PENDING.value,
         is_vod=True,
+        requested_by_user_id=requested_by_user_id,
+        request_source=request_source,
     )
 
 
@@ -100,6 +104,8 @@ async def build_episode_download(
     container_extension: Optional[str],
     direct_source: Optional[str] = None,
     duration_minutes: Optional[int] = None,
+    requested_by_user_id: Optional[int] = None,
+    request_source: str = "admin",
 ) -> Download:
     result = await session.execute(select(XtreamAccount).where(XtreamAccount.id == account_id))
     account = result.scalar_one_or_none()
@@ -141,4 +147,6 @@ async def build_episode_download(
         output_path=output_path,
         status=DownloadStatus.PENDING.value,
         is_vod=True,
+        requested_by_user_id=requested_by_user_id,
+        request_source=request_source,
     )

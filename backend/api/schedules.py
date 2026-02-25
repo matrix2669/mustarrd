@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import Optional
 
-from auth import require_admin
+from auth import require_admin_or_download_user, AuthContext
 from database import get_session
 from models import ScheduledRecording, ScheduledStatus, XtreamAccount, Download
 from services.download_manager import download_manager
@@ -86,12 +86,13 @@ def _map_download_status(status: str) -> str:
 
 @router.get("")
 async def list_schedules(
-    _admin: None = Depends(require_admin),
+    auth: AuthContext = Depends(require_admin_or_download_user),
     session: AsyncSession = Depends(get_session),
 ):
-    result = await session.execute(
-        select(ScheduledRecording).order_by(ScheduledRecording.program_start.desc())
-    )
+    query = select(ScheduledRecording).order_by(ScheduledRecording.program_start.desc())
+    if not auth.is_admin:
+        query = query.where(ScheduledRecording.requested_by_user_id == auth.user_id)
+    result = await session.execute(query)
     schedules = result.scalars().all()
 
     download_ids = [s.download_id for s in schedules if s.download_id]
@@ -129,7 +130,7 @@ async def list_schedules(
 @router.post("")
 async def create_schedule(
     data: ScheduleCreate,
-    _admin: None = Depends(require_admin),
+    auth: AuthContext = Depends(require_admin_or_download_user),
     session: AsyncSession = Depends(get_session)
 ):
     result = await session.execute(
@@ -160,29 +161,31 @@ async def create_schedule(
     ]
 
     if epg_id:
-        existing = await session.execute(
-            select(ScheduledRecording).where(
-                ScheduledRecording.account_id == data.account_id,
-                ScheduledRecording.channel_id == data.channel_id,
-                ScheduledRecording.epg_id == epg_id,
-                ScheduledRecording.start_timestamp == start_ts,
-                ScheduledRecording.stop_timestamp == stop_ts,
-                ScheduledRecording.status.in_(active_statuses),
-            )
-        )
+        conditions = [
+            ScheduledRecording.account_id == data.account_id,
+            ScheduledRecording.channel_id == data.channel_id,
+            ScheduledRecording.epg_id == epg_id,
+            ScheduledRecording.start_timestamp == start_ts,
+            ScheduledRecording.stop_timestamp == stop_ts,
+            ScheduledRecording.status.in_(active_statuses),
+        ]
+        if not auth.is_admin:
+            conditions.append(ScheduledRecording.requested_by_user_id == auth.user_id)
+        existing = await session.execute(select(ScheduledRecording).where(*conditions))
         if existing.scalar_one_or_none():
             raise HTTPException(status_code=409, detail="This program is already scheduled")
     elif program_id is not None:
-        existing = await session.execute(
-            select(ScheduledRecording).where(
-                ScheduledRecording.account_id == data.account_id,
-                ScheduledRecording.channel_id == data.channel_id,
-                ScheduledRecording.program_id == str(program_id),
-                ScheduledRecording.start_timestamp == start_ts,
-                ScheduledRecording.stop_timestamp == stop_ts,
-                ScheduledRecording.status.in_(active_statuses),
-            )
-        )
+        conditions = [
+            ScheduledRecording.account_id == data.account_id,
+            ScheduledRecording.channel_id == data.channel_id,
+            ScheduledRecording.program_id == str(program_id),
+            ScheduledRecording.start_timestamp == start_ts,
+            ScheduledRecording.stop_timestamp == stop_ts,
+            ScheduledRecording.status.in_(active_statuses),
+        ]
+        if not auth.is_admin:
+            conditions.append(ScheduledRecording.requested_by_user_id == auth.user_id)
+        existing = await session.execute(select(ScheduledRecording).where(*conditions))
         if existing.scalar_one_or_none():
             raise HTTPException(status_code=409, detail="This program is already scheduled")
 
@@ -205,6 +208,8 @@ async def create_schedule(
         post_padding_minutes=int(data.post_padding_minutes or 0),
         custom_filename=custom_filename,
         status=ScheduledStatus.SCHEDULED.value,
+        requested_by_user_id=auth.user_id if not auth.is_admin else None,
+        request_source=auth.provider if not auth.is_admin else "admin",
     )
 
     session.add(schedule)
@@ -217,12 +222,13 @@ async def create_schedule(
 @router.delete("/{schedule_id}")
 async def cancel_schedule(
     schedule_id: int,
-    _admin: None = Depends(require_admin),
+    auth: AuthContext = Depends(require_admin_or_download_user),
     session: AsyncSession = Depends(get_session)
 ):
-    result = await session.execute(
-        select(ScheduledRecording).where(ScheduledRecording.id == schedule_id)
-    )
+    query = select(ScheduledRecording).where(ScheduledRecording.id == schedule_id)
+    if not auth.is_admin:
+        query = query.where(ScheduledRecording.requested_by_user_id == auth.user_id)
+    result = await session.execute(query)
     schedule = result.scalar_one_or_none()
 
     if not schedule:

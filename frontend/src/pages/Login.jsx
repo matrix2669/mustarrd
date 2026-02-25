@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
+import { Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Card,
   Stack,
@@ -11,19 +11,28 @@ import {
   Box,
   Group,
   useMantineColorScheme,
+  TextInput,
+  Divider,
 } from '@mantine/core'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { IconAlertCircle } from '@tabler/icons-react'
+import { IconAlertCircle, IconServer } from '@tabler/icons-react'
 
 import { authApi } from '../api'
 
 export default function Login() {
+  const [username, setUsername] = useState('')
+  const [setupUsername, setSetupUsername] = useState('admin')
   const [password, setPassword] = useState('')
+  const [bootstrapUsername, setBootstrapUsername] = useState('admin')
+  const [bootstrapPassword, setBootstrapPassword] = useState('')
   const [error, setError] = useState('')
+  const pollTimerRef = useRef(null)
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const location = useLocation()
-  const fromPath = location.state?.from || '/onboarding'
+  const [searchParams] = useSearchParams()
+  const fromPath = location.state?.from || '/downloads'
+  const setupToken = searchParams.get('setup_token')
   const { colorScheme } = useMantineColorScheme()
   const isDark = colorScheme === 'dark'
 
@@ -33,29 +42,113 @@ export default function Login() {
     refetchOnWindowFocus: true,
   })
 
+  const { data: setupInfo, isLoading: setupLoading } = useQuery({
+    queryKey: ['auth', 'setup-token', setupToken],
+    queryFn: () => authApi.validateSetupToken(setupToken),
+    enabled: Boolean(setupToken),
+    retry: false,
+  })
+
+  useEffect(() => {
+    if (status?.bootstrap_required) {
+      setBootstrapUsername('admin')
+    }
+  }, [status?.bootstrap_required])
+  useEffect(() => {
+    if (!status?.password_set) {
+      setSetupUsername('admin')
+    }
+  }, [status?.password_set])
+
+  useEffect(() => {
+    return () => {
+      if (pollTimerRef.current) {
+        clearInterval(pollTimerRef.current)
+        pollTimerRef.current = null
+      }
+    }
+  }, [])
+
+  const handleLoginSuccess = async (target = fromPath) => {
+    await queryClient.invalidateQueries({ queryKey: ['auth', 'status'] })
+    navigate(target, { replace: true })
+  }
+
   const setupMutation = useMutation({
-    mutationFn: (value) => authApi.setup(value),
+    mutationFn: ({ pass, user }) => authApi.setup(pass, user),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['auth', 'status'] })
-      navigate('/onboarding', { replace: true })
+      await handleLoginSuccess('/onboarding')
     },
-    onError: (err) => {
-      setError(err.message)
-    },
+    onError: (err) => setError(err.message),
   })
 
-  const loginMutation = useMutation({
-    mutationFn: (value) => authApi.login(value),
+  const credentialsMutation = useMutation({
+    mutationFn: ({ user, pass }) => authApi.loginCredentials(user, pass),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['auth', 'status'] })
-      navigate(fromPath, { replace: true })
+      await handleLoginSuccess(fromPath)
     },
-    onError: (err) => {
-      setError(err.message)
-    },
+    onError: (err) => setError(err.message),
   })
 
-  if (isLoading) {
+  const bootstrapMutation = useMutation({
+    mutationFn: ({ user, pass }) => authApi.adminBootstrapComplete(user, pass),
+    onSuccess: async () => {
+      await handleLoginSuccess('/downloads')
+    },
+    onError: (err) => setError(err.message),
+  })
+
+  const setupTokenMutation = useMutation({
+    mutationFn: (value) => authApi.completeSetupToken(setupToken, value),
+    onSuccess: () => {
+      setError('')
+      setPassword('')
+    },
+    onError: (err) => setError(err.message),
+  })
+
+  const plexStartMutation = useMutation({
+    mutationFn: authApi.plexStart,
+    onSuccess: (data) => {
+      const pinId = data.id
+      const pollEveryMs = Math.max(1, Number(data.poll_interval_seconds || 2)) * 1000
+      const timeoutMs = Math.max(30, Number(data.expires_in || 300)) * 1000
+
+      const popup = window.open(data.auth_url, '_blank', 'noopener,noreferrer')
+      const startedAt = Date.now()
+      if (pollTimerRef.current) clearInterval(pollTimerRef.current)
+
+      pollTimerRef.current = setInterval(async () => {
+        if (Date.now() - startedAt > timeoutMs) {
+          clearInterval(pollTimerRef.current)
+          pollTimerRef.current = null
+          setError('Plex login timed out. Please try again.')
+          return
+        }
+        try {
+          await authApi.plexComplete(pinId)
+          clearInterval(pollTimerRef.current)
+          pollTimerRef.current = null
+          try {
+            if (popup && !popup.closed) popup.close()
+          } catch {
+            // noop
+          }
+          await handleLoginSuccess(fromPath)
+        } catch (err) {
+          if (err?.status === 202 || (err?.message || '').includes('not complete')) {
+            return
+          }
+          clearInterval(pollTimerRef.current)
+          pollTimerRef.current = null
+          setError(err.message || 'Plex login failed')
+        }
+      }, pollEveryMs)
+    },
+    onError: (err) => setError(err.message),
+  })
+
+  if (isLoading || setupLoading) {
     return (
       <Stack align="center" justify="center" h={320}>
         <Loader />
@@ -68,23 +161,62 @@ export default function Login() {
   }
 
   const isSetupMode = !status?.password_set
-  const isSubmitting = setupMutation.isPending || loginMutation.isPending
+  const isBootstrapMode = Boolean(status?.bootstrap_required)
+  const isSubmitting =
+    setupMutation.isPending ||
+    credentialsMutation.isPending ||
+    bootstrapMutation.isPending ||
+    plexStartMutation.isPending ||
+    setupTokenMutation.isPending
 
   const handleSubmit = (e) => {
     e.preventDefault()
     setError('')
 
-    if (!password || password.length < 8) {
-      setError('Password must be at least 8 characters')
+    if (setupToken) {
+      if (!password || password.length < 8) {
+        setError('Password must be at least 8 characters')
+        return
+      }
+      setupTokenMutation.mutate(password)
       return
     }
 
     if (isSetupMode) {
-      setupMutation.mutate(password)
+      if (!password || password.length < 8) {
+        setError('Password must be at least 8 characters')
+        return
+      }
+      if (!setupUsername.trim()) {
+        setError('Admin username is required')
+        return
+      }
+      setupMutation.mutate({ pass: password, user: setupUsername.trim() })
       return
     }
 
-    loginMutation.mutate(password)
+    if (isBootstrapMode) {
+      if (!bootstrapUsername.trim()) {
+        setError('Username is required')
+        return
+      }
+      if (!bootstrapPassword) {
+        setError('Legacy admin password is required')
+        return
+      }
+      bootstrapMutation.mutate({ user: bootstrapUsername.trim(), pass: bootstrapPassword })
+      return
+    }
+
+    if (!username.trim()) {
+      setError('Username is required')
+      return
+    }
+    if (!password) {
+      setError('Password is required')
+      return
+    }
+    credentialsMutation.mutate({ user: username.trim(), pass: password })
   }
 
   return (
@@ -104,102 +236,85 @@ export default function Login() {
         }
       `}</style>
 
-      <Card
-        withBorder
-        shadow="md"
-        w="100%"
-        maw={400}
-        radius="lg"
-        p={0}
-        style={{
-          borderTop: '3px solid #f59f00',
-          overflow: 'hidden',
-        }}
-      >
-        {/* Branded header */}
+      <Card withBorder shadow="md" w="100%" maw={440} radius="lg" p={0} style={{ borderTop: '3px solid #f59f00', overflow: 'hidden' }}>
         <Box px="lg" pt="lg" pb="md">
           <Group justify="space-between" align="center">
-            <Text
-              style={{
-                fontFamily: "'Bebas Neue', cursive",
-                fontSize: 24,
-                letterSpacing: '0.12em',
-                color: '#f59f00',
-                lineHeight: 1,
-              }}
-            >
+            <Text style={{ fontFamily: "'Bebas Neue', cursive", fontSize: 24, letterSpacing: '0.12em', color: '#f59f00', lineHeight: 1 }}>
               MUSTARRD
             </Text>
             <Group gap={6} align="center">
-              <Box
-                style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: '50%',
-                  background: '#fa5252',
-                  animation: 'mustarrd-rec-pulse 1.5s ease-in-out infinite',
-                }}
-              />
-              <Text
-                size="xs"
-                fw={700}
-                c="red"
-                style={{ letterSpacing: '0.12em' }}
-              >
-                REC
-              </Text>
+              <Box style={{ width: 8, height: 8, borderRadius: '50%', background: '#fa5252', animation: 'mustarrd-rec-pulse 1.5s ease-in-out infinite' }} />
+              <Text size="xs" fw={700} c="red" style={{ letterSpacing: '0.12em' }}>REC</Text>
             </Group>
           </Group>
         </Box>
 
-        <Box
-          style={{
-            height: 1,
-            background: isDark ? '#2C2E33' : '#e9ecef',
-          }}
-        />
+        <Box style={{ height: 1, background: isDark ? '#2C2E33' : '#e9ecef' }} />
 
-        {/* Form */}
         <Stack px="lg" pt="lg" pb="xl" gap="md">
           <Stack gap={4}>
             <Text fw={600} size="xl">
-              {isSetupMode ? 'Set Admin Password' : 'Admin Login'}
+              {setupToken
+                ? 'Set Your Password'
+                : isSetupMode
+                ? 'Set Admin Password'
+                : isBootstrapMode
+                ? 'Choose Admin Username'
+                : 'Sign In'}
             </Text>
             <Text size="sm" c="dimmed">
-              {isSetupMode
-                ? 'Create a password to protect Settings.'
-                : 'Enter your password to manage Settings.'}
+              {setupToken
+                ? `Create a password for ${setupInfo?.display_name || setupInfo?.username || 'your account'}.`
+                : isBootstrapMode
+                ? 'Existing install detected. Choose an admin username and confirm your current admin password.'
+                : 'Use username + password, or sign in with Plex.'}
             </Text>
           </Stack>
 
-          {error && (
-            <Alert color="red" icon={<IconAlertCircle size={16} />} radius="md">
-              {error}
-            </Alert>
-          )}
+          {error && <Alert color="red" icon={<IconAlertCircle size={16} />} radius="md">{error}</Alert>}
 
           <form onSubmit={handleSubmit}>
             <Stack gap="sm">
+              {!setupToken && !isSetupMode && !isBootstrapMode && (
+                <TextInput label="Username" value={username} onChange={(e) => setUsername(e.target.value)} autoFocus required />
+              )}
+
+              {!setupToken && isSetupMode && (
+                <TextInput label="Admin Username" value={setupUsername} onChange={(e) => setSetupUsername(e.target.value)} autoFocus required />
+              )}
+
+              {!setupToken && isBootstrapMode && (
+                <TextInput label="Admin Username" value={bootstrapUsername} onChange={(e) => setBootstrapUsername(e.target.value)} autoFocus required />
+              )}
+
               <PasswordInput
-                label="Password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoFocus
+                label={isBootstrapMode ? 'Current Admin Password' : 'Password'}
+                value={isBootstrapMode ? bootstrapPassword : password}
+                onChange={(e) => (isBootstrapMode ? setBootstrapPassword(e.target.value) : setPassword(e.target.value))}
+                autoFocus={isSetupMode || Boolean(setupToken)}
                 required
                 size="md"
               />
-              <Button
-                type="submit"
-                loading={isSubmitting}
-                size="md"
-                color="yellow"
-                fullWidth
-                mt={4}
-              >
-                {isSetupMode ? 'Save Password' : 'Sign In'}
+
+              <Button type="submit" loading={isSubmitting} size="md" color="yellow" fullWidth mt={4}>
+                {setupToken ? 'Save Password' : isSetupMode ? 'Save Password' : isBootstrapMode ? 'Complete Admin Setup' : 'Sign In'}
               </Button>
             </Stack>
           </form>
+
+          {!setupToken && !isSetupMode && !isBootstrapMode && (
+            <>
+              <Divider label="or" labelPosition="center" />
+              <Button
+                variant="light"
+                leftSection={<IconServer size={16} />}
+                onClick={() => plexStartMutation.mutate()}
+                loading={plexStartMutation.isPending}
+              >
+                Sign In with Plex
+              </Button>
+            </>
+          )}
         </Stack>
       </Card>
     </Box>

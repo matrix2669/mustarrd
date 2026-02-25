@@ -13,6 +13,7 @@ import {
   Alert,
   Tooltip,
   Button,
+  Switch,
 } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -33,7 +34,7 @@ import {
 import dayjs from 'dayjs'
 import duration from 'dayjs/plugin/duration'
 
-import { downloadsApi, createDownloadWebSocket } from '../api'
+import { authApi, downloadsApi, createDownloadWebSocket } from '../api'
 import ProgressBar from '../components/ProgressBar'
 
 dayjs.extend(duration)
@@ -82,7 +83,7 @@ function getStatusBadge(status) {
   )
 }
 
-function DownloadCard({ download, isDesktop, onCancel, onRetry, onDelete, onOpenFileLocation, onPlayFile }) {
+function DownloadCard({ download, isDesktop, isAdmin, onCancel, onRetry, onDelete, onOpenFileLocation, onPlayFile }) {
   const isActive = ['pending', 'downloading', 'processing'].includes(download.status)
   const canRetry = ['failed', 'cancelled'].includes(download.status)
   const downloadProgress = typeof download.download_progress === 'number'
@@ -161,6 +162,16 @@ function DownloadCard({ download, isDesktop, onCancel, onRetry, onDelete, onOpen
             ({formatDuration(download.duration_minutes)})
           </Text>
         </Group>
+
+        {isAdmin && (
+          <Text size="xs" c="dimmed">
+            Requested by:{' '}
+            {download.requested_by?.display_name ||
+              download.requested_by?.username ||
+              (download.requested_by_user_id ? `User #${download.requested_by_user_id}` : 'legacy/unknown')}
+            {' '}({download.requested_by?.provider || download.request_source || 'unknown'})
+          </Text>
+        )}
 
         {['downloading', 'processing'].includes(download.status) && (
           <Stack gap={6}>
@@ -305,6 +316,20 @@ export default function Downloads() {
     queryKey: ['downloads'],
     queryFn: downloadsApi.list,
     refetchInterval: 5000,
+  })
+  const { data: authStatus } = useQuery({
+    queryKey: ['auth', 'status'],
+    queryFn: authApi.status,
+  })
+  const { data: preferences } = useQuery({
+    queryKey: ['auth', 'preferences'],
+    queryFn: authApi.getPreferences,
+  })
+  const updatePreferencesMutation = useMutation({
+    mutationFn: (value) => authApi.updatePreferences(value),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['auth', 'preferences'] })
+    },
   })
 
   // WebSocket for real-time updates
@@ -467,7 +492,15 @@ export default function Downloads() {
 
   return (
     <Stack>
-      <Title order={2}>Downloads</Title>
+      <Group justify="space-between" align="center">
+        <Title order={2}>Downloads</Title>
+        <Switch
+          label="Show Future Programs"
+          checked={Boolean(preferences?.show_future_programs)}
+          onChange={(event) => updatePreferencesMutation.mutate(event.currentTarget.checked)}
+          disabled={updatePreferencesMutation.isPending}
+        />
+      </Group>
 
       <Tabs defaultValue="active">
         <Tabs.List>
@@ -495,6 +528,7 @@ export default function Downloads() {
                 <DownloadCard
                   key={download.id}
                   download={download}
+                  isAdmin={Boolean(authStatus?.is_admin)}
                   isDesktop={isDesktop}
                   onCancel={(d) => cancelMutation.mutate(d)}
                   onRetry={(d) => retryMutation.mutate(d)}
@@ -523,6 +557,7 @@ export default function Downloads() {
                 <DownloadCard
                   key={download.id}
                   download={download}
+                  isAdmin={Boolean(authStatus?.is_admin)}
                   isDesktop={isDesktop}
                   onCancel={(d) => cancelMutation.mutate(d)}
                   onRetry={(d) => retryMutation.mutate(d)}

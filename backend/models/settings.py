@@ -55,6 +55,7 @@ class AppSettings(Base):
     comskip_path: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     comskip_ini_path: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     admin_password_hash: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    admin_username_bootstrap_required: Mapped[bool] = mapped_column(Boolean, default=False)
     onboarding_dismissed: Mapped[bool] = mapped_column(Boolean, default=False)
     onboarding_processing_confirmed: Mapped[bool] = mapped_column(Boolean, default=False)
     onboarding_comskip_confirmed: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -82,6 +83,7 @@ class AppSettings(Base):
             "comskip_enabled": self.comskip_enabled,
             "comskip_path": self.comskip_path,
             "comskip_ini_path": self.comskip_ini_path,
+            "admin_username_bootstrap_required": self.admin_username_bootstrap_required,
             "epg_offset_minutes": self.epg_offset_minutes,
             "show_future_programs": self.show_future_programs,
             "launch_on_startup": self.launch_on_startup,
