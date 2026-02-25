@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import settings as app_settings
 from models import Download, DownloadStatus, XtreamAccount, AppSettings
+from services.account_credentials import resolve_account_password_with_migration
 from services.xtream_client import XtreamClient
 from services.file_namer import file_namer
 from services.vod_namer import movie_output_path, series_episode_output_path
@@ -66,7 +67,8 @@ async def build_movie_download(
     if trusted_direct_source:
         source_url = trusted_direct_source
     else:
-        client = XtreamClient(account.server_url, account.username, account.password)
+        password = await resolve_account_password_with_migration(session, account)
+        client = XtreamClient(account.server_url, account.username, password)
         source_url = client.build_vod_url(vod_id, container_extension)
 
     now = datetime.utcnow()
@@ -121,7 +123,8 @@ async def build_episode_download(
     if trusted_direct_source:
         source_url = trusted_direct_source
     else:
-        client = XtreamClient(account.server_url, account.username, account.password)
+        password = await resolve_account_password_with_migration(session, account)
+        client = XtreamClient(account.server_url, account.username, password)
         source_url = client.build_series_url(episode_id, container_extension)
 
     now = datetime.utcnow()

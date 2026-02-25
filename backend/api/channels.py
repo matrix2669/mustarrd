@@ -7,6 +7,7 @@ from auth import require_admin
 from database import get_session
 from models import XtreamAccount
 from services.epg_service import epg_service
+from services.account_credentials import resolve_account_password_with_migration
 from services.xtream_client import XtreamClient
 
 
@@ -53,7 +54,8 @@ async def get_channels(
         raise HTTPException(status_code=404, detail="Account not found")
 
     try:
-        client = XtreamClient(account.server_url, account.username, account.password)
+        password = await resolve_account_password_with_migration(session, account)
+        client = XtreamClient(account.server_url, account.username, password)
         try:
             channels = await client.get_live_streams(category_id)
 
@@ -158,7 +160,8 @@ async def get_channel_info(
         raise HTTPException(status_code=404, detail="Account not found")
 
     try:
-        client = XtreamClient(account.server_url, account.username, account.password)
+        password = await resolve_account_password_with_migration(session, account)
+        client = XtreamClient(account.server_url, account.username, password)
         try:
             channels = await client.get_live_streams()
             channel = next((ch for ch in channels if str(ch.get("stream_id")) == channel_id), None)

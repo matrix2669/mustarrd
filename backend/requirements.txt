@@ -11,3 +11,4 @@ python-multipart>=0.0.17
 websockets>=14.0
 itsdangerous>=2.2.0
 defusedxml>=0.7.1
+cryptography>=44.0.0

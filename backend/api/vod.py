@@ -7,6 +7,7 @@ from typing import Optional
 from auth import require_admin
 from database import get_session
 from models import XtreamAccount
+from services.account_credentials import resolve_account_password_with_migration
 from services.xtream_client import XtreamClient
 from services.vod_service import build_movie_download, build_episode_download
 from services.download_manager import download_manager
@@ -41,8 +42,9 @@ class SeriesDownloadRequest(BaseModel):
     episodes: list[EpisodeItem]
 
 
-def _get_client(account: XtreamAccount) -> XtreamClient:
-    return XtreamClient(account.server_url, account.username, account.password)
+async def _get_client(session: AsyncSession, account: XtreamAccount) -> XtreamClient:
+    password = await resolve_account_password_with_migration(session, account)
+    return XtreamClient(account.server_url, account.username, password)
 
 
 async def _get_account(session: AsyncSession, account_id: int) -> XtreamAccount:
@@ -62,7 +64,7 @@ async def get_movie_categories(
     session: AsyncSession = Depends(get_session)
 ):
     account = await _get_account(session, account_id)
-    client = _get_client(account)
+    client = await _get_client(session, account)
     try:
         return await client.get_vod_categories()
     finally:
@@ -77,7 +79,7 @@ async def get_movies(
     session: AsyncSession = Depends(get_session)
 ):
     account = await _get_account(session, account_id)
-    client = _get_client(account)
+    client = await _get_client(session, account)
     try:
         return await client.get_vod_streams(category_id)
     finally:
@@ -92,7 +94,7 @@ async def get_movie_info(
     session: AsyncSession = Depends(get_session)
 ):
     account = await _get_account(session, account_id)
-    client = _get_client(account)
+    client = await _get_client(session, account)
     try:
         return await client.get_vod_info(vod_id)
     finally:
@@ -130,7 +132,7 @@ async def get_series_categories(
     session: AsyncSession = Depends(get_session)
 ):
     account = await _get_account(session, account_id)
-    client = _get_client(account)
+    client = await _get_client(session, account)
     try:
         return await client.get_series_categories()
     finally:
@@ -145,7 +147,7 @@ async def get_series(
     session: AsyncSession = Depends(get_session)
 ):
     account = await _get_account(session, account_id)
-    client = _get_client(account)
+    client = await _get_client(session, account)
     try:
         return await client.get_series(category_id)
     finally:
@@ -160,7 +162,7 @@ async def get_series_info(
     session: AsyncSession = Depends(get_session)
 ):
     account = await _get_account(session, account_id)
-    client = _get_client(account)
+    client = await _get_client(session, account)
     try:
         return await client.get_series_info(series_id)
     finally:

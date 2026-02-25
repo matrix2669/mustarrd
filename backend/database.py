@@ -168,6 +168,7 @@ def _ensure_account_columns(conn):
     existing_columns = {col["name"] for col in inspector.get_columns("xtream_accounts")}
     additions = {
         "last_epg_backfill_at": "DATETIME",
+        "password_encrypted": "VARCHAR(2048)",
     }
 
     for column_name, column_def in additions.items():

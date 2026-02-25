@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import Download, DownloadStatus, AppSettings, XtreamAccount
+from services.account_credentials import resolve_account_password_with_migration
 from services.file_namer import file_namer
 from services.epg_service import epg_service
 from services.xtream_client import XtreamClient
@@ -87,7 +88,8 @@ async def build_download_from_program(
     if post_padding:
         padded_duration += post_padding
 
-    client = XtreamClient(account.server_url, account.username, account.password)
+    password = await resolve_account_password_with_migration(session, account)
+    client = XtreamClient(account.server_url, account.username, password)
     source_url = client.build_timeshift_url(channel_id, padded_start_utc, padded_duration)
 
     return Download(
