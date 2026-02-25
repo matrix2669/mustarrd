@@ -1,0 +1,36 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>mustarrd</Name>
+  <Repository>ghcr.io/razzamatazm/mustarrd/backend:latest</Repository>
+  <Registry>https://raw.githubusercontent.com/razzamatazm/unraidrepo/refs/heads/main/mustarrd.xml</Registry>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>bash</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://forums.unraid.net/topic/155853-support-binhex-flaresolverr/</Support>
+  <Project>https://github.com/razzamatazm/mustarrd</Project>
+  <ReadMe>https://github.com/razzamatazm/mustarrd</ReadMe>
+  <Overview>Mustarrd is an IPTV catchup direct downloader for Xtream Codes providers. Browse EPG history, queue catchup downloads, schedule future recording downloads, remove commercials, and save files for media player apps.</Overview>
+  <Category>Downloaders: MediaApp:Video</Category>
+  <WebUI>http://[IP]:[PORT:4177]/</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/razzamatazm/unraidrepo/refs/heads/main/mustarrd.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/razzamatazm/mustarrd/main/frontend/src/assets/mustarrdicon.png</Icon>
+  <ExtraParams>--restart=always</ExtraParams>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled>1772052148</DateInstalled>
+  <DonateText>If you appreciate my work, then please consider buying me a beer :D</DonateText>
+  <DonateLink>https://www.paypal.com/donate/?hosted_button_id=FHP6W4Y59ZUV6</DonateLink>
+  <Requires/>
+  <Config Name="Port: mustarrd" Target="4177" Default="4177" Mode="tcp" Description="This is the port for the application." Type="Port" Display="always" Required="true" Mask="false">4177</Config>
+  <Config Name="Path: /config" Target="/config" Default="/mnt/cache/appdata/mustarrd" Mode="rw" Description="This is the container path to your configuration files, e.g. databases, configuration files, logs etc." Type="Path" Display="always" Required="true" Mask="false">/mnt/cache/appdata/mustarrd</Config>
+  <Config Name="Temp Processing Files" Target="/app/downloads" Default="" Mode="rw" Description="In-progress downloads and temp processing files" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/data/media/tvrecordingstemp/</Config>
+  <Config Name="Processed Media" Target="/app/completed" Default="" Mode="rw" Description="Final output location for completed files" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/data/media/tvrecordings/</Config>
+  <Config Name="VAAPI Driver" Target="LIBVA_DRIVER_NAME" Default="iHD" Mode="" Description="Set to i965 for older Intel iGPU generations" Type="Variable" Display="advanced" Required="false" Mask="false">iHD</Config>
+  <Config Name="Timezone" Target="TZ" Default="" Mode="" Description="Your local Timezone" Type="Variable" Display="always" Required="true" Mask="false">America/Los_Angeles</Config>
+  <Config Name="EPG Timezone" Target="CATCHUP_TIMEZONE" Default="UTC" Mode="" Description="Program guide display timezone inside Mustarrd" Type="Variable" Display="advanced" Required="false" Mask="false">UTC</Config>
+  <Config Name="GPU Device" Target="/dev/dri" Default="" Mode="" Description="Optional Intel/AMD GPU passthrough for ffmpeg acceleration" Type="Device" Display="advanced" Required="false" Mask="false">/dev/dri</Config>
+  <Config Name="Variable: PUID" Target="PUID" Default="99" Mode="{3}" Description="User ID for the running container" Type="Variable" Display="advanced" Required="true" Mask="false">99</Config>
+  <Config Name="Variable: PGID" Target="PGID" Default="100" Mode="{3}" Description="Group ID for the running container" Type="Variable" Display="advanced" Required="true" Mask="false">100</Config>
+  <TailscaleStateDir/>
+</Container>

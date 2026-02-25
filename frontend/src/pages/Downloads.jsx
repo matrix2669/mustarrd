@@ -14,6 +14,7 @@ import {
   Tooltip,
   Button,
   Switch,
+  Collapse,
 } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -30,6 +31,8 @@ import {
   IconSettings,
   IconPlayerPlay,
   IconFolderOpen,
+  IconChevronDown,
+  IconChevronUp,
 } from '@tabler/icons-react'
 import dayjs from 'dayjs'
 import duration from 'dayjs/plugin/duration'
@@ -84,6 +87,7 @@ function getStatusBadge(status) {
 }
 
 function DownloadCard({ download, isDesktop, isAdmin, onCancel, onRetry, onDelete, onOpenFileLocation, onPlayFile }) {
+  const [showLogDetails, setShowLogDetails] = useState(false)
   const isActive = ['pending', 'downloading', 'processing'].includes(download.status)
   const canRetry = ['failed', 'cancelled'].includes(download.status)
   const downloadProgress = typeof download.download_progress === 'number'
@@ -225,15 +229,29 @@ function DownloadCard({ download, isDesktop, isAdmin, onCancel, onRetry, onDelet
         )}
 
         {download.logs?.length > 0 && (
-          <Card withBorder radius="sm" p="xs" bg="dark.8">
-            <Stack gap={2}>
-              {download.logs.slice(-6).map((line, index) => (
-                <Text key={`${download.id}-log-${index}`} size="xs" c="dimmed" ff="monospace">
-                  {line}
-                </Text>
-              ))}
-            </Stack>
-          </Card>
+          <Stack gap={6}>
+            <Group>
+              <Button
+                size="compact-xs"
+                variant="subtle"
+                leftSection={showLogDetails ? <IconChevronUp size={12} /> : <IconChevronDown size={12} />}
+                onClick={() => setShowLogDetails((prev) => !prev)}
+              >
+                {showLogDetails ? 'Hide log details' : 'Show log details'}
+              </Button>
+            </Group>
+            <Collapse in={showLogDetails}>
+              <Card withBorder radius="sm" p="xs" bg="dark.8">
+                <Stack gap={2}>
+                  {download.logs.slice(-6).map((line, index) => (
+                    <Text key={`${download.id}-log-${index}`} size="xs" c="dimmed" ff="monospace">
+                      {line}
+                    </Text>
+                  ))}
+                </Stack>
+              </Card>
+            </Collapse>
+          </Stack>
         )}
 
         {download.status === 'completed' && (

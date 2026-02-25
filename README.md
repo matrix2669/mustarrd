@@ -40,6 +40,18 @@ docker compose up -d
 
 Then open **http://localhost:4177** in your browser.
 
+### Unraid
+
+- Use image: `ghcr.io/razzamatazm/mustarrd/backend:latest`
+- Community Apps template: [`unraid/mustarrd.xml`](./unraid/mustarrd.xml)
+- Recommended mappings:
+  - `/app/config` -> `/mnt/user/appdata/mustarrd`
+  - `/app/downloads` -> `/mnt/user/downloads/mustarrd`
+  - `/app/completed` -> your media share (for example `/mnt/user/media`)
+- Port mapping: container `4177` to host `4177` (or another host port if preferred)
+- Optional hardware acceleration: map `/dev/dri` into the container
+- Keep `PUID`/`PGID` aligned with your Unraid user that should own created files
+
 
 ### Desktop App (macOS / Windows)
 
@@ -139,6 +151,12 @@ npm run dev
 **Docker** (full stack):
 ```bash
 docker-compose up -d
+```
+
+### Build and Publish Images
+
+```bash
+scripts/push-ghcr-buildx.sh --repo razzamatazm/mustarrd --tag latest --tag vX.Y.Z
 ```
 
 See `desktop-electron/README.md` for building the macOS/Windows desktop app.
