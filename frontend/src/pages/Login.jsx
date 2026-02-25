@@ -262,13 +262,13 @@ export default function Login() {
                 ? 'Choose Admin Username'
                 : 'Sign In'}
             </Text>
-            <Text size="sm" c="dimmed">
-              {setupToken
-                ? `Create a password for ${setupInfo?.display_name || setupInfo?.username || 'your account'}.`
-                : isBootstrapMode
-                ? 'Existing install detected. Choose an admin username and confirm your current admin password.'
-                : 'Use username + password, or sign in with Plex.'}
-            </Text>
+            {(setupToken || isBootstrapMode) && (
+              <Text size="sm" c="dimmed">
+                {setupToken
+                  ? `Create a password for ${setupInfo?.display_name || setupInfo?.username || 'your account'}.`
+                  : 'Existing install detected. Choose an admin username and confirm your current admin password.'}
+              </Text>
+            )}
           </Stack>
 
           {error && <Alert color="red" icon={<IconAlertCircle size={16} />} radius="md">{error}</Alert>}
