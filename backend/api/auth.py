@@ -146,6 +146,14 @@ async def auth_status(
             "role": context.user.role,
         }
 
+    plex_result = await session.execute(select(PlexServer).where(PlexServer.enabled.is_(True)).limit(1))
+    plex_server = plex_result.scalar_one_or_none()
+    plex_login_available = bool(
+        plex_server
+        and (plex_server.connection_uri or plex_server.base_url)
+        and (plex_server.access_token_encrypted or plex_server.token_encrypted)
+    )
+
     return {
         "authenticated": context.authenticated,
         "password_set": password_set,
@@ -154,6 +162,8 @@ async def auth_status(
         "provider": context.provider,
         "is_admin": context.is_admin,
         "user": profile,
+        "plex_login_available": plex_login_available,
+        "password_reset_required": bool(context.user.password_reset_required) if context.user else False,
         "show_future_programs": await _resolve_future_visibility(context, session) if context.authenticated else bool(app_settings.show_future_programs),
     }
 
@@ -308,6 +318,7 @@ async def login_credentials(
         "role": user.role,
         "provider": provider,
         "user": {"id": user.id, "username": user.username, "display_name": user.display_name},
+        "password_reset_required": bool(user.password_reset_required) if provider == "local" else False,
     }
 
 
@@ -335,7 +346,14 @@ async def login_download_user_legacy(
 
 
 @router.post("/plex/login/start")
-async def plex_login_start():
+async def plex_login_start(session: AsyncSession = Depends(get_session)):
+    plex_result = await session.execute(select(PlexServer).where(PlexServer.enabled.is_(True)).limit(1))
+    plex_server = plex_result.scalar_one_or_none()
+    if not plex_server or not (plex_server.connection_uri or plex_server.base_url):
+        raise HTTPException(status_code=403, detail="Plex login is not configured")
+    if not (plex_server.access_token_encrypted or plex_server.token_encrypted):
+        raise HTTPException(status_code=403, detail="Plex login is not configured")
+
     pin = await plex_service.create_pin()
     pin["poll_interval_seconds"] = 2
     pin["expires_in"] = pin.get("expires_in") or 300
@@ -445,11 +463,22 @@ async def logout_auth(request: Request):
 @router.post("/change-password")
 async def change_password(
     payload: ChangePasswordPayload,
-    context: AuthContext = Depends(require_admin),
+    context: AuthContext = Depends(require_authenticated),
     session: AsyncSession = Depends(get_session),
 ):
-    if not context.user or not context.user.password_hash:
-        raise HTTPException(status_code=400, detail="Admin user is not configured")
+    if not context.user or not context.user_id:
+        raise HTTPException(status_code=400, detail="User is not configured")
+    if int(context.user.id) != int(context.user_id):
+        raise HTTPException(status_code=403, detail="You can only change your own password")
+    if not context.user.password_hash:
+        if context.is_admin:
+            raise HTTPException(status_code=400, detail="Admin user is not configured")
+        raise HTTPException(status_code=400, detail="Local password is not configured")
+    if not context.is_admin and context.provider != "local":
+        raise HTTPException(
+            status_code=400,
+            detail="Password changes are only available for local download users",
+        )
 
     if not verify_password(payload.current_password, context.user.password_hash):
         raise HTTPException(status_code=401, detail="Current password is incorrect")
@@ -459,13 +488,18 @@ async def change_password(
 
     hashed = hash_password(payload.new_password)
     context.user.password_hash = hashed
+    context.user.password_reset_required = False
     context.user.updated_at = datetime.utcnow()
 
-    app_settings = await get_or_create_app_settings(session)
-    app_settings.admin_password_hash = hashed
+    if context.is_admin:
+        app_settings = await get_or_create_app_settings(session)
+        app_settings.admin_password_hash = hashed
     await session.commit()
 
-    return {"status": "password_updated"}
+    return {
+        "status": "password_updated",
+        "role": "admin" if context.is_admin else "download_only",
+    }
 
 
 @router.get("/preferences")
@@ -544,6 +578,7 @@ async def complete_user_setup(
         raise HTTPException(status_code=404, detail="User not found")
 
     user.password_hash = hash_password(payload.password)
+    user.password_reset_required = False
     user.status = "active"
     user.updated_at = datetime.utcnow()
     row.used_at = datetime.utcnow()
