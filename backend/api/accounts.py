@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -17,13 +18,14 @@ from services.xtream_client import XtreamClient
 
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _log_task_result(task: asyncio.Task):
     try:
         task.result()
     except Exception as exc:
-        print(f"EPG refresh task failed: {exc}")
+        logger.exception("EPG refresh task failed: %s", exc)
 
 
 class AccountCreate(BaseModel):

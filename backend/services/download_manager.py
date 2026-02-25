@@ -1,6 +1,7 @@
 import asyncio
 import aiohttp
 import aiofiles
+import logging
 import os
 import shutil
 from pathlib import Path
@@ -15,6 +16,8 @@ from database import async_session_maker
 from services.log_stream import backend_log_stream
 from services.credential_crypto import credential_crypto
 from services.plex_service import plex_service
+
+logger = logging.getLogger(__name__)
 
 
 class DownloadManager:
@@ -33,6 +36,7 @@ class DownloadManager:
         self._max_concurrent = 2
         self._max_concurrent_post_processing = 1
         self._running = False
+        self._loop_error_logged_at: Dict[str, datetime] = {}
 
     def set_max_concurrent(self, max_concurrent: int):
         self._max_concurrent = max_concurrent
@@ -295,7 +299,13 @@ class DownloadManager:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                print(f"Error in queue processor: {e}")
+                if self._should_log_loop_error("download_queue"):
+                    logger.exception("Error in queue processor")
+                    await backend_log_stream.emit(
+                        source="download",
+                        level="error",
+                        message=f"Queue processor error: {e}",
+                    )
                 await asyncio.sleep(1)
 
     async def process_post_queue(self):
@@ -329,7 +339,13 @@ class DownloadManager:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                print(f"Error in post-processing queue processor: {e}")
+                if self._should_log_loop_error("post_queue"):
+                    logger.exception("Error in post-processing queue processor")
+                    await backend_log_stream.emit(
+                        source="download",
+                        level="error",
+                        message=f"Post-processing queue error: {e}",
+                    )
                 await asyncio.sleep(1)
 
     async def recover_incomplete_downloads(self) -> int:
@@ -1104,7 +1120,7 @@ class DownloadManager:
             except Exception as e:
                 await log_callback(f"Comskip error: {e}")
                 warnings.append(f"Comskip failed: {e}")
-                print(f"Comskip error (continuing anyway): {e}")
+                logger.exception("Comskip error (continuing anyway)")
 
         # Transcode if enabled (and not already done by commercial removal)
         if will_transcode and not commercials_removed:
@@ -1135,9 +1151,20 @@ class DownloadManager:
             except Exception as e:
                 await log_callback(f"Transcode error: {e}")
                 warnings.append(f"Transcode failed: {e}")
-                print(f"Transcode error (continuing anyway): {e}")
+                logger.exception("Transcode error (continuing anyway)")
 
         return current_path, warnings
+
+    def _should_log_loop_error(self, key: str, cooldown_seconds: int = 60) -> bool:
+        now = datetime.utcnow()
+        last_logged = self._loop_error_logged_at.get(key)
+        if not last_logged:
+            self._loop_error_logged_at[key] = now
+            return True
+        if (now - last_logged).total_seconds() >= cooldown_seconds:
+            self._loop_error_logged_at[key] = now
+            return True
+        return False
 
     async def cancel_download(self, download_id: int) -> bool:
         """Cancel a download."""

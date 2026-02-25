@@ -2,6 +2,7 @@ import asyncio
 import base64
 import gzip
 import io
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Iterable, Optional
 from xml.etree.ElementTree import Element
@@ -16,6 +17,8 @@ from services.account_credentials import resolve_account_password
 from services.xtream_client import XtreamClient
 from services.epg_service import epg_service
 from services.log_stream import backend_log_stream
+
+logger = logging.getLogger(__name__)
 
 
 class EPGIngestManager:
@@ -54,7 +57,7 @@ class EPGIngestManager:
             except asyncio.CancelledError:
                 break
             except Exception as exc:
-                print(f"Error refreshing XMLTV: {exc}")
+                logger.exception("Error refreshing XMLTV")
                 await self._log(f"EPG refresh loop error: {exc}", level="error")
             await asyncio.sleep(self._interval)
 
@@ -134,7 +137,7 @@ class EPGIngestManager:
                 self._status.update({
                     "last_error": str(exc),
                 })
-                print(f"Error refreshing XMLTV for account {account.id}: {exc}")
+                logger.exception("Error refreshing XMLTV for account %s", account.id)
                 await self._log(f"EPG refresh failed: {exc}", level="error", account=account)
 
         self._status.update({

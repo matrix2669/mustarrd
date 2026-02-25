@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from datetime import datetime, timezone
 
 from sqlalchemy import select
@@ -10,11 +11,14 @@ from config import settings as app_settings
 import os
 import shutil
 
+logger = logging.getLogger(__name__)
+
 
 class ScheduledManager:
     def __init__(self):
         self._running = False
         self._poll_interval = 30
+        self._last_loop_error_at: datetime | None = None
 
     async def process_queue(self):
         self._running = True
@@ -25,7 +29,8 @@ class ScheduledManager:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                print(f"Error in schedule processor: {e}")
+                if self._should_log_loop_error():
+                    logger.exception("Error in schedule processor")
             await asyncio.sleep(self._poll_interval)
 
     async def _queue_ready_recordings(self):
@@ -117,6 +122,16 @@ class ScheduledManager:
             os.makedirs(path, exist_ok=True)
         usage = shutil.disk_usage(path)
         return usage.free / (1024 ** 3)
+
+    def _should_log_loop_error(self, cooldown_seconds: int = 60) -> bool:
+        now = datetime.utcnow()
+        if self._last_loop_error_at is None:
+            self._last_loop_error_at = now
+            return True
+        if (now - self._last_loop_error_at).total_seconds() >= cooldown_seconds:
+            self._last_loop_error_at = now
+            return True
+        return False
 
 
 scheduled_manager = ScheduledManager()
