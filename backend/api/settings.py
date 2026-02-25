@@ -5,7 +5,7 @@ from sqlalchemy import select
 from typing import Optional
 import os
 
-from auth import require_admin
+from auth import require_admin, require_authenticated, AuthContext
 from database import get_session
 from config import (
     ensure_config_files,
@@ -314,7 +314,7 @@ async def get_tools_status(_admin: None = Depends(require_admin)):
 
 @router.get("/public")
 async def get_public_settings(
-    _admin: None = Depends(require_admin),
+    auth: AuthContext = Depends(require_authenticated),
     session: AsyncSession = Depends(get_session),
 ):
     """Get safe settings values used by public browsing/download flows."""
@@ -327,8 +327,12 @@ async def get_public_settings(
         await session.commit()
         await session.refresh(settings)
 
+    show_future = bool(settings.show_future_programs)
+    if not auth.is_admin and auth.user and auth.user.show_future_programs is not None:
+        show_future = bool(auth.user.show_future_programs)
+
     return {
-        "show_future_programs": bool(settings.show_future_programs),
+        "show_future_programs": show_future,
         "default_pre_padding_minutes": settings.default_pre_padding_minutes or 1,
         "default_post_padding_minutes": settings.default_post_padding_minutes or 5,
     }

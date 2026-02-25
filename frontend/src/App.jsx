@@ -46,6 +46,12 @@ function ProtectedRoute({ authStatus, authLoading }) {
   return <Navigate to="/login" replace state={{ from: location.pathname }} />
 }
 
+function AdminRoute({ authStatus, authLoading }) {
+  if (authLoading) return null
+  if (authStatus?.authenticated && authStatus?.is_admin) return <Outlet />
+  return <Navigate to="/browse" replace />
+}
+
 function OnboardingGate({ onboardingStatus, onboardingLoading }) {
   const location = useLocation()
 
@@ -85,12 +91,12 @@ function App() {
     queryKey: ['epg', 'status'],
     queryFn: epgApi.status,
     refetchInterval: 5000,
-    enabled: Boolean(authStatus?.authenticated),
+    enabled: Boolean(authStatus?.authenticated && authStatus?.is_admin),
   })
   const { data: onboardingStatus, isLoading: onboardingLoading } = useQuery({
     queryKey: ['onboarding', 'status'],
     queryFn: onboardingApi.status,
-    enabled: Boolean(authStatus?.authenticated),
+    enabled: Boolean(authStatus?.authenticated && authStatus?.is_admin),
     refetchOnWindowFocus: true,
   })
 
@@ -237,17 +243,21 @@ function App() {
   }, [authStatus?.authenticated])
 
   const navItems = [
-    { icon: IconSearch, label: 'Browse', to: '/browse', adminOnly: true },
+    { icon: IconSearch, label: 'Browse', to: '/browse', authOnly: true },
     {
       icon: IconDownload,
       label: 'Downloads',
       to: '/downloads',
       badge: activeDownloads > 0 ? activeDownloads : null,
-      adminOnly: true,
+      authOnly: true,
     },
-    { icon: IconCalendar, label: 'Scheduled', to: '/scheduled', adminOnly: true },
+    { icon: IconCalendar, label: 'Scheduled', to: '/scheduled', authOnly: true },
     { icon: IconSettings, label: 'Settings', to: '/settings', adminOnly: true },
-  ].filter((item) => !item.adminOnly || authStatus?.authenticated)
+  ].filter((item) => {
+    if (item.adminOnly) return Boolean(authStatus?.authenticated && authStatus?.is_admin)
+    if (item.authOnly) return Boolean(authStatus?.authenticated)
+    return true
+  })
 
   return (
     <AppShell
@@ -349,7 +359,7 @@ function App() {
             <MantineNavLink
               component={NavLink}
               to="/login"
-              label="Admin Login"
+              label="Sign In"
               leftSection={<IconLogin size={20} />}
               style={{ borderRadius: 8 }}
             />
@@ -362,16 +372,18 @@ function App() {
           <Route path="/" element={<Navigate to="/browse" replace />} />
           <Route path="/login" element={<Login />} />
           <Route element={<ProtectedRoute authStatus={authStatus} authLoading={authLoading} />}>
-            <Route path="/onboarding" element={<Onboarding />} />
-            <Route element={<OnboardingGate onboardingStatus={onboardingStatus} onboardingLoading={onboardingLoading} />}>
-              <Route path="/accounts" element={<Navigate to="/settings?section=accounts" replace />} />
-              <Route path="/settings" element={<Settings />} />
-              <Route path="/browse" element={<Browse />} />
-              <Route path="/downloads" element={<Downloads />} />
-              <Route path="/downloads/:downloadId/play" element={<DownloadPlayer />} />
-              <Route path="/scheduled" element={<Scheduled />} />
-              <Route path="/logs" element={<Navigate to="/settings?section=logs" replace />} />
+            <Route element={<AdminRoute authStatus={authStatus} authLoading={authLoading} />}>
+              <Route path="/onboarding" element={<Onboarding />} />
+              <Route element={<OnboardingGate onboardingStatus={onboardingStatus} onboardingLoading={onboardingLoading} />}>
+                <Route path="/accounts" element={<Navigate to="/settings?section=accounts" replace />} />
+                <Route path="/settings" element={<Settings />} />
+                <Route path="/logs" element={<Navigate to="/settings?section=logs" replace />} />
+              </Route>
             </Route>
+            <Route path="/browse" element={<Browse />} />
+            <Route path="/downloads" element={<Downloads />} />
+            <Route path="/downloads/:downloadId/play" element={<DownloadPlayer />} />
+            <Route path="/scheduled" element={<Scheduled />} />
           </Route>
         </Routes>
       </AppShell.Main>

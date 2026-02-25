@@ -33,6 +33,8 @@ class Download(Base):
     # Download info
     source_url: Mapped[str] = mapped_column(Text)
     output_path: Mapped[str] = mapped_column(String(1000))
+    requested_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    request_source: Mapped[str] = mapped_column(String(32), default="admin")
     status: Mapped[str] = mapped_column(String(50), default=DownloadStatus.PENDING.value)
     progress: Mapped[float] = mapped_column(Float, default=0.0)
     file_size: Mapped[int] = mapped_column(Integer, default=0)
@@ -55,6 +57,8 @@ class Download(Base):
             "program_end": self.program_end.isoformat() if self.program_end else None,
             "duration_minutes": self.duration_minutes,
             "output_path": self.output_path,
+            "requested_by_user_id": self.requested_by_user_id,
+            "request_source": self.request_source,
             "status": self.status,
             "progress": self.progress,
             "file_size": self.file_size,

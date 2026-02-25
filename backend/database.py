@@ -27,6 +27,10 @@ async def init_db():
         await conn.run_sync(_migrate_app_settings_schema)
         await conn.run_sync(_ensure_account_columns)
         await conn.run_sync(_ensure_download_columns)
+        await conn.run_sync(_ensure_scheduled_columns)
+        await conn.run_sync(_ensure_user_columns)
+        await conn.run_sync(_ensure_plex_server_columns)
+        await conn.run_sync(_ensure_identity_indexes)
         await conn.run_sync(_ensure_epg_program_indexes)
 
 
@@ -43,6 +47,7 @@ def _ensure_app_settings_columns(conn):
         "launch_on_startup": "BOOLEAN DEFAULT 1",
         "max_concurrent_post_processing": "INTEGER DEFAULT 1",
         "admin_password_hash": "VARCHAR(500)",
+        "admin_username_bootstrap_required": "BOOLEAN DEFAULT 0",
         "onboarding_dismissed": "BOOLEAN DEFAULT 0",
         "onboarding_processing_confirmed": "BOOLEAN DEFAULT 0",
         "onboarding_comskip_confirmed": "BOOLEAN DEFAULT 0",
@@ -93,6 +98,7 @@ def _migrate_app_settings_schema(conn):
             comskip_path VARCHAR(1000),
             comskip_ini_path VARCHAR(1000),
             admin_password_hash VARCHAR(500),
+            admin_username_bootstrap_required BOOLEAN DEFAULT 0,
             onboarding_dismissed BOOLEAN DEFAULT 0,
             onboarding_processing_confirmed BOOLEAN DEFAULT 0,
             onboarding_comskip_confirmed BOOLEAN DEFAULT 0,
@@ -126,6 +132,7 @@ def _migrate_app_settings_schema(conn):
         "comskip_path",
         "comskip_ini_path",
         "admin_password_hash",
+        "admin_username_bootstrap_required",
         "onboarding_dismissed",
         "onboarding_processing_confirmed",
         "onboarding_comskip_confirmed",
@@ -151,6 +158,8 @@ def _ensure_download_columns(conn):
     existing_columns = {col["name"] for col in inspector.get_columns("downloads")}
     additions = {
         "is_vod": "BOOLEAN DEFAULT 0",
+        "requested_by_user_id": "INTEGER",
+        "request_source": "VARCHAR(32) DEFAULT 'admin'",
     }
 
     for column_name, column_def in additions.items():
@@ -158,6 +167,73 @@ def _ensure_download_columns(conn):
             conn.exec_driver_sql(
                 f"ALTER TABLE downloads ADD COLUMN {column_name} {column_def}"
             )
+
+
+def _ensure_scheduled_columns(conn):
+    inspector = inspect(conn)
+    if "scheduled_recordings" not in inspector.get_table_names():
+        return
+
+    existing_columns = {col["name"] for col in inspector.get_columns("scheduled_recordings")}
+    additions = {
+        "requested_by_user_id": "INTEGER",
+        "request_source": "VARCHAR(32) DEFAULT 'admin'",
+    }
+
+    for column_name, column_def in additions.items():
+        if column_name not in existing_columns:
+            conn.exec_driver_sql(
+                f"ALTER TABLE scheduled_recordings ADD COLUMN {column_name} {column_def}"
+            )
+
+
+def _ensure_user_columns(conn):
+    inspector = inspect(conn)
+    if "users" not in inspector.get_table_names():
+        return
+
+    existing_columns = {col["name"] for col in inspector.get_columns("users")}
+    additions = {
+        "show_future_programs": "BOOLEAN",
+    }
+
+    for column_name, column_def in additions.items():
+        if column_name not in existing_columns:
+            conn.exec_driver_sql(
+                f"ALTER TABLE users ADD COLUMN {column_name} {column_def}"
+            )
+
+
+def _ensure_plex_server_columns(conn):
+    inspector = inspect(conn)
+    if "plex_servers" not in inspector.get_table_names():
+        return
+
+    existing_columns = {col["name"] for col in inspector.get_columns("plex_servers")}
+    additions = {
+        "access_token_encrypted": "TEXT",
+        "resource_id": "VARCHAR(255)",
+        "resource_name": "VARCHAR(255)",
+    }
+
+    for column_name, column_def in additions.items():
+        if column_name not in existing_columns:
+            conn.exec_driver_sql(
+                f"ALTER TABLE plex_servers ADD COLUMN {column_name} {column_def}"
+            )
+
+
+def _ensure_identity_indexes(conn):
+    inspector = inspect(conn)
+    if "user_identities" not in inspector.get_table_names():
+        return
+
+    existing_indexes = {idx["name"] for idx in inspector.get_indexes("user_identities")}
+    if "ux_user_identities_provider_subject" not in existing_indexes:
+        conn.exec_driver_sql(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_user_identities_provider_subject "
+            "ON user_identities (provider, provider_subject)"
+        )
 
 
 def _ensure_account_columns(conn):
@@ -168,6 +244,7 @@ def _ensure_account_columns(conn):
     existing_columns = {col["name"] for col in inspector.get_columns("xtream_accounts")}
     additions = {
         "last_epg_backfill_at": "DATETIME",
+        "password_encrypted": "VARCHAR(2048)",
     }
 
     for column_name, column_def in additions.items():

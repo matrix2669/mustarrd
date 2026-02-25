@@ -12,6 +12,7 @@ from sqlalchemy import delete, insert, select, func
 from config import settings as app_settings
 from database import async_session_maker
 from models import EPGProgram, XtreamAccount
+from services.account_credentials import resolve_account_password
 from services.xtream_client import XtreamClient
 from services.epg_service import epg_service
 from services.log_stream import backend_log_stream
@@ -156,7 +157,8 @@ class EPGIngestManager:
         await self._log("Refreshing EPG for account.", account=account)
         processed = 0
         inserted = 0
-        client = XtreamClient(account.server_url, account.username, account.password)
+        password = resolve_account_password(account)
+        client = XtreamClient(account.server_url, account.username, password)
         insert_stmt = insert(EPGProgram).prefix_with("OR IGNORE")
         try:
             channels = await client.get_live_streams()

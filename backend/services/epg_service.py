@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from models import XtreamAccount, EPGProgram, AppSettings
+from services.account_credentials import resolve_account_password_with_migration
 from services.xtream_client import XtreamClient
 from config import settings as app_settings
 from zoneinfo import ZoneInfo
@@ -37,7 +38,8 @@ class EPGService:
         if not account:
             raise Exception(f"Account {account_id} not found")
 
-        return XtreamClient(account.server_url, account.username, account.password)
+        password = await resolve_account_password_with_migration(session, account)
+        return XtreamClient(account.server_url, account.username, password)
 
     @staticmethod
     def archive_days_for_channel(channel: dict) -> int:

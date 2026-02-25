@@ -12,6 +12,7 @@ class XtreamAccount(Base):
     server_url: Mapped[str] = mapped_column(String(500))
     username: Mapped[str] = mapped_column(String(255))
     password: Mapped[str] = mapped_column(String(255))
+    password_encrypted: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     catchup_days: Mapped[int] = mapped_column(Integer, default=7)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

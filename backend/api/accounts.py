@@ -5,10 +5,14 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from auth import require_admin
+from auth import require_admin, require_admin_or_download_user, AuthContext
 from database import get_session
 from models import XtreamAccount
 from services.epg_ingest_manager import epg_ingest_manager
+from services.account_credentials import (
+    encrypt_account_password,
+    resolve_account_password_with_migration,
+)
 from services.xtream_client import XtreamClient
 
 
@@ -50,7 +54,7 @@ async def list_accounts(
 
 @router.get("/public")
 async def list_accounts_public(
-    _admin: None = Depends(require_admin),
+    _auth: AuthContext = Depends(require_admin_or_download_user),
     session: AsyncSession = Depends(get_session),
 ):
     """List minimal account info for non-admin browsing flows."""
@@ -99,7 +103,8 @@ async def create_account(
         name=account.name,
         server_url=account.server_url,
         username=account.username,
-        password=account.password,
+        password="",
+        password_encrypted=encrypt_account_password(account.password),
         max_connections=user_info.get("max_connections"),
         active_connections=user_info.get("active_cons"),
         expiration_date=exp_date,
@@ -152,6 +157,12 @@ async def update_account(
     # Update fields
     update_dict = update_data.model_dump(exclude_unset=True)
     for field, value in update_dict.items():
+        if field == "password":
+            if value is None:
+                continue
+            account.password_encrypted = encrypt_account_password(value)
+            account.password = ""
+            continue
         setattr(account, field, value)
 
     await session.commit()
@@ -196,7 +207,12 @@ async def test_account(
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
 
-    client = XtreamClient(account.server_url, account.username, account.password)
+    try:
+        password = await resolve_account_password_with_migration(session, account)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    client = XtreamClient(account.server_url, account.username, password)
     try:
         auth_data = await client.authenticate()
 

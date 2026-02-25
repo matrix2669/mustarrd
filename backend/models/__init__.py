@@ -3,6 +3,7 @@ from .download import Download, DownloadStatus
 from .epg_program import EPGProgram
 from .settings import AppSettings
 from .scheduled_recording import ScheduledRecording, ScheduledStatus
+from .user import User, UserIdentity, UserSetupToken, PlexServer
 
 __all__ = [
     "XtreamAccount",
@@ -12,4 +13,8 @@ __all__ = [
     "AppSettings",
     "ScheduledRecording",
     "ScheduledStatus",
+    "User",
+    "UserIdentity",
+    "UserSetupToken",
+    "PlexServer",
 ]
