@@ -101,7 +101,10 @@ async def update_user(
             raise HTTPException(status_code=400, detail="Invalid status")
         user.status = payload.status
     if payload.password is not None:
+        if not user.username:
+            raise HTTPException(status_code=400, detail="Cannot set a local password for Plex-only users")
         user.password_hash = hash_password(payload.password)
+        user.password_reset_required = True
     user.updated_at = datetime.utcnow()
 
     await session.commit()

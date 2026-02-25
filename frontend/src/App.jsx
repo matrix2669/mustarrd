@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Routes, Route, NavLink, Navigate, Outlet, useLocation } from 'react-router-dom'
+import { Routes, Route, NavLink, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
   AppShell,
   Burger,
@@ -40,6 +40,13 @@ function ProtectedRoute({ authStatus, authLoading }) {
   }
 
   if (authStatus?.authenticated) {
+    if (
+      authStatus?.password_reset_required &&
+      !authStatus?.is_admin &&
+      location.pathname !== '/settings'
+    ) {
+      return <Navigate to="/settings?section=security" replace />
+    }
     return <Outlet />
   }
 
@@ -50,6 +57,13 @@ function AdminRoute({ authStatus, authLoading }) {
   if (authLoading) return null
   if (authStatus?.authenticated && authStatus?.is_admin) return <Outlet />
   return <Navigate to="/browse" replace />
+}
+
+function SettingsRoute({ authStatus, authLoading }) {
+  if (authLoading) return null
+  if (!authStatus?.authenticated) return <Navigate to="/login" replace />
+  if (authStatus?.provider === 'plex' && !authStatus?.is_admin) return <Navigate to="/browse" replace />
+  return <Outlet />
 }
 
 function OnboardingGate({ onboardingStatus, onboardingLoading }) {
@@ -73,6 +87,7 @@ function App() {
   const epgToastCloseTimerRef = useRef(null)
   const epgToastPendingCloseRef = useRef(false)
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
 
   const { data: authStatus, isLoading: authLoading } = useQuery({
     queryKey: ['auth', 'status'],
@@ -103,12 +118,15 @@ function App() {
   const logoutMutation = useMutation({
     mutationFn: authApi.logout,
     onSuccess: async () => {
+      close()
+      queryClient.setQueryData(['auth', 'status'], { authenticated: false, is_admin: false })
       await queryClient.invalidateQueries({ queryKey: ['auth', 'status'] })
       notifications.show({
         title: 'Logged out',
-        message: 'Admin access is now locked.',
+        message: 'Logged out.',
         color: 'yellow',
       })
+      navigate('/login', { replace: true })
     },
   })
 
@@ -252,8 +270,15 @@ function App() {
       authOnly: true,
     },
     { icon: IconCalendar, label: 'Scheduled', to: '/scheduled', authOnly: true },
-    { icon: IconSettings, label: 'Settings', to: '/settings', adminOnly: true },
+    {
+      icon: IconSettings,
+      label: 'Settings',
+      to: '/settings',
+      authOnly: true,
+      hideForPlexUsers: true,
+    },
   ].filter((item) => {
+    if (item.hideForPlexUsers && authStatus?.provider === 'plex' && !authStatus?.is_admin) return false
     if (item.adminOnly) return Boolean(authStatus?.authenticated && authStatus?.is_admin)
     if (item.authOnly) return Boolean(authStatus?.authenticated)
     return true
@@ -359,6 +384,7 @@ function App() {
             <MantineNavLink
               component={NavLink}
               to="/login"
+              onClick={close}
               label="Sign In"
               leftSection={<IconLogin size={20} />}
               style={{ borderRadius: 8 }}
@@ -376,9 +402,11 @@ function App() {
               <Route path="/onboarding" element={<Onboarding />} />
               <Route element={<OnboardingGate onboardingStatus={onboardingStatus} onboardingLoading={onboardingLoading} />}>
                 <Route path="/accounts" element={<Navigate to="/settings?section=accounts" replace />} />
-                <Route path="/settings" element={<Settings />} />
                 <Route path="/logs" element={<Navigate to="/settings?section=logs" replace />} />
               </Route>
+            </Route>
+            <Route element={<SettingsRoute authStatus={authStatus} authLoading={authLoading} />}>
+              <Route path="/settings" element={<Settings />} />
             </Route>
             <Route path="/browse" element={<Browse />} />
             <Route path="/downloads" element={<Downloads />} />

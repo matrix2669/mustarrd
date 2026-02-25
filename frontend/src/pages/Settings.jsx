@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useContext } from 'react'
-import { UNSAFE_NavigationContext, useSearchParams } from 'react-router-dom'
+import { UNSAFE_NavigationContext, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Title,
   Card,
@@ -43,6 +43,7 @@ import {
   IconUsers,
   IconPlus,
   IconTrash,
+  IconKey,
 } from '@tabler/icons-react'
 
 import { adminPlexApi, adminUsersApi, authApi, settingsApi } from '../api'
@@ -106,7 +107,7 @@ function useBlocker(blocker, when = true) {
   }, [navigator, blocker, when])
 }
 
-const SECTIONS = [
+const ADMIN_SECTIONS = [
   { id: 'accounts', label: 'Accounts', icon: IconServer },
   { id: 'users', label: 'Users', icon: IconUsers },
   { id: 'plex', label: 'Plex Integration', icon: IconServer },
@@ -118,9 +119,13 @@ const SECTIONS = [
   { id: 'security', label: 'Security', icon: IconLock },
   { id: 'logs', label: 'Logs', icon: IconListDetails },
 ]
+const DOWNLOAD_USER_SECTIONS = [
+  { id: 'security', label: 'Security', icon: IconLock },
+]
 
 export default function Settings() {
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
   const [formData, setFormData] = useState(null)
   const [hasChanges, setHasChanges] = useState(false)
   const [leaveModalOpen, setLeaveModalOpen] = useState(false)
@@ -128,13 +133,16 @@ export default function Settings() {
   const [isSavingAndLeaving, setIsSavingAndLeaving] = useState(false)
   const [desktopStartupSupported, setDesktopStartupSupported] = useState(false)
   const [desktopStartupLoading, setDesktopStartupLoading] = useState(false)
-  const [activeSection, setActiveSection] = useState('recording')
+  const [activeSection, setActiveSection] = useState('security')
   const [searchParams, setSearchParams] = useSearchParams()
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [newUserName, setNewUserName] = useState('')
   const [newUserDisplayName, setNewUserDisplayName] = useState('')
   const [newUserPassword, setNewUserPassword] = useState('')
+  const [resetPasswordModalOpen, setResetPasswordModalOpen] = useState(false)
+  const [resetTargetUser, setResetTargetUser] = useState(null)
+  const [resetUserPassword, setResetUserPassword] = useState('')
   const [plexFormDirty, setPlexFormDirty] = useState(false)
   const [plexFormHydrated, setPlexFormHydrated] = useState(false)
   const [plexForm, setPlexForm] = useState({
@@ -150,6 +158,13 @@ export default function Settings() {
   const [plexLibraries, setPlexLibraries] = useState([])
   const isMobile = useMediaQuery('(max-width: 768px)')
   const { colorScheme, setColorScheme } = useMantineColorScheme()
+  const { data: authStatus, isLoading: authLoading } = useQuery({
+    queryKey: ['auth', 'status'],
+    queryFn: authApi.status,
+  })
+  const isAdmin = Boolean(authStatus?.is_admin)
+  const isLocalDownloadUser = Boolean(!isAdmin && authStatus?.provider === 'local')
+  const availableSections = isAdmin ? ADMIN_SECTIONS : DOWNLOAD_USER_SECTIONS
 
   const blockNavigation = useCallback((tx) => {
     if (!hasChanges) {
@@ -162,24 +177,37 @@ export default function Settings() {
   useBlocker(blockNavigation, hasChanges)
 
   useEffect(() => {
+    if (authLoading) return
     const requestedSection = searchParams.get('section')
-    if (!requestedSection) return
-    const valid = SECTIONS.some((section) => section.id === requestedSection)
-    setActiveSection(valid ? requestedSection : 'recording')
-  }, [searchParams])
+    if (!requestedSection) {
+      setActiveSection(isAdmin ? 'recording' : 'security')
+      return
+    }
+    const valid = availableSections.some((section) => section.id === requestedSection)
+    setActiveSection(valid ? requestedSection : availableSections[0]?.id || 'security')
+  }, [authLoading, availableSections, isAdmin, searchParams])
+
+  useEffect(() => {
+    if (authLoading) return
+    const valid = availableSections.some((section) => section.id === activeSection)
+    if (!valid) {
+      setActiveSection(availableSections[0]?.id || 'security')
+    }
+  }, [activeSection, authLoading, availableSections])
 
   const selectSection = useCallback((sectionId) => {
-    const valid = SECTIONS.some((section) => section.id === sectionId)
-    const resolved = valid ? sectionId : 'recording'
+    const valid = availableSections.some((section) => section.id === sectionId)
+    const resolved = valid ? sectionId : availableSections[0]?.id || 'security'
     setActiveSection(resolved)
     const next = new URLSearchParams(searchParams)
     next.set('section', resolved)
     setSearchParams(next, { replace: true })
-  }, [searchParams, setSearchParams])
+  }, [availableSections, searchParams, setSearchParams])
 
   const { data: settings, isLoading, error } = useQuery({
     queryKey: ['settings'],
     queryFn: settingsApi.get,
+    enabled: isAdmin,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
   })
@@ -187,6 +215,7 @@ export default function Settings() {
   const { data: templateInfo } = useQuery({
     queryKey: ['settings', 'templates'],
     queryFn: settingsApi.getTemplates,
+    enabled: isAdmin,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
   })
@@ -194,18 +223,21 @@ export default function Settings() {
   const { data: toolsStatus } = useQuery({
     queryKey: ['settings', 'tools'],
     queryFn: settingsApi.getTools,
+    enabled: isAdmin,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
   })
   const { data: managedUsers = [] } = useQuery({
     queryKey: ['admin', 'users'],
     queryFn: adminUsersApi.list,
+    enabled: isAdmin,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
   })
   const { data: plexConfig } = useQuery({
     queryKey: ['admin', 'plex'],
     queryFn: adminPlexApi.get,
+    enabled: isAdmin,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
   })
@@ -324,14 +356,25 @@ export default function Settings() {
 
   const changePasswordMutation = useMutation({
     mutationFn: ({ current, next }) => authApi.changePassword(current, next),
-    onSuccess: () => {
+    onSuccess: async () => {
       setCurrentPassword('')
       setNewPassword('')
+      queryClient.setQueryData(['auth', 'status'], (previous) => {
+        if (!previous) return previous
+        return {
+          ...previous,
+          password_reset_required: false,
+        }
+      })
+      await queryClient.invalidateQueries({ queryKey: ['auth', 'status'] })
       notifications.show({
         title: 'Password Updated',
-        message: 'Admin password has been changed.',
+        message: isAdmin ? 'Admin password has been changed.' : 'Your password has been changed.',
         color: 'green',
       })
+      if (!isAdmin) {
+        navigate('/browse', { replace: true })
+      }
     },
     onError: (error) => {
       notifications.show({
@@ -359,6 +402,23 @@ export default function Settings() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'users'] })
       notifications.show({ title: 'User Removed', message: 'User deleted.', color: 'green' })
+    },
+    onError: (error) => {
+      notifications.show({ title: 'Error', message: error.message, color: 'red' })
+    },
+  })
+  const resetUserPasswordMutation = useMutation({
+    mutationFn: ({ userId, password }) => adminUsersApi.update(userId, { password }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'users'] })
+      notifications.show({
+        title: 'Password Updated',
+        message: 'User password updated. They will be required to reset it after login.',
+        color: 'green',
+      })
+      setResetPasswordModalOpen(false)
+      setResetTargetUser(null)
+      setResetUserPassword('')
     },
     onError: (error) => {
       notifications.show({ title: 'Error', message: error.message, color: 'red' })
@@ -400,9 +460,17 @@ export default function Settings() {
     },
   })
   const connectPlexStartMutation = useMutation({
-    mutationFn: adminPlexApi.connectStart,
-    onSuccess: (data) => {
-      const popup = window.open(data.auth_url, '_blank', 'noopener,noreferrer')
+    mutationFn: () => adminPlexApi.connectStart(),
+    onSuccess: (data, variables) => {
+      const popup = variables?.popupRef || null
+      if (popup && !popup.closed) {
+        try {
+          popup.opener = null
+          popup.location.replace(data.auth_url)
+        } catch {
+          // noop
+        }
+      }
       const pollMs = Math.max(1, Number(data.poll_interval_seconds || 2)) * 1000
       const timeoutMs = Math.max(30, Number(data.expires_in || 300)) * 1000
       const startedAt = Date.now()
@@ -543,7 +611,7 @@ export default function Settings() {
     setIsSavingAndLeaving(false)
   }
 
-  if (isLoading) {
+  if (authLoading || (isAdmin && isLoading)) {
     return (
       <Stack align="center" justify="center" h={300}>
         <Loader />
@@ -551,7 +619,7 @@ export default function Settings() {
     )
   }
 
-  if (error) {
+  if (isAdmin && error) {
     return (
       <Alert icon={<IconAlertCircle size={16} />} title="Error" color="red">
         Failed to load settings: {error.message}
@@ -559,7 +627,7 @@ export default function Settings() {
     )
   }
 
-  if (!formData) {
+  if (isAdmin && !formData) {
     return null
   }
 
@@ -940,26 +1008,42 @@ export default function Settings() {
     <Stack gap="lg">
       <Stack gap={2}>
         <Text fw={600} size="lg">Security</Text>
-        <Text size="sm" c="dimmed">Change the admin password used to access Settings</Text>
+        <Text size="sm" c="dimmed">
+          {isAdmin
+            ? 'Change the admin password used to access Settings'
+            : 'Change your local download user password'}
+        </Text>
       </Stack>
+
+      {!isAdmin && !isLocalDownloadUser && (
+        <Alert color="yellow" variant="light">
+          <Text size="sm">
+            Password changes are only available for local accounts. This account signs in through Plex.
+          </Text>
+        </Alert>
+      )}
 
       <form onSubmit={handleChangePassword}>
         <Stack gap="sm">
           <PasswordInput
-            label="Current Admin Password"
+            label={isAdmin ? 'Current Admin Password' : 'Current Password'}
             value={currentPassword}
             onChange={(e) => setCurrentPassword(e.target.value)}
             autoComplete="current-password"
           />
           <PasswordInput
-            label="New Admin Password"
+            label={isAdmin ? 'New Admin Password' : 'New Password'}
             description="Minimum 8 characters"
             value={newPassword}
             onChange={(e) => setNewPassword(e.target.value)}
             autoComplete="new-password"
           />
           <Group justify="flex-end">
-            <Button type="submit" loading={changePasswordMutation.isPending}>
+            <Button
+              type="submit"
+              loading={changePasswordMutation.isPending}
+              disabled={!isAdmin && !isLocalDownloadUser}
+            >
               Change Password
             </Button>
           </Group>
@@ -1022,17 +1106,33 @@ export default function Settings() {
               <Text fw={500}>{user.display_name || user.username || `User ${user.id}`}</Text>
               <Text size="xs" c="dimmed">
                 {user.username || 'Plex-only identity'} · {user.status}
+                {user.password_reset_required ? ' · reset required on next local login' : ''}
               </Text>
             </Stack>
-            <Button
-              variant="light"
-              color="red"
-              leftSection={<IconTrash size={14} />}
-              onClick={() => deleteUserMutation.mutate(user.id)}
-              loading={deleteUserMutation.isPending}
-            >
-              Delete
-            </Button>
+            <Group gap="xs">
+              {user.username && (
+                <Button
+                  variant="light"
+                  leftSection={<IconKey size={14} />}
+                  onClick={() => {
+                    setResetTargetUser(user)
+                    setResetUserPassword('')
+                    setResetPasswordModalOpen(true)
+                  }}
+                >
+                  Set Password
+                </Button>
+              )}
+              <Button
+                variant="light"
+                color="red"
+                leftSection={<IconTrash size={14} />}
+                onClick={() => deleteUserMutation.mutate(user.id)}
+                loading={deleteUserMutation.isPending}
+              >
+                Delete
+              </Button>
+            </Group>
           </Group>
         ))}
         {managedUsers.length === 0 && (
@@ -1048,7 +1148,10 @@ export default function Settings() {
       <Group justify="space-between" align="center">
         <Button
           variant="light"
-          onClick={() => connectPlexStartMutation.mutate()}
+          onClick={() => {
+            const popup = window.open('about:blank', '_blank')
+            connectPlexStartMutation.mutate({ popupRef: popup })
+          }}
           loading={connectPlexStartMutation.isPending}
         >
           Connect Plex Account
@@ -1143,7 +1246,11 @@ export default function Settings() {
     logs: () => <LogsSection showTitle={false} />,
   }
   const configSections = new Set(['recording', 'guide', 'processing', 'naming', 'appearance', 'security'])
-  const inConfigSection = configSections.has(activeSection)
+  const inConfigSection = isAdmin && configSections.has(activeSection)
+  const visibleSectionId = availableSections.some((section) => section.id === activeSection)
+    ? activeSection
+    : (availableSections[0]?.id || 'security')
+  const activeSectionContent = sectionContent[visibleSectionId]
 
   return (
     <Stack>
@@ -1180,6 +1287,64 @@ export default function Settings() {
           </Stack>
         </Stack>
       </Modal>
+      <Modal
+        opened={resetPasswordModalOpen}
+        onClose={() => {
+          if (resetUserPasswordMutation.isPending) return
+          setResetPasswordModalOpen(false)
+          setResetTargetUser(null)
+          setResetUserPassword('')
+        }}
+        title={`Set Password${resetTargetUser?.username ? ` for ${resetTargetUser.username}` : ''}`}
+        centered
+        size="sm"
+      >
+        <Stack gap="sm">
+          <Text size="sm" c="dimmed">
+            This temporary password is for next login. The user will be prompted to choose a new one immediately.
+          </Text>
+          <PasswordInput
+            label="Temporary Password"
+            description="Minimum 8 characters"
+            value={resetUserPassword}
+            onChange={(e) => setResetUserPassword(e.target.value)}
+            autoComplete="new-password"
+          />
+          <Group justify="flex-end">
+            <Button
+              variant="default"
+              onClick={() => {
+                setResetPasswordModalOpen(false)
+                setResetTargetUser(null)
+                setResetUserPassword('')
+              }}
+              disabled={resetUserPasswordMutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              loading={resetUserPasswordMutation.isPending}
+              onClick={() => {
+                if (!resetTargetUser?.id) return
+                if (!resetUserPassword || resetUserPassword.length < 8) {
+                  notifications.show({
+                    title: 'Password too short',
+                    message: 'Temporary password must be at least 8 characters.',
+                    color: 'yellow',
+                  })
+                  return
+                }
+                resetUserPasswordMutation.mutate({
+                  userId: resetTargetUser.id,
+                  password: resetUserPassword,
+                })
+              }}
+            >
+              Save Password
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
 
       <Group justify="space-between">
         <Title order={2}>Settings</Title>
@@ -1204,25 +1369,25 @@ export default function Settings() {
       {isMobile ? (
         <Stack gap="md">
           <Select
-            data={SECTIONS.map(({ id, label }) => ({ value: id, label }))}
-            value={activeSection}
+            data={availableSections.map(({ id, label }) => ({ value: id, label }))}
+            value={visibleSectionId}
             onChange={(val) => val && selectSection(val)}
             size="sm"
           />
           <Card shadow="sm" padding="lg" radius="md" withBorder>
-            {sectionContent[activeSection]?.()}
+            {activeSectionContent?.()}
           </Card>
         </Stack>
       ) : (
         <Group align="flex-start" gap="lg" wrap="nowrap">
           <Paper withBorder radius="md" p="xs" style={{ width: 190, flexShrink: 0 }}>
             <Stack gap={2}>
-              {SECTIONS.map(({ id, label, icon: Icon }) => (
+              {availableSections.map(({ id, label, icon: Icon }) => (
                 <NavLink
                   key={id}
                   label={label}
                   leftSection={<Icon size={16} />}
-                  active={activeSection === id}
+                  active={visibleSectionId === id}
                   onClick={() => selectSection(id)}
                   styles={{ root: { borderRadius: 6 } }}
                 />
@@ -1231,7 +1396,7 @@ export default function Settings() {
           </Paper>
 
           <Card shadow="sm" padding="lg" radius="md" withBorder style={{ flex: 1, minWidth: 0 }}>
-            {sectionContent[activeSection]?.()}
+            {activeSectionContent?.()}
           </Card>
         </Group>
       )}

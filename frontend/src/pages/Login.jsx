@@ -10,7 +10,6 @@ import {
   Loader,
   Box,
   Group,
-  useMantineColorScheme,
   TextInput,
   Divider,
 } from '@mantine/core'
@@ -26,6 +25,7 @@ export default function Login() {
   const [bootstrapUsername, setBootstrapUsername] = useState('admin')
   const [bootstrapPassword, setBootstrapPassword] = useState('')
   const [error, setError] = useState('')
+  const [plexAuthUrl, setPlexAuthUrl] = useState('')
   const pollTimerRef = useRef(null)
   const queryClient = useQueryClient()
   const navigate = useNavigate()
@@ -33,8 +33,6 @@ export default function Login() {
   const [searchParams] = useSearchParams()
   const fromPath = location.state?.from || '/downloads'
   const setupToken = searchParams.get('setup_token')
-  const { colorScheme } = useMantineColorScheme()
-  const isDark = colorScheme === 'dark'
 
   const { data: status, isLoading } = useQuery({
     queryKey: ['auth', 'status'],
@@ -108,13 +106,22 @@ export default function Login() {
   })
 
   const plexStartMutation = useMutation({
-    mutationFn: authApi.plexStart,
-    onSuccess: (data) => {
+    mutationFn: () => authApi.plexStart(),
+    onSuccess: (data, variables) => {
       const pinId = data.id
       const pollEveryMs = Math.max(1, Number(data.poll_interval_seconds || 2)) * 1000
       const timeoutMs = Math.max(30, Number(data.expires_in || 300)) * 1000
 
-      const popup = window.open(data.auth_url, '_blank', 'noopener,noreferrer')
+      const popup = variables?.popupRef || null
+      setPlexAuthUrl(data.auth_url)
+      if (popup && !popup.closed) {
+        try {
+          popup.opener = null
+          popup.location.replace(data.auth_url)
+        } catch {
+          // noop; fallback link remains visible
+        }
+      }
       const startedAt = Date.now()
       if (pollTimerRef.current) clearInterval(pollTimerRef.current)
 
@@ -134,6 +141,7 @@ export default function Login() {
           } catch {
             // noop
           }
+          setPlexAuthUrl('')
           await handleLoginSuccess(fromPath)
         } catch (err) {
           if (err?.status === 202 || (err?.message || '').includes('not complete')) {
@@ -229,28 +237,7 @@ export default function Login() {
         padding: '2rem',
       }}
     >
-      <style>{`
-        @keyframes mustarrd-rec-pulse {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.15; }
-        }
-      `}</style>
-
       <Card withBorder shadow="md" w="100%" maw={440} radius="lg" p={0} style={{ borderTop: '3px solid #f59f00', overflow: 'hidden' }}>
-        <Box px="lg" pt="lg" pb="md">
-          <Group justify="space-between" align="center">
-            <Text style={{ fontFamily: "'Bebas Neue', cursive", fontSize: 24, letterSpacing: '0.12em', color: '#f59f00', lineHeight: 1 }}>
-              MUSTARRD
-            </Text>
-            <Group gap={6} align="center">
-              <Box style={{ width: 8, height: 8, borderRadius: '50%', background: '#fa5252', animation: 'mustarrd-rec-pulse 1.5s ease-in-out infinite' }} />
-              <Text size="xs" fw={700} c="red" style={{ letterSpacing: '0.12em' }}>REC</Text>
-            </Group>
-          </Group>
-        </Box>
-
-        <Box style={{ height: 1, background: isDark ? '#2C2E33' : '#e9ecef' }} />
-
         <Stack px="lg" pt="lg" pb="xl" gap="md">
           <Stack gap={4}>
             <Text fw={600} size="xl">
@@ -272,6 +259,23 @@ export default function Login() {
           </Stack>
 
           {error && <Alert color="red" icon={<IconAlertCircle size={16} />} radius="md">{error}</Alert>}
+          {!setupToken && !isSetupMode && !isBootstrapMode && plexAuthUrl && (
+            <Alert color="blue" icon={<IconServer size={16} />} radius="md">
+              <Group justify="space-between" align="center">
+                <Text size="sm">If Plex did not open automatically, tap to continue.</Text>
+                <Button
+                  component="a"
+                  href={plexAuthUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  variant="light"
+                  size="xs"
+                >
+                  Open Plex Login
+                </Button>
+              </Group>
+            </Alert>
+          )}
 
           <form onSubmit={handleSubmit}>
             <Stack gap="sm">
@@ -302,13 +306,18 @@ export default function Login() {
             </Stack>
           </form>
 
-          {!setupToken && !isSetupMode && !isBootstrapMode && (
+          {!setupToken && !isSetupMode && !isBootstrapMode && status?.plex_login_available && (
             <>
               <Divider label="or" labelPosition="center" />
               <Button
                 variant="light"
                 leftSection={<IconServer size={16} />}
-                onClick={() => plexStartMutation.mutate()}
+                onClick={() => {
+                  setError('')
+                  setPlexAuthUrl('')
+                  const popup = window.open('about:blank', '_blank')
+                  plexStartMutation.mutate({ popupRef: popup })
+                }}
                 loading={plexStartMutation.isPending}
               >
                 Sign In with Plex

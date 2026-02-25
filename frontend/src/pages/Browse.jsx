@@ -335,7 +335,6 @@ function buildProgramSelectionKey(program, fallbackChannelId = null) {
 export default function Browse() {
   const queryClient = useQueryClient()
   const [selectedAccountId, setSelectedAccountId] = useState(null)
-  const [selectedCategory, setSelectedCategory] = useState(null)
   const [selectedChannel, setSelectedChannel] = useState(null)
   const [downloadProgram, setDownloadProgram] = useState(null)
   const [scheduleProgram, setScheduleProgram] = useState(null)
@@ -376,17 +375,10 @@ export default function Browse() {
     }
   }, [accounts, selectedAccountId])
 
-  // Fetch categories
-  const { data: categories } = useQuery({
-    queryKey: ['categories', selectedAccountId],
-    queryFn: () => channelsApi.getCategories(selectedAccountId),
-    enabled: !!selectedAccountId,
-  })
-
   // Fetch channels
   const { data: channels, isLoading: channelsLoading } = useQuery({
-    queryKey: ['channels', selectedAccountId, selectedCategory],
-    queryFn: () => channelsApi.getChannels(selectedAccountId, selectedCategory, true),
+    queryKey: ['channels', selectedAccountId],
+    queryFn: () => channelsApi.getChannels(selectedAccountId, null, true),
     enabled: !!selectedAccountId,
   })
 
@@ -717,14 +709,6 @@ export default function Browse() {
     label: acc.name,
   })) || []
 
-  const categoryOptions = [
-    { value: '', label: 'All Categories' },
-    ...(categories?.map((cat) => ({
-      value: cat.category_id,
-      label: cat.category_name,
-    })) || []),
-  ]
-
   if (accountsLoading) {
     return (
       <Stack align="center" justify="center" h={300}>
@@ -775,17 +759,6 @@ export default function Browse() {
               value={selectedAccountId}
               onChange={setSelectedAccountId}
               w={200}
-            />
-          )}
-          {browseTab === 'epg' && (
-            <Select
-              placeholder="All categories"
-              data={categoryOptions}
-              value={selectedCategory || ''}
-              onChange={(val) => setSelectedCategory(val || null)}
-              w={200}
-              searchable
-              clearable
             />
           )}
         </Group>

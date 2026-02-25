@@ -14,6 +14,7 @@ class User(Base):
     display_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     status: Mapped[str] = mapped_column(String(32), default="active")
     show_future_programs: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    password_reset_required: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -26,6 +27,7 @@ class User(Base):
             "display_name": self.display_name,
             "status": self.status,
             "show_future_programs": self.show_future_programs,
+            "password_reset_required": bool(self.password_reset_required),
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
             "last_login_at": self.last_login_at.isoformat() if self.last_login_at else None,

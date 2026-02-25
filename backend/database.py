@@ -195,6 +195,7 @@ def _ensure_user_columns(conn):
     existing_columns = {col["name"] for col in inspector.get_columns("users")}
     additions = {
         "show_future_programs": "BOOLEAN",
+        "password_reset_required": "BOOLEAN DEFAULT 0",
     }
 
     for column_name, column_def in additions.items():

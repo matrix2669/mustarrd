@@ -1,17 +1,25 @@
 ![Mustarrd Logo](https://github.com/razzamatazm/mustarrd/blob/main/frontend/src/assets/mustarrdlogo.png "Mustarrd Logo")
 # Mustarrd — IPTV Catchup DVR
 
-Mustarrd connects to your IPTV provider and lets you download past programs — think of it as a DVR for your IPTV catchup library. Browse your provider's program guide, pick anything from the last few days, and download it with a properly named file ready for Plex, Jellyfin, or just your hard drive.
+Mustarrd connects to your IPTV provider and lets you download past programs — think of it as a DVR for your IPTV catchup library. Browse your provider's program guide, pick anything from the last few days (or schedule shows airing in the future), and download it with a properly named file ready for Plex, Jellyfin, or just your hard drive.
 
 ## Features
 
 - **Browse past programs** — scroll back through your provider's program guide (EPG) and see what's available to download
-- **Smart file naming** — TV shows, movies, and sports get automatically named in the right format (`Breaking Bad - S01E01 - Pilot.ts`, `The Matrix (1999).ts`, etc.)
-- **Download queue** — queue multiple programs and watch them download in real time
-- **Commercial skip** — optional Comskip integration removes commercials before saving
-- **Re-encoding** — optional GPU/CPU transcoding to MKV for steadier playback and seeking
+- **Commercial skip** — ComSkip integration removes commercials before saving
+- **Remux to MKV** — TS playback sucks. MKV is a much easier container to skip through
+- **Download from On Demand** — If your provider provides on demand listings, you can grab those too!
 - **Scheduled recordings** — set programs to download automatically when they air
-- **Multiple accounts** — connect more than one IPTV provider
+- **Smart file naming** — TV shows, movies, and sports get automatically named in the right format (`Breaking Bad - S01E01 - Pilot.ts`, `The Matrix (1999).ts`, etc.)
+- **Plex Link** — Allow your plex users to request programming by logging in with their Plex creds (or don't) and push recording directly to your TV recording library
+- **Multiple accounts** — connect more than one IPTV provider. Add more users to give them download access
+
+## Why Do I Need This? I have Sonarr...
+
+- While Sonarr grabs the majority of quality programming out there I was searching for something for those random shows that air once a year. Think sports, awards shows, dog acrobatics competitions, the olympic games, etc.
+- I hate commercials
+- Sure, many good iptv players have the ability to record shows, but that is a recording of a recording. If something glitches, you're out of luck.
+- Link it right to Plex (allow your users to add shows to download if you want using the Plex integration)
 
 ## Requirements
 
@@ -32,20 +40,11 @@ docker compose up -d
 
 Then open **http://localhost:4177** in your browser.
 
-That's it. ffmpeg, Comskip, and the frontend are all bundled in the image.
 
 ### Desktop App (macOS / Windows)
 
-Download the latest release from the [Releases page](https://github.com/razzamatazm/mustarrd/releases). Open the app — it runs a local server and opens the UI automatically.
+- An electron app builder is included in the electron folder, but Docker is by far the recommended way to use the app.
 
-### Baremetal / Linux Server
-
-```bash
-./scripts/oneapp.sh install
-./scripts/oneapp.sh start
-```
-
-Open **http://localhost:4177**. You'll need ffmpeg installed on your system (`apt install ffmpeg`). Comskip is optional.
 
 ## First Run
 
@@ -56,7 +55,7 @@ Open **http://localhost:4177**. You'll need ffmpeg installed on your system (`ap
    - Username and password (from your provider)
    - Catchup days (how far back you can download — your provider sets this limit)
 4. Mustarrd will sync your provider's channel list and program guide. This takes a minute or two on first load.
-5. Go to **Browse**, pick a channel, and start downloading.
+5. Go to **Browse**, pick a channel, and start downloading or search all.
 
 ## How to Use
 
@@ -64,7 +63,7 @@ Open **http://localhost:4177**. You'll need ffmpeg installed on your system (`ap
 
 1. Go to **Browse** and select an account
 2. Click a channel to open its program guide
-3. Programs with a **blue border** have catchup available — click one to open the download dialog
+3. Programs with a **mustard yellow border** have catchup available — click one to open the download dialog
 4. Review the auto-generated filename (edit if needed) and click **Download**
 
 ### Monitor Downloads
@@ -75,6 +74,7 @@ Open **http://localhost:4177**. You'll need ffmpeg installed on your system (`ap
 ### Schedule a Recording
 
 - Browse to an upcoming program and use the **Schedule** option to download it automatically when it airs
+- Make sure to turn on the view future programming switch
 
 ## Smart Filename Detection
 
@@ -93,7 +93,7 @@ Filename templates are customizable in Settings if you want a different format.
 
 | Folder | Contents |
 |--------|----------|
-| `./downloads/` | In-progress downloads and temp files |
+| `./downloads/` | In-progress downloads and temp files used for ComSkip |
 | `./completed/` | Finished files — point this at your media library |
 | `./config/` | Database, settings, and Comskip config — keep this private |
 
