@@ -4,6 +4,16 @@ from typing import Optional
 
 from services.log_stream import backend_log_stream
 
+_uvicorn_noise_messages = (
+    "Started server process",
+    "Waiting for application startup.",
+    "Application startup complete.",
+    "Shutting down",
+    "Waiting for application shutdown.",
+    "Application shutdown complete.",
+    "Finished server process",
+)
+
 
 class _ServerLogBridgeHandler(logging.Handler):
     def __init__(self):
@@ -34,6 +44,9 @@ class _ServerLogBridgeHandler(logging.Handler):
                 level = "info"
 
         message = record.getMessage()
+        if record.name.startswith("uvicorn.error"):
+            if any(message.startswith(prefix) for prefix in _uvicorn_noise_messages):
+                return
         try:
             loop.call_soon_threadsafe(
                 asyncio.create_task,

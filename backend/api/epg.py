@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,13 +13,14 @@ from services.epg_ingest_manager import epg_ingest_manager
 
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _log_task_result(task: asyncio.Task):
     try:
         task.result()
     except Exception as exc:
-        print(f"EPG refresh task failed: {exc}")
+        logger.exception("EPG refresh task failed: %s", exc)
 
 
 class EPGRefreshRequest(BaseModel):
