@@ -555,6 +555,14 @@ export default function Settings() {
   }
 
   useEffect(() => {
+    if (activeSection !== 'plex') return
+    if (!plexConfig?.token_configured) return
+    if (plexResources.length > 0) return
+    if (listPlexResourcesMutation.isPending) return
+    listPlexResourcesMutation.mutate()
+  }, [activeSection, listPlexResourcesMutation.isPending, plexConfig?.token_configured, plexResources.length])
+
+  useEffect(() => {
     if (!plexConfig?.token_configured) return
     if (!plexForm.resource_id || activeSection !== 'plex') return
     if (plexLibraries.length > 0) return
