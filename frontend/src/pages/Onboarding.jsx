@@ -49,6 +49,7 @@ export default function Onboarding() {
   const [plexForm, setPlexForm] = useState({
     resource_id: '',
     resource_name: '',
+    connection_uri: '',
     base_url: '',
     machine_identifier: '',
     library_section_ids: [],
@@ -166,11 +167,18 @@ export default function Onboarding() {
     },
   })
   const listPlexLibrariesMutation = useMutation({
-    mutationFn: (resourceId) => adminPlexApi.listLibraries(resourceId),
+    mutationFn: ({ resourceId, connectionUri }) =>
+      adminPlexApi.listLibraries(resourceId, {
+        connection_uri: connectionUri || null,
+      }),
     onSuccess: (data) => {
       setPlexLibraries(data?.libraries || [])
       if (data?.base_url) {
-        setPlexForm((prev) => ({ ...prev, base_url: data.base_url }))
+        setPlexForm((prev) => ({
+          ...prev,
+          connection_uri: data.connection_uri || data.base_url,
+          base_url: data.base_url,
+        }))
       }
     },
     onError: (err) => {
@@ -273,6 +281,7 @@ export default function Onboarding() {
       ...prev,
       resource_id: plexConfig.resource_id || '',
       resource_name: plexConfig.resource_name || '',
+      connection_uri: plexConfig.connection_uri || plexConfig.base_url || '',
       base_url: plexConfig.base_url || '',
       machine_identifier: plexConfig.machine_identifier || '',
       library_section_ids: plexConfig.library_section_ids || [],
@@ -286,8 +295,11 @@ export default function Onboarding() {
     if (!plexConfig?.token_configured) return
     if (!plexForm.resource_id) return
     if (plexLibraries.length > 0) return
-    listPlexLibrariesMutation.mutate(plexForm.resource_id)
-  }, [currentStep, plexConfig?.token_configured, plexForm.resource_id, plexLibraries.length])
+    listPlexLibrariesMutation.mutate({
+      resourceId: plexForm.resource_id,
+      connectionUri: plexForm.connection_uri || plexForm.base_url,
+    })
+  }, [currentStep, plexConfig?.token_configured, plexForm.base_url, plexForm.connection_uri, plexForm.resource_id, plexLibraries.length])
 
   if (isLoading) {
     return (
@@ -592,10 +604,33 @@ export default function Onboarding() {
                   resource_id: value,
                   resource_name: selected?.name || '',
                   machine_identifier: selected?.machine_identifier || null,
+                  connection_uri: selected?.base_url || '',
                   base_url: selected?.base_url || '',
                 }))
                 setPlexLibraries([])
-                listPlexLibrariesMutation.mutate(value)
+                listPlexLibrariesMutation.mutate({
+                  resourceId: value,
+                  connectionUri: selected?.base_url || '',
+                })
+              }}
+            />
+
+            <Select
+              label="Connection URI"
+              placeholder="Select which Plex endpoint to use"
+              data={(plexResources.find((resource) => resource.resource_id === plexForm.resource_id)?.connections || []).map((conn) => ({
+                value: conn.uri,
+                label: `${conn.uri}${conn.local ? ' (Local)' : ''}${conn.relay ? ' (Relay)' : ''}`,
+              }))}
+              value={plexForm.connection_uri || null}
+              onChange={(value) => {
+                if (!value || !plexForm.resource_id) return
+                setPlexForm((prev) => ({ ...prev, connection_uri: value, base_url: value }))
+                setPlexLibraries([])
+                listPlexLibrariesMutation.mutate({
+                  resourceId: plexForm.resource_id,
+                  connectionUri: value,
+                })
               }}
             />
 
@@ -612,14 +647,14 @@ export default function Onboarding() {
             />
 
             <Switch
-              label="Enable Plex auto access for all server users"
+              label="Allow Plex server users to sign in to Mustarrd"
               checked={plexForm.auto_allow_all_server_users}
               onChange={(e) =>
                 setPlexForm((prev) => ({ ...prev, auto_allow_all_server_users: e.currentTarget.checked }))
               }
             />
             <Switch
-              label="Enable Plex auth integration"
+              label="Auto-refresh selected Plex libraries after downloads"
               checked={plexForm.enabled}
               onChange={(e) => setPlexForm((prev) => ({ ...prev, enabled: e.currentTarget.checked }))}
             />
@@ -646,6 +681,7 @@ export default function Onboarding() {
                     savePlexMutation.mutate({
                       resource_id: plexForm.resource_id,
                       resource_name: plexForm.resource_name || null,
+                      connection_uri: plexForm.connection_uri || plexForm.base_url,
                       base_url: plexForm.base_url,
                       machine_identifier: plexForm.machine_identifier || null,
                       library_section_ids: (plexForm.library_section_ids || []).map((value) => String(value)),

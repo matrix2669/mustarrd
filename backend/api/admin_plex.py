@@ -281,3 +281,21 @@ async def save_plex_integration(
     data["connection_uri"] = row.connection_uri or row.base_url
     data["plex_outbound_policy"] = policy
     return data
+
+
+@router.post("/plex/disconnect")
+async def disconnect_plex(
+    request: Request,
+    _admin: AuthContext = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    result = await session.execute(select(PlexServer).order_by(PlexServer.id.asc()))
+    row = result.scalars().first()
+    if row:
+        await session.delete(row)
+    await session.commit()
+
+    request.session.pop("plex_admin_token", None)
+    request.session.pop("plex_admin_profile", None)
+
+    return {"status": "disconnected"}

@@ -153,10 +153,11 @@ async def auth_status(
             "role": context.user.role,
         }
 
-    plex_result = await session.execute(select(PlexServer).where(PlexServer.enabled.is_(True)).limit(1))
+    plex_result = await session.execute(select(PlexServer).limit(1))
     plex_server = plex_result.scalar_one_or_none()
     plex_login_available = bool(
         plex_server
+        and plex_server.auto_allow_all_server_users
         and (plex_server.connection_uri or plex_server.base_url)
         and (plex_server.access_token_encrypted or plex_server.token_encrypted)
     )
@@ -360,9 +361,9 @@ async def login_download_user_legacy(
 
 @router.post("/plex/login/start")
 async def plex_login_start(session: AsyncSession = Depends(get_session)):
-    plex_result = await session.execute(select(PlexServer).where(PlexServer.enabled.is_(True)).limit(1))
+    plex_result = await session.execute(select(PlexServer).limit(1))
     plex_server = plex_result.scalar_one_or_none()
-    if not plex_server or not (plex_server.connection_uri or plex_server.base_url):
+    if not plex_server or not plex_server.auto_allow_all_server_users or not (plex_server.connection_uri or plex_server.base_url):
         raise HTTPException(status_code=403, detail="Plex login is not configured")
     if not (plex_server.access_token_encrypted or plex_server.token_encrypted):
         raise HTTPException(status_code=403, detail="Plex login is not configured")
@@ -391,7 +392,7 @@ async def plex_login_complete(
     if not provider_subject:
         raise HTTPException(status_code=400, detail="Unable to resolve Plex user identity")
 
-    plex_result = await session.execute(select(PlexServer).where(PlexServer.enabled.is_(True)).limit(1))
+    plex_result = await session.execute(select(PlexServer).limit(1))
     plex_server = plex_result.scalar_one_or_none()
     if not plex_server:
         raise HTTPException(status_code=403, detail="Plex login is not configured")
@@ -403,7 +404,8 @@ async def plex_login_complete(
         raise HTTPException(status_code=500, detail="Stored Plex server token is invalid") from exc
 
     if plex_server.auto_allow_all_server_users:
-        is_member = await plex_service.user_is_in_server(plex_server.base_url, server_token, profile)
+        server_uri = plex_server.connection_uri or plex_server.base_url
+        is_member = await plex_service.user_is_in_server(server_uri, server_token, profile)
         if not is_member:
             raise HTTPException(status_code=403, detail="Your Plex account is not on the configured server")
     else:

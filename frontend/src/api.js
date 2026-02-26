@@ -167,10 +167,15 @@ export const adminUsersApi = {
 export const adminPlexApi = {
   get: () => request('/admin/plex/integration'),
   save: (data) => request('/admin/plex/integration', { method: 'PUT', body: data }),
+  disconnect: () => request('/admin/plex/disconnect', { method: 'POST' }),
   connectStart: () => request('/admin/plex/connect/start', { method: 'POST' }),
   connectComplete: (pinId) => request('/admin/plex/connect/complete', { method: 'POST', body: { pin_id: pinId } }),
   listResources: () => request('/admin/plex/resources'),
-  listLibraries: (resourceId) => request(`/admin/plex/resources/${encodeURIComponent(resourceId)}/libraries`, { method: 'POST' }),
+  listLibraries: (resourceId, payload = null) =>
+    request(`/admin/plex/resources/${encodeURIComponent(resourceId)}/libraries`, {
+      method: 'POST',
+      body: payload || {},
+    }),
   test: (data) => request('/admin/plex/server/test', { method: 'POST', body: data }),
   listUsers: () => request('/admin/plex/server/users'),
 }

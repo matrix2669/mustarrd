@@ -795,7 +795,7 @@ class DownloadManager:
                     plex_server.access_token_encrypted or plex_server.token_encrypted
                 )
                 results = await plex_service.trigger_library_refresh(
-                    plex_server.base_url,
+                    plex_server.connection_uri or plex_server.base_url,
                     token,
                     section_ids,
                 )

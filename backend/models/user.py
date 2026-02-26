@@ -78,6 +78,7 @@ class PlexServer(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     base_url: Mapped[str] = mapped_column(String(1000))
+    connection_uri: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     token_encrypted: Mapped[str] = mapped_column(Text)
     access_token_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
     resource_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -93,6 +94,7 @@ class PlexServer(Base):
         return {
             "id": self.id,
             "base_url": self.base_url,
+            "connection_uri": self.connection_uri,
             "resource_id": self.resource_id,
             "resource_name": self.resource_name,
             "machine_identifier": self.machine_identifier,
