@@ -10,7 +10,6 @@ import {
   ScrollArea,
   Badge,
   Loader,
-  Alert,
   Box,
   Image,
   Tabs,
@@ -719,9 +718,15 @@ export default function Browse() {
 
   if (!accounts?.length) {
     return (
-      <Alert icon={<IconAlertCircle size={16} />} title="No Accounts" color="blue">
+      <Card withBorder>
         <Stack gap="xs">
-          <Text size="sm">Add an Xtream account to start browsing and recording.</Text>
+          <Group gap="xs" align="flex-start">
+            <IconAlertCircle size={16} />
+            <div>
+              <Text fw={600}>No Accounts</Text>
+              <Text size="sm" c="dimmed">Add an Xtream account to start browsing and recording.</Text>
+            </div>
+          </Group>
           <Group gap="xs">
             <Button size="xs" component={Link} to="/onboarding">
               Open Setup
@@ -731,7 +736,7 @@ export default function Browse() {
             </Button>
           </Group>
         </Stack>
-      </Alert>
+      </Card>
     )
   }
 

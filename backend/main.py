@@ -1,11 +1,16 @@
 import asyncio
 import logging
+import json
+from base64 import b64decode, b64encode
 from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.types import ASGIApp, Receive, Scope, Send
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from starlette.middleware.sessions import SessionMiddleware
+from starlette.datastructures import MutableHeaders
+from starlette.requests import HTTPConnection
+from itsdangerous import BadSignature
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 from starlette.responses import JSONResponse
@@ -130,6 +135,94 @@ class SetupLockdownMiddleware:
         await self.app(scope, receive, send)
 
 
+class AutoSecureSessionMiddleware(SessionMiddleware):
+    def __init__(self, *args, https_mode: str = "auto", **kwargs):
+        kwargs["https_only"] = False
+        super().__init__(*args, **kwargs)
+        self.https_mode = (https_mode or "auto").strip().lower()
+        if self.https_mode not in {"auto", "always", "never"}:
+            raise ValueError(f"Unsupported session cookie secure mode: {self.https_mode}")
+
+    @staticmethod
+    def _is_secure_request(scope: Scope) -> bool:
+        if scope.get("scheme") == "https":
+            return True
+        for header_name, header_value in scope.get("headers", []):
+            if header_name == b"x-forwarded-proto":
+                first_proto = header_value.decode("latin-1").split(",")[0].strip().lower()
+                return first_proto == "https"
+        return False
+
+    def _security_flags_for_scope(self, scope: Scope) -> str:
+        secure_cookie = False
+        if self.https_mode == "always":
+            secure_cookie = True
+        elif self.https_mode == "auto":
+            secure_cookie = self._is_secure_request(scope)
+        flags = self.security_flags
+        if secure_cookie:
+            flags = f"{flags}; secure"
+        return flags
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] not in ("http", "websocket"):
+            await self.app(scope, receive, send)
+            return
+
+        connection = HTTPConnection(scope)
+        initial_session_was_empty = True
+
+        if self.session_cookie in connection.cookies:
+            data = connection.cookies[self.session_cookie].encode("utf-8")
+            try:
+                data = self.signer.unsign(data, max_age=self.max_age)
+                scope["session"] = json.loads(b64decode(data))
+                initial_session_was_empty = False
+            except BadSignature:
+                scope["session"] = {}
+        else:
+            scope["session"] = {}
+
+        security_flags = self._security_flags_for_scope(scope)
+
+        async def send_wrapper(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                if scope["session"]:
+                    data = b64encode(json.dumps(scope["session"]).encode("utf-8"))
+                    data = self.signer.sign(data)
+                    headers = MutableHeaders(scope=message)
+                    header_value = "{session_cookie}={data}; path={path}; {max_age}{security_flags}".format(
+                        session_cookie=self.session_cookie,
+                        data=data.decode("utf-8"),
+                        path=self.path,
+                        max_age=f"Max-Age={self.max_age}; " if self.max_age else "",
+                        security_flags=security_flags,
+                    )
+                    headers.append("Set-Cookie", header_value)
+                elif not initial_session_was_empty:
+                    headers = MutableHeaders(scope=message)
+                    header_value = "{session_cookie}={data}; path={path}; {expires}{security_flags}".format(
+                        session_cookie=self.session_cookie,
+                        data="null",
+                        path=self.path,
+                        expires="expires=Thu, 01 Jan 1970 00:00:00 GMT; ",
+                        security_flags=security_flags,
+                    )
+                    headers.append("Set-Cookie", header_value)
+            await send(message)
+
+        await self.app(scope, receive, send_wrapper)
+
+
+def _resolve_session_cookie_secure_mode() -> str:
+    if settings.session_https_only is not None:
+        return "always" if settings.session_https_only else "never"
+    mode = (settings.session_cookie_secure_mode or "auto").strip().lower()
+    if mode in {"auto", "always", "never"}:
+        return mode
+    return "auto"
+
+
 # CORS for frontend development
 app.add_middleware(SetupLockdownMiddleware)
 app.add_middleware(
@@ -140,10 +233,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.add_middleware(
-    SessionMiddleware,
+    AutoSecureSessionMiddleware,
     secret_key=settings.session_secret,
     same_site="lax",
-    https_only=settings.session_https_only,
+    https_mode=_resolve_session_cookie_secure_mode(),
 )
 
 # API routes

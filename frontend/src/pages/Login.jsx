@@ -16,7 +16,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { IconAlertCircle, IconServer } from '@tabler/icons-react'
 
-import { authApi } from '../api'
+import { authApi, onboardingApi } from '../api'
 
 export default function Login() {
   const [username, setUsername] = useState('')
@@ -31,7 +31,7 @@ export default function Login() {
   const navigate = useNavigate()
   const location = useLocation()
   const [searchParams] = useSearchParams()
-  const fromPath = location.state?.from || '/downloads'
+  const fromPath = location.state?.from || '/browse'
   const setupToken = searchParams.get('setup_token')
 
   const { data: status, isLoading } = useQuery({
@@ -67,15 +67,30 @@ export default function Login() {
     }
   }, [])
 
-  const handleLoginSuccess = async (target = fromPath) => {
-    await queryClient.invalidateQueries({ queryKey: ['auth', 'status'] })
+  const handleLoginSuccess = (target = fromPath) => {
     navigate(target, { replace: true })
+    queryClient.invalidateQueries({ queryKey: ['auth', 'status'] })
+  }
+
+  const resolvePostLoginTarget = async (defaultTarget = fromPath) => {
+    try {
+      const authStatus = await authApi.status()
+      if (authStatus?.authenticated && authStatus?.is_admin) {
+        const onboardingStatus = await onboardingApi.status()
+        if (onboardingStatus?.completed === false) {
+          return '/onboarding'
+        }
+      }
+    } catch {
+      // Fall back to default target if status checks fail.
+    }
+    return defaultTarget
   }
 
   const setupMutation = useMutation({
     mutationFn: ({ pass, user }) => authApi.setup(pass, user),
-    onSuccess: async () => {
-      await handleLoginSuccess('/onboarding')
+    onSuccess: () => {
+      handleLoginSuccess('/onboarding')
     },
     onError: (err) => setError(err.message),
   })
@@ -83,15 +98,16 @@ export default function Login() {
   const credentialsMutation = useMutation({
     mutationFn: ({ user, pass }) => authApi.loginCredentials(user, pass),
     onSuccess: async () => {
-      await handleLoginSuccess(fromPath)
+      const target = await resolvePostLoginTarget(fromPath)
+      handleLoginSuccess(target)
     },
     onError: (err) => setError(err.message),
   })
 
   const bootstrapMutation = useMutation({
     mutationFn: ({ user, pass }) => authApi.adminBootstrapComplete(user, pass),
-    onSuccess: async () => {
-      await handleLoginSuccess('/downloads')
+    onSuccess: () => {
+      handleLoginSuccess('/onboarding')
     },
     onError: (err) => setError(err.message),
   })
@@ -142,7 +158,8 @@ export default function Login() {
             // noop
           }
           setPlexAuthUrl('')
-          await handleLoginSuccess(fromPath)
+          const target = await resolvePostLoginTarget(fromPath)
+          handleLoginSuccess(target)
         } catch (err) {
           if (err?.status === 202 || (err?.message || '').includes('not complete')) {
             return
@@ -244,15 +261,17 @@ export default function Login() {
               {setupToken
                 ? 'Set Your Password'
                 : isSetupMode
-                ? 'Set Admin Password'
+                ? 'Welcome to Mustarrd'
                 : isBootstrapMode
                 ? 'Choose Admin Username'
                 : 'Sign In'}
             </Text>
-            {(setupToken || isBootstrapMode) && (
+            {(setupToken || isSetupMode || isBootstrapMode) && (
               <Text size="sm" c="dimmed">
                 {setupToken
                   ? `Create a password for ${setupInfo?.display_name || setupInfo?.username || 'your account'}.`
+                  : isSetupMode
+                  ? 'Please set an admin username and password.'
                   : 'Existing install detected. Choose an admin username and confirm your current admin password.'}
               </Text>
             )}

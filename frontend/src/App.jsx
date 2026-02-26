@@ -123,7 +123,6 @@ function App() {
       await queryClient.invalidateQueries({ queryKey: ['auth', 'status'] })
       notifications.show({
         title: 'Logged out',
-        message: 'Logged out.',
         color: 'yellow',
       })
       navigate('/login', { replace: true })

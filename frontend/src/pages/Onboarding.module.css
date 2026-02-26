@@ -1,0 +1,99 @@
+.stepHeader {
+  display: flex;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+  gap: 0;
+}
+
+.stepButton {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: var(--mantine-color-dimmed);
+  cursor: pointer;
+}
+
+.stepButton:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.stepButtonActive {
+  color: var(--mantine-color-text);
+}
+
+.stepIcon {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  background: var(--mantine-color-dark-5);
+  border: 2px solid var(--mantine-color-dark-5);
+}
+
+.stepButtonActive .stepIcon {
+  border-color: var(--mantine-color-orange-5);
+  color: var(--mantine-color-orange-4);
+}
+
+.stepBody {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.stepLabel {
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.stepDescription {
+  font-size: 13px;
+  color: var(--mantine-color-dimmed);
+}
+
+.stepConnector {
+  width: 120px;
+  min-width: 120px;
+  height: 2px;
+  margin: 0 12px;
+  background: var(--mantine-color-dark-5);
+}
+
+.stepConnectorActive {
+  background: var(--mantine-color-orange-5);
+}
+
+@media (max-width: 48em) {
+  .stepHeader {
+    width: 100%;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .stepConnector {
+    width: 2px;
+    min-width: 2px;
+    height: 24px;
+    margin: 0 0 0 17px;
+  }
+
+  .stepLabel {
+    font-size: 14px;
+  }
+
+  .stepDescription {
+    font-size: 12px;
+  }
+}

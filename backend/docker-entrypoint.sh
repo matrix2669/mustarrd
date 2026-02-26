@@ -1,12 +1,42 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PUID="${PUID:-1000}"
-PGID="${PGID:-1000}"
+# Default to common Linux user IDs, but auto-switch to Unraid nobody:users
+# when running on Unraid and PUID/PGID were not provided.
+if [[ -z "${PUID:-}" || -z "${PGID:-}" ]]; then
+  if [[ -f /etc/unraid-version ]]; then
+    PUID="${PUID:-99}"
+    PGID="${PGID:-100}"
+  else
+    PUID="${PUID:-1000}"
+    PGID="${PGID:-1000}"
+  fi
+else
+  PUID="${PUID}"
+  PGID="${PGID}"
+fi
 APP_USER="appuser"
 APP_GROUP="appgroup"
 LIBVA_DRIVER_NAME="${LIBVA_DRIVER_NAME:-iHD}"
 export LIBVA_DRIVER_NAME
+
+ensure_owned_path() {
+  local path="$1"
+  mkdir -p "${path}" 2>/dev/null || true
+
+  if ! chown "${PUID}:${PGID}" "${path}" 2>/dev/null; then
+    echo "WARN: could not chown ${path} to ${PUID}:${PGID}" >&2
+  fi
+
+  if ! chown -R "${PUID}:${PGID}" "${path}" 2>/dev/null; then
+    echo "WARN: could not recursively chown ${path} to ${PUID}:${PGID}" >&2
+  fi
+}
+
+is_mountpoint_path() {
+  local path="$1"
+  awk -v target="${path}" '$2 == target { found=1 } END { exit found ? 0 : 1 }' /proc/mounts
+}
 
 ensure_group() {
   local name="$1"
@@ -46,12 +76,24 @@ if [[ -e /dev/dri/card0 ]]; then
   usermod -aG video "${APP_USER}"
 fi
 
-mkdir -p /app/config /app/downloads /app/completed 2>/dev/null || true
-chown -R "${PUID}:${PGID}" /app/config /app/downloads /app/completed 2>/dev/null || true
+ensure_owned_path /app/config
+ensure_owned_path /app/downloads
+ensure_owned_path /app/completed
+
+# Unraid/single-mount fallback: if only /app/config is bind-mounted, keep
+# downloads + completed under that mounted config root.
+if is_mountpoint_path /app/config && ! is_mountpoint_path /app/downloads && ! is_mountpoint_path /app/completed; then
+  export CATCHUP_DEFAULT_DOWNLOAD_FOLDER="/app/config/downloads"
+  export CATCHUP_DEFAULT_COMPLETED_FOLDER="/app/config/completed"
+  ensure_owned_path "${CATCHUP_DEFAULT_DOWNLOAD_FOLDER}"
+  ensure_owned_path "${CATCHUP_DEFAULT_COMPLETED_FOLDER}"
+fi
 
 if [[ -f /app/comskip.ini && ! -f /app/config/comskip.ini ]]; then
   cp /app/comskip.ini /app/config/comskip.ini
-  chown "${PUID}:${PGID}" /app/config/comskip.ini 2>/dev/null || true
+  if ! chown "${PUID}:${PGID}" /app/config/comskip.ini 2>/dev/null; then
+    echo "WARN: could not chown /app/config/comskip.ini to ${PUID}:${PGID}" >&2
+  fi
 fi
 
 exec gosu "${APP_USER}" "$@"

@@ -12,7 +12,6 @@ import {
   PasswordInput,
   Radio,
   Stack,
-  Stepper,
   Text,
   TextInput,
   Title,
@@ -23,6 +22,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { IconAlertCircle, IconCheck } from '@tabler/icons-react'
 
 import { accountsApi, onboardingApi } from '../api'
+import classes from './Onboarding.module.css'
 
 function getMaxUnlockedStep(status) {
   if (!status) return 0
@@ -199,128 +199,82 @@ export default function Onboarding() {
       </Group>
 
       <Card withBorder p={isMobile ? 'sm' : 'md'}>
-        <Stepper
-          active={currentStep}
-          onStepClick={(step) => {
-            if (!isBusy && canOpenStep(step)) {
-              setCurrentStep(step)
-            }
-          }}
-          orientation={isMobile ? 'vertical' : 'horizontal'}
-          size={isMobile ? 'sm' : 'md'}
-          iconSize={isMobile ? 28 : 36}
-          allowNextStepsSelect={false}
-        >
-          <Stepper.Step label="Account" description={isMobile ? undefined : 'Add provider'}>
-            <Stack gap="md" mt="md">
-              {accountComplete && (
-                <Alert color="green" icon={<IconCheck size={16} />}>
-                  At least one account is connected ({status.account_count}).
-                </Alert>
-              )}
+        <div className={classes.stepHeader}>
+          <button
+            type="button"
+            className={`${classes.stepButton} ${currentStep === 0 ? classes.stepButtonActive : ''}`}
+            onClick={() => {
+              if (!isBusy && canOpenStep(0)) setCurrentStep(0)
+            }}
+          >
+            <span className={classes.stepIcon}>{1}</span>
+            <span className={classes.stepBody}>
+              <span className={classes.stepLabel}>Account</span>
+              <span className={classes.stepDescription}>Add provider</span>
+            </span>
+          </button>
 
-              <form onSubmit={handleCreateAccount}>
-                <Stack>
-                  <TextInput
-                    label="Account Name"
-                    placeholder="My IPTV Provider"
-                    size={isMobile ? 'md' : 'sm'}
-                    required
-                    value={accountForm.name}
-                    onChange={(e) => setAccountForm((prev) => ({ ...prev, name: e.target.value }))}
-                  />
-                  <TextInput
-                    label="Server URL"
-                    placeholder="https://provider.example.com"
-                    size={isMobile ? 'md' : 'sm'}
-                    required
-                    value={accountForm.server_url}
-                    onChange={(e) => setAccountForm((prev) => ({ ...prev, server_url: e.target.value }))}
-                  />
-                  <TextInput
-                    label="Username"
-                    size={isMobile ? 'md' : 'sm'}
-                    required
-                    value={accountForm.username}
-                    onChange={(e) => setAccountForm((prev) => ({ ...prev, username: e.target.value }))}
-                  />
-                  <PasswordInput
-                    label="Password"
-                    size={isMobile ? 'md' : 'sm'}
-                    required
-                    value={accountForm.password}
-                    onChange={(e) => setAccountForm((prev) => ({ ...prev, password: e.target.value }))}
-                  />
-                  <Box
-                    mt="sm"
-                    style={{
-                      position: isMobile ? 'sticky' : 'static',
-                      bottom: isMobile ? 0 : 'auto',
-                      background: 'var(--mantine-color-body)',
-                      paddingTop: isMobile ? 8 : 0,
-                      zIndex: 5,
-                    }}
-                  >
-                    <Group justify="space-between" grow={isMobile}>
-                      <Button type="submit" loading={createAccountMutation.isPending} fullWidth={isMobile}>
-                      {accountComplete ? 'Add Another Account' : 'Save & Continue'}
-                      </Button>
-                      <Button
-                        variant="light"
-                        onClick={() => setCurrentStep(1)}
-                        disabled={!accountComplete || isBusy}
-                        fullWidth={isMobile}
-                      >
-                        Continue
-                      </Button>
-                    </Group>
-                  </Box>
-                </Stack>
-              </form>
-            </Stack>
-          </Stepper.Step>
+          <div className={`${classes.stepConnector} ${currentStep > 0 ? classes.stepConnectorActive : ''}`} />
 
-          <Stepper.Step label="Processing + Comskip" description={isMobile ? undefined : 'Set defaults'}>
-            <Stack gap="md" mt="md">
-              <Radio.Group value={selectedProfile} onChange={setSelectedProfile}>
-                <Stack gap="xs">
-                  {availableProfiles.map((profile) => (
-                    <Card key={profile.id} withBorder padding="sm">
-                      <Radio value={profile.id} label={profile.label} description={profile.description} />
-                      {profile.recommended && (
-                        <Badge mt={8} size="xs" color="orange" variant="outline">
-                          Recommended
-                        </Badge>
-                      )}
-                    </Card>
-                  ))}
-                </Stack>
-              </Radio.Group>
+          <button
+            type="button"
+            className={`${classes.stepButton} ${currentStep === 1 ? classes.stepButtonActive : ''}`}
+            onClick={() => {
+              if (!isBusy && canOpenStep(1)) setCurrentStep(1)
+            }}
+            disabled={!canOpenStep(1) || isBusy}
+          >
+            <span className={classes.stepIcon}>{2}</span>
+            <span className={classes.stepBody}>
+              <span className={classes.stepLabel}>Processing + Comskip</span>
+              <span className={classes.stepDescription}>Set defaults</span>
+            </span>
+          </button>
+        </div>
 
-              {comskipAvailable ? (
-                <Radio.Group value={comskipChoice} onChange={setComskipChoice}>
-                  <Stack gap="xs">
-                    <Radio value="enable" label="Enable Comskip" description="Detect and remove commercials." />
-                    <Radio value="disable_with_ack" label="Disable Comskip" description="Keep commercials in recordings." />
-                  </Stack>
-                </Radio.Group>
-              ) : (
-                <>
-                  <Alert color="yellow" icon={<IconAlertCircle size={16} />}>
-                    Comskip is unavailable: {status?.tools?.comskip?.error || 'Tool not detected'}
-                  </Alert>
-                  <Checkbox
-                    checked={acknowledgeUnavailable}
-                    onChange={(e) => setAcknowledgeUnavailable(e.currentTarget.checked)}
-                    label="I understand setup will continue with Comskip disabled."
-                  />
-                </>
-              )}
+        {currentStep === 0 && (
+          <Stack gap="md" mt="md">
+            {accountComplete && (
+              <Alert color="green" icon={<IconCheck size={16} />}>
+                At least one account is connected ({status.account_count}).
+              </Alert>
+            )}
 
-              <Group justify="space-between">
+            <form onSubmit={handleCreateAccount}>
+              <Stack>
+                <TextInput
+                  label="Account Name"
+                  placeholder="My IPTV Provider"
+                  size={isMobile ? 'md' : 'sm'}
+                  required
+                  value={accountForm.name}
+                  onChange={(e) => setAccountForm((prev) => ({ ...prev, name: e.target.value }))}
+                />
+                <TextInput
+                  label="Server URL"
+                  placeholder="https://provider.example.com"
+                  size={isMobile ? 'md' : 'sm'}
+                  required
+                  value={accountForm.server_url}
+                  onChange={(e) => setAccountForm((prev) => ({ ...prev, server_url: e.target.value }))}
+                />
+                <TextInput
+                  label="Username"
+                  size={isMobile ? 'md' : 'sm'}
+                  required
+                  value={accountForm.username}
+                  onChange={(e) => setAccountForm((prev) => ({ ...prev, username: e.target.value }))}
+                />
+                <PasswordInput
+                  label="Password"
+                  size={isMobile ? 'md' : 'sm'}
+                  required
+                  value={accountForm.password}
+                  onChange={(e) => setAccountForm((prev) => ({ ...prev, password: e.target.value }))}
+                />
                 <Box
+                  mt="sm"
                   style={{
-                    width: '100%',
                     position: isMobile ? 'sticky' : 'static',
                     bottom: isMobile ? 0 : 'auto',
                     background: 'var(--mantine-color-body)',
@@ -329,18 +283,84 @@ export default function Onboarding() {
                   }}
                 >
                   <Group justify="space-between" grow={isMobile}>
-                    <Button variant="subtle" onClick={() => setCurrentStep(0)} disabled={isBusy} fullWidth={isMobile}>
-                      Back
+                    <Button type="submit" loading={createAccountMutation.isPending} fullWidth={isMobile}>
+                      {accountComplete ? 'Add Another Account' : 'Save & Continue'}
                     </Button>
-                    <Button onClick={handleSaveProcessingAndComskip} loading={saveProcessingMutation.isPending} fullWidth={isMobile}>
-                      Save & Finish
+                    <Button
+                      variant="light"
+                      onClick={() => setCurrentStep(1)}
+                      disabled={!accountComplete || isBusy}
+                      fullWidth={isMobile}
+                    >
+                      Continue
                     </Button>
                   </Group>
                 </Box>
-              </Group>
-            </Stack>
-          </Stepper.Step>
-        </Stepper>
+              </Stack>
+            </form>
+          </Stack>
+        )}
+
+        {currentStep === 1 && (
+          <Stack gap="md" mt="md">
+            <Radio.Group value={selectedProfile} onChange={setSelectedProfile}>
+              <Stack gap="xs">
+                {availableProfiles.map((profile) => (
+                  <Card key={profile.id} withBorder padding="sm">
+                    <Radio value={profile.id} label={profile.label} description={profile.description} />
+                    {profile.recommended && (
+                      <Badge mt={8} size="xs" color="orange" variant="outline">
+                        Recommended
+                      </Badge>
+                    )}
+                  </Card>
+                ))}
+              </Stack>
+            </Radio.Group>
+
+            {comskipAvailable ? (
+              <Radio.Group value={comskipChoice} onChange={setComskipChoice}>
+                <Stack gap="xs">
+                  <Radio value="enable" label="Enable Comskip" description="Detect and remove commercials." />
+                  <Radio value="disable_with_ack" label="Disable Comskip" description="Keep commercials in recordings." />
+                </Stack>
+              </Radio.Group>
+            ) : (
+              <>
+                <Alert color="yellow" icon={<IconAlertCircle size={16} />}>
+                  Comskip is unavailable: {status?.tools?.comskip?.error || 'Tool not detected'}
+                </Alert>
+                <Checkbox
+                  checked={acknowledgeUnavailable}
+                  onChange={(e) => setAcknowledgeUnavailable(e.currentTarget.checked)}
+                  label="I understand setup will continue with Comskip disabled."
+                />
+              </>
+            )}
+
+            <Group justify="space-between">
+              <Box
+                style={{
+                  width: '100%',
+                  position: isMobile ? 'sticky' : 'static',
+                  bottom: isMobile ? 0 : 'auto',
+                  background: 'var(--mantine-color-body)',
+                  paddingTop: isMobile ? 8 : 0,
+                  zIndex: 5,
+                }}
+              >
+                <Group justify="space-between" grow={isMobile}>
+                  <Button variant="subtle" onClick={() => setCurrentStep(0)} disabled={isBusy} fullWidth={isMobile}>
+                    Back
+                  </Button>
+                  <Button onClick={handleSaveProcessingAndComskip} loading={saveProcessingMutation.isPending} fullWidth={isMobile}>
+                    Save & Finish
+                  </Button>
+                </Group>
+              </Box>
+            </Group>
+          </Stack>
+        )}
       </Card>
     </Stack>
   )

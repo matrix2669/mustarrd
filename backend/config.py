@@ -5,6 +5,7 @@ import os
 import shutil
 import sys
 import secrets
+from typing import Optional
 
 
 def _default_data_root() -> Path:
@@ -102,7 +103,13 @@ class Settings(BaseSettings):
     # sessions survive restarts with no user action required. Override with
     # CATCHUP_SESSION_SECRET env var to supply your own value.
     session_secret: str = Field(default_factory=_load_or_create_session_secret)
-    session_https_only: bool = not _using_desktop_mode()
+    # Session cookie secure policy:
+    # - auto (default): set Secure only for HTTPS requests (including reverse-proxy forwarded HTTPS)
+    # - always: always set Secure
+    # - never: never set Secure
+    session_cookie_secure_mode: str = "auto"
+    # Legacy override (if set): true => always, false => never.
+    session_https_only: Optional[bool] = None
     allow_remote_setup: bool = False
     # Comma-separated list of allowed CORS origins for the frontend.
     # Override with CATCHUP_CORS_ORIGINS when the frontend is served from
