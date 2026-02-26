@@ -132,13 +132,36 @@ async def _attach_requested_by(
 
     ids = {row.get("requested_by_user_id") for row in rows if row.get("requested_by_user_id")}
     if not ids:
+        if auth.user:
+            for row in rows:
+                source = (row.get("request_source") or "").lower()
+                if source in {"admin", "admin_local"}:
+                    row["requested_by"] = {
+                        "user_id": auth.user.id,
+                        "username": auth.user.username,
+                        "display_name": auth.user.display_name,
+                        "provider": source or "admin_local",
+                        "role": auth.user.role,
+                    }
+                else:
+                    row["requested_by"] = None
         return rows
     result = await session.execute(select(User).where(User.id.in_(ids)))
     users = {u.id: u for u in result.scalars().all()}
     for row in rows:
         rid = row.get("requested_by_user_id")
         if not rid:
-            row["requested_by"] = None
+            source = (row.get("request_source") or "").lower()
+            if auth.user and source in {"admin", "admin_local"}:
+                row["requested_by"] = {
+                    "user_id": auth.user.id,
+                    "username": auth.user.username,
+                    "display_name": auth.user.display_name,
+                    "provider": source or "admin_local",
+                    "role": auth.user.role,
+                }
+            else:
+                row["requested_by"] = None
             continue
         user = users.get(rid)
         row["requested_by"] = (
@@ -250,8 +273,8 @@ async def create_download(
             custom_filename=data.custom_filename,
             pre_padding_minutes=data.pre_padding_minutes or 0,
             post_padding_minutes=data.post_padding_minutes or 0,
-            requested_by_user_id=auth.user_id if not auth.is_admin else None,
-            request_source=auth.provider if not auth.is_admin else "admin",
+            requested_by_user_id=auth.user_id,
+            request_source=auth.provider or "admin_local",
         )
     except ValueError as exc:
         message = str(exc)

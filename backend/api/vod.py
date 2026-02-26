@@ -131,8 +131,8 @@ async def download_movie(
             container_extension=data.container_extension,
             direct_source=data.direct_source,
             release_date=data.release_date,
-            requested_by_user_id=auth.user_id if not auth.is_admin else None,
-            request_source=auth.provider if not auth.is_admin else "admin",
+            requested_by_user_id=auth.user_id,
+            request_source=auth.provider or "admin_local",
         )
     except ValueError as exc:
         logger.exception(
@@ -227,8 +227,8 @@ async def download_series(
                 container_extension=episode.container_extension,
                 direct_source=episode.direct_source,
                 duration_minutes=episode.duration_minutes,
-                requested_by_user_id=auth.user_id if not auth.is_admin else None,
-                request_source=auth.provider if not auth.is_admin else "admin",
+                requested_by_user_id=auth.user_id,
+                request_source=auth.provider or "admin_local",
             )
         except ValueError as exc:
             logger.exception(

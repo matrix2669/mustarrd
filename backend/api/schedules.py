@@ -215,8 +215,8 @@ async def create_schedule(
         post_padding_minutes=int(data.post_padding_minutes or 0),
         custom_filename=custom_filename,
         status=ScheduledStatus.SCHEDULED.value,
-        requested_by_user_id=auth.user_id if not auth.is_admin else None,
-        request_source=auth.provider if not auth.is_admin else "admin",
+        requested_by_user_id=auth.user_id,
+        request_source=auth.provider or "admin_local",
     )
 
     session.add(schedule)

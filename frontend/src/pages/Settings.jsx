@@ -774,16 +774,6 @@ export default function Settings() {
       />
 
       <Divider variant="dashed" />
-
-      <SettingRow
-        label="Show future programs"
-        description="Display upcoming programs that can't be downloaded yet. Clicking them schedules a recording — keep the app running."
-      >
-        <Switch
-          checked={formData.show_future_programs || false}
-          onChange={(e) => handleChange('show_future_programs', e.currentTarget.checked)}
-        />
-      </SettingRow>
     </Stack>
   )
 

@@ -5,7 +5,6 @@ import {
   Burger,
   Group,
   NavLink as MantineNavLink,
-  Badge,
   Stack,
   Text,
   Box,
@@ -385,9 +384,24 @@ function App() {
               leftSection={<item.icon size={20} />}
               rightSection={
                 item.badge ? (
-                  <Badge size="sm" variant="filled" color="orange">
+                  <Box
+                    style={{
+                      minWidth: 20,
+                      height: 20,
+                      borderRadius: '50%',
+                      background: '#f59f00',
+                      color: '#1a1b1e',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: 11,
+                      fontWeight: 700,
+                      lineHeight: 1,
+                      padding: '0 5px',
+                    }}
+                  >
                     {item.badge}
-                  </Badge>
+                  </Box>
                 ) : null
               }
               style={{ borderRadius: 8, marginBottom: 4 }}

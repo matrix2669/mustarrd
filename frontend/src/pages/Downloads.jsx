@@ -13,7 +13,6 @@ import {
   Alert,
   Tooltip,
   Button,
-  Switch,
   Collapse,
 } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
@@ -104,7 +103,7 @@ function DownloadCard({ download, isDesktop, isAdmin, onCancel, onRetry, onDelet
   const formatStagePercent = (value, indeterminate = false) => {
     if (indeterminate) return '...'
     if (typeof value !== 'number') return '—'
-    return `${value.toFixed(1)}%`
+    return `${Math.round(value)}%`
   }
 
   return (
@@ -172,8 +171,7 @@ function DownloadCard({ download, isDesktop, isAdmin, onCancel, onRetry, onDelet
             Requested by:{' '}
             {download.requested_by?.display_name ||
               download.requested_by?.username ||
-              (download.requested_by_user_id ? `User #${download.requested_by_user_id}` : 'legacy/unknown')}
-            {' '}({download.requested_by?.provider || download.request_source || 'unknown'})
+              (download.requested_by_user_id ? `User #${download.requested_by_user_id}` : 'Unknown')}
           </Text>
         )}
 
@@ -339,17 +337,6 @@ export default function Downloads() {
     queryKey: ['auth', 'status'],
     queryFn: authApi.status,
   })
-  const { data: preferences } = useQuery({
-    queryKey: ['auth', 'preferences'],
-    queryFn: authApi.getPreferences,
-  })
-  const updatePreferencesMutation = useMutation({
-    mutationFn: (value) => authApi.updatePreferences(value),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['auth', 'preferences'] })
-    },
-  })
-
   // WebSocket for real-time updates
   useEffect(() => {
     const ws = createDownloadWebSocket((data) => {
@@ -510,15 +497,7 @@ export default function Downloads() {
 
   return (
     <Stack>
-      <Group justify="space-between" align="center">
-        <Title order={2}>Downloads</Title>
-        <Switch
-          label="Show Future Programs"
-          checked={Boolean(preferences?.show_future_programs)}
-          onChange={(event) => updatePreferencesMutation.mutate(event.currentTarget.checked)}
-          disabled={updatePreferencesMutation.isPending}
-        />
-      </Group>
+      <Title order={2}>Downloads</Title>
 
       <Tabs defaultValue="active">
         <Tabs.List>

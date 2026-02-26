@@ -743,20 +743,24 @@ export default function Browse() {
   return (
     <Stack>
       <Group justify="space-between">
-        <Title order={2}>
-          {browseTab === 'vod'
-            ? 'Browse On Demand'
-            : browseTab === 'search'
-            ? 'Search All TV'
-            : 'Browse EPG'}
-        </Title>
+        <Group gap="md" align="center">
+          <Title order={2}>
+            {browseTab === 'vod'
+              ? 'Browse On Demand'
+              : browseTab === 'search'
+              ? 'Search All TV'
+              : 'Browse EPG'}
+          </Title>
+          {browseTab === 'epg' && (
+            <Switch
+              label="Show Future Programs"
+              checked={Boolean(preferences?.show_future_programs ?? appSettings?.show_future_programs)}
+              onChange={(event) => updatePreferencesMutation.mutate(event.currentTarget.checked)}
+              disabled={updatePreferencesMutation.isPending}
+            />
+          )}
+        </Group>
         <Group>
-          <Switch
-            label="Show Future Programs"
-            checked={Boolean(preferences?.show_future_programs ?? appSettings?.show_future_programs)}
-            onChange={(event) => updatePreferencesMutation.mutate(event.currentTarget.checked)}
-            disabled={updatePreferencesMutation.isPending}
-          />
           {accountOptions.length > 1 && (
             <Select
               placeholder="Select account"
