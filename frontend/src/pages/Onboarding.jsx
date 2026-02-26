@@ -27,6 +27,10 @@ import { IconAlertCircle, IconCheck } from '@tabler/icons-react'
 import { accountsApi, adminPlexApi, onboardingApi } from '../api'
 import classes from './Onboarding.module.css'
 
+function isPlexNotConnectedError(message) {
+  return (message || '').toLowerCase().includes('plex account is not connected')
+}
+
 function getMaxUnlockedStep(status) {
   if (!status) return 0
   if ((status.account_count || 0) < 1) return 0
@@ -146,6 +150,14 @@ export default function Onboarding() {
       setPlexResources(resources || [])
     },
     onError: (err) => {
+      if (isPlexNotConnectedError(err.message)) {
+        notifications.show({
+          title: 'Connect Plex First',
+          message: 'Connect a Plex account to load available servers.',
+          color: 'yellow',
+        })
+        return
+      }
       notifications.show({
         title: 'Plex Resources Failed',
         message: err.message,
@@ -271,17 +283,11 @@ export default function Onboarding() {
 
   useEffect(() => {
     if (currentStep !== 2) return
-    if (!plexResources.length) {
-      listPlexResourcesMutation.mutate()
-    }
-  }, [currentStep, plexResources.length])
-
-  useEffect(() => {
-    if (currentStep !== 2) return
+    if (!plexConfig?.token_configured) return
     if (!plexForm.resource_id) return
     if (plexLibraries.length > 0) return
     listPlexLibrariesMutation.mutate(plexForm.resource_id)
-  }, [currentStep, plexForm.resource_id, plexLibraries.length])
+  }, [currentStep, plexConfig?.token_configured, plexForm.resource_id, plexLibraries.length])
 
   if (isLoading) {
     return (

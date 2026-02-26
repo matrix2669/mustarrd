@@ -50,6 +50,10 @@ import { adminPlexApi, adminUsersApi, authApi, settingsApi } from '../api'
 import AccountsSection from '../components/settings/AccountsSection'
 import LogsSection from '../components/settings/LogsSection'
 
+function isPlexNotConnectedError(message) {
+  return (message || '').toLowerCase().includes('plex account is not connected')
+}
+
 function TemplateSection({ label, template, variables, example, onChange }) {
   return (
     <Stack gap="xs">
@@ -441,6 +445,14 @@ export default function Settings() {
       setPlexResources(resources || [])
     },
     onError: (error) => {
+      if (isPlexNotConnectedError(error.message)) {
+        notifications.show({
+          title: 'Connect Plex First',
+          message: 'Connect a Plex account to load available servers.',
+          color: 'yellow',
+        })
+        return
+      }
       notifications.show({ title: 'Plex Resources Failed', message: error.message, color: 'red' })
     },
   })
@@ -514,17 +526,11 @@ export default function Settings() {
   }
 
   useEffect(() => {
-    if (activeSection !== 'plex') return
-    if (!plexResources.length) {
-      listPlexResourcesMutation.mutate()
-    }
-  }, [activeSection, plexResources.length])
-
-  useEffect(() => {
+    if (!plexConfig?.token_configured) return
     if (!plexForm.resource_id || activeSection !== 'plex') return
     if (plexLibraries.length > 0) return
     listPlexLibrariesMutation.mutate(plexForm.resource_id)
-  }, [activeSection, plexForm.resource_id, plexLibraries.length])
+  }, [activeSection, plexConfig?.token_configured, plexForm.resource_id, plexLibraries.length])
 
   const handleChangePassword = (e) => {
     e.preventDefault()
