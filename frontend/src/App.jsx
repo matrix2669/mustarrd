@@ -11,7 +11,7 @@ import {
   Box,
   Divider,
 } from '@mantine/core'
-import { useDisclosure } from '@mantine/hooks'
+import { useDisclosure, useMediaQuery } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
 import {
   IconSearch,
@@ -82,8 +82,11 @@ function OnboardingGate({ onboardingStatus, onboardingLoading }) {
 
 function App() {
   const [opened, { toggle, close }] = useDisclosure()
+  const isMobile = useMediaQuery('(max-width: 48em)')
   const [activeDownloads, setActiveDownloads] = useState(0)
   const epgToastVisibleRef = useRef(false)
+  const epgToastDismissedRef = useRef(false)
+  const epgWasRunningRef = useRef(false)
   const epgToastCloseTimerRef = useRef(null)
   const epgToastPendingCloseRef = useRef(false)
   const queryClient = useQueryClient()
@@ -189,11 +192,16 @@ function App() {
     const title = accountName
       ? `Syncing EPG (${accountName}${percentLabel})`
       : 'Syncing EPG'
+    const epgNotificationPosition = isMobile ? 'bottom-center' : 'top-right'
     const message = hasTotal
       ? `${inserted.toLocaleString()} new, ${processed.toLocaleString()} scanned of ${total.toLocaleString()} (${percent}%).`
       : `${inserted.toLocaleString()} new, ${processed.toLocaleString()} scanned so far.`
 
     if (running) {
+      epgWasRunningRef.current = true
+      if (epgToastDismissedRef.current) {
+        return
+      }
       clearEpgToastTimer()
       epgToastPendingCloseRef.current = false
       if (epgToastVisibleRef.current) {
@@ -201,49 +209,66 @@ function App() {
           id: 'epg-download-progress',
           title,
           message,
+          position: epgNotificationPosition,
           loading: true,
           autoClose: false,
-          withCloseButton: false,
+          withCloseButton: true,
+          onClose: () => {
+            epgToastVisibleRef.current = false
+            epgToastDismissedRef.current = true
+          },
         })
       } else {
         notifications.show({
           id: 'epg-download-progress',
           title,
           message,
+          position: epgNotificationPosition,
           loading: true,
           autoClose: false,
-          withCloseButton: false,
+          withCloseButton: true,
+          onClose: () => {
+            epgToastVisibleRef.current = false
+            epgToastDismissedRef.current = true
+          },
         })
         epgToastVisibleRef.current = true
       }
       return
     }
 
-    if (epgToastVisibleRef.current) {
+    if (epgWasRunningRef.current) {
+      epgWasRunningRef.current = false
       clearEpgToastTimer()
+      epgToastPendingCloseRef.current = false
+      notifications.hide('epg-download-progress')
+      epgToastVisibleRef.current = false
+      epgToastDismissedRef.current = false
+      const resultToastId = `epg-download-result-${Date.now()}`
       if (lastError) {
-        notifications.update({
-          id: 'epg-download-progress',
+        notifications.show({
+          id: resultToastId,
           title: 'EPG download failed',
           message: lastError,
+          position: epgNotificationPosition,
           color: 'red',
           loading: false,
-          autoClose: false,
+          autoClose: 8000,
           withCloseButton: true,
         })
       } else {
-        notifications.update({
-          id: 'epg-download-progress',
+        notifications.show({
+          id: resultToastId,
           title: 'EPG download complete',
           message: `${inserted.toLocaleString()} new programs added.`,
+          position: epgNotificationPosition,
           loading: false,
           autoClose: 4000,
           withCloseButton: true,
         })
       }
-      scheduleEpgToastClose()
     }
-  }, [epgStatus])
+  }, [epgStatus, isMobile])
 
   // WebSocket for real-time updates
   useEffect(() => {
