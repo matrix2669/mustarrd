@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth import require_admin, hash_password, AuthContext
@@ -30,6 +30,13 @@ class UpdateUserPayload(BaseModel):
 
 def _hash_setup_token(raw_token: str) -> str:
     return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+
+
+def _normalize_username(raw_username: str | None) -> str:
+    username = (raw_username or "").strip()
+    if not username:
+        raise HTTPException(status_code=400, detail="Username is required")
+    return username
 
 
 async def _create_setup_token(session: AsyncSession, user_id: int, ttl_hours: int = 24) -> str:
@@ -64,14 +71,17 @@ async def create_user(
     _admin: AuthContext = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ):
-    existing_result = await session.execute(select(User).where(User.username == payload.username))
+    normalized_username = _normalize_username(payload.username)
+    existing_result = await session.execute(
+        select(User).where(func.lower(User.username) == normalized_username.lower())
+    )
     existing = existing_result.scalar_one_or_none()
     if existing:
         raise HTTPException(status_code=409, detail="Username already exists")
 
     user = User(
         role="download_only",
-        username=payload.username.strip(),
+        username=normalized_username,
         display_name=payload.display_name,
         status=payload.status if payload.status in {"active", "disabled"} else "active",
         password_hash=hash_password(payload.password) if payload.password else None,

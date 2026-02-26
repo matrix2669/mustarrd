@@ -60,6 +60,10 @@ class AppSettings(Base):
     onboarding_processing_confirmed: Mapped[bool] = mapped_column(Boolean, default=False)
     onboarding_comskip_confirmed: Mapped[bool] = mapped_column(Boolean, default=False)
     onboarding_selected_profile: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    plex_outbound_policy: Mapped[str] = mapped_column(
+        String(64),
+        default="resource_connections_only",
+    )
 
     def to_dict(self):
         return {
@@ -91,4 +95,5 @@ class AppSettings(Base):
             "onboarding_processing_confirmed": self.onboarding_processing_confirmed,
             "onboarding_comskip_confirmed": self.onboarding_comskip_confirmed,
             "onboarding_selected_profile": self.onboarding_selected_profile,
+            "plex_outbound_policy": self.plex_outbound_policy,
         }

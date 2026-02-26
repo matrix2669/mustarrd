@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 from urllib.parse import quote
+from typing import Iterable
 
 import aiohttp
 from defusedxml import ElementTree as ET
@@ -14,6 +15,67 @@ logger = logging.getLogger(__name__)
 
 
 class PlexService:
+    @staticmethod
+    def _normalize_uri(uri: str | None) -> str:
+        return str(uri or "").strip().rstrip("/")
+
+    def allowed_resource_connection_uris(self, resources: list[dict], resource_id: str) -> set[str]:
+        wanted_id = str(resource_id or "").strip()
+        allowed: set[str] = set()
+        for resource in resources or []:
+            if str(resource.get("resource_id") or "").strip() != wanted_id:
+                continue
+            base_url = self._normalize_uri(resource.get("base_url"))
+            if base_url:
+                allowed.add(base_url)
+            for conn in resource.get("connections") or []:
+                if not isinstance(conn, dict):
+                    continue
+                conn_uri = self._normalize_uri(conn.get("uri"))
+                if conn_uri:
+                    allowed.add(conn_uri)
+        return allowed
+
+    def resolve_resource_connection(
+        self,
+        resources: list[dict],
+        resource_id: str,
+        requested_uri: str | None = None,
+    ) -> dict | None:
+        wanted_id = str(resource_id or "").strip()
+        target = self._normalize_uri(requested_uri)
+        for resource in resources or []:
+            if str(resource.get("resource_id") or "").strip() != wanted_id:
+                continue
+            connections = [
+                conn for conn in (resource.get("connections") or [])
+                if isinstance(conn, dict) and self._normalize_uri(conn.get("uri"))
+            ]
+            if target:
+                for conn in connections:
+                    if self._normalize_uri(conn.get("uri")) == target:
+                        return {"uri": self._normalize_uri(conn.get("uri")), "local": bool(conn.get("local"))}
+                base_url = self._normalize_uri(resource.get("base_url"))
+                if base_url == target:
+                    return {"uri": base_url, "local": False}
+                return None
+
+            if connections:
+                connections.sort(
+                    key=lambda conn: (
+                        0 if bool(conn.get("local")) else 1,
+                        0 if not bool(conn.get("relay")) else 1,
+                    )
+                )
+                best = connections[0]
+                return {"uri": self._normalize_uri(best.get("uri")), "local": bool(best.get("local"))}
+
+            base_url = self._normalize_uri(resource.get("base_url"))
+            if base_url:
+                return {"uri": base_url, "local": False}
+            return None
+        return None
+
     def _headers(self, token: str | None = None) -> dict[str, str]:
         headers = {
             "Accept": "application/json",
@@ -113,12 +175,24 @@ class PlexService:
             if not isinstance(connections, list):
                 connections = []
             base_url = None
+            normalized_connections: list[dict] = []
             for conn in connections:
                 if not isinstance(conn, dict):
                     continue
                 uri = conn.get("uri")
                 if uri:
-                    base_url = str(uri).rstrip("/")
+                    normalized_uri = str(uri).rstrip("/")
+                    normalized_connections.append(
+                        {
+                            "uri": normalized_uri,
+                            "local": str(conn.get("local", "")).lower() in {"1", "true"},
+                            "relay": str(conn.get("relay", "")).lower() in {"1", "true"},
+                            "protocol": conn.get("protocol"),
+                            "address": conn.get("address"),
+                            "port": conn.get("port"),
+                        }
+                    )
+                    base_url = normalized_uri
                     if str(conn.get("local", "")).lower() in {"1", "true"}:
                         break
             resources.append(
@@ -129,13 +203,25 @@ class PlexService:
                     "platform": item.get("platform"),
                     "machine_identifier": item.get("clientIdentifier") or item.get("machineIdentifier"),
                     "base_url": base_url,
+                    "connections": normalized_connections,
                     "owned": str(item.get("owned", "1")).lower() in {"1", "true", "yes"},
                 }
             )
         return [r for r in resources if r.get("resource_id") and r.get("owned")]
 
-    async def list_server_libraries(self, base_url: str, token: str) -> list[dict]:
-        url = f"{base_url.rstrip('/')}/library/sections"
+    async def list_server_libraries(
+        self,
+        base_url: str,
+        token: str,
+        allowed_uris: Iterable[str] | None = None,
+    ) -> list[dict]:
+        normalized_base_url = self._normalize_uri(base_url)
+        if allowed_uris is not None:
+            normalized_allowed = {self._normalize_uri(uri) for uri in allowed_uris if self._normalize_uri(uri)}
+            if normalized_base_url not in normalized_allowed:
+                raise ValueError("Selected Plex connection is not allowed")
+
+        url = f"{normalized_base_url}/library/sections"
         async with aiohttp.ClientSession() as session:
             async with session.get(url, headers=self._headers(token)) as resp:
                 if resp.status >= 400:

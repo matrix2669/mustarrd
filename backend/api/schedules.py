@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import logging
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, conint
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,6 +14,7 @@ from services.file_namer import file_namer
 
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 class ScheduleCreate(BaseModel):
@@ -142,8 +144,13 @@ async def create_schedule(
 
     try:
         start_time, end_time, start_ts, stop_ts, duration_minutes = _parse_program(data.program)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+    except ValueError:
+        logger.exception(
+            "Invalid schedule payload account_id=%s channel_id=%s",
+            data.account_id,
+            data.channel_id,
+        )
+        raise HTTPException(status_code=400, detail="Invalid program payload")
 
     now_utc = datetime.now(timezone.utc)
     if stop_ts <= int(now_utc.timestamp()):

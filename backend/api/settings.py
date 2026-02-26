@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import Optional
@@ -39,7 +39,7 @@ class SettingsUpdate(BaseModel):
     movie_template: Optional[str] = None
     sports_template: Optional[str] = None
     default_template: Optional[str] = None
-    max_concurrent_downloads: Optional[int] = None
+    max_concurrent_downloads: Optional[int] = Field(default=None, ge=1)
     max_concurrent_post_processing: Optional[int] = None
     min_free_space_gb: Optional[int] = None
     default_pre_padding_minutes: Optional[int] = None

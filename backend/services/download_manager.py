@@ -39,7 +39,10 @@ class DownloadManager:
         self._loop_error_logged_at: Dict[str, datetime] = {}
 
     def set_max_concurrent(self, max_concurrent: int):
-        self._max_concurrent = max_concurrent
+        try:
+            self._max_concurrent = max(1, int(max_concurrent))
+        except Exception:
+            self._max_concurrent = 1
 
     def set_max_concurrent_post_processing(self, max_concurrent: int):
         try:

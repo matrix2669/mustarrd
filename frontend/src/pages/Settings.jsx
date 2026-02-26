@@ -482,7 +482,10 @@ export default function Settings() {
           return
         }
         try {
-          await adminPlexApi.connectComplete(pinId)
+          const status = await adminPlexApi.connectComplete(pinId)
+          if (status?.status !== 'connected') {
+            return
+          }
           clearInterval(timer)
           try {
             if (popup && !popup.closed) popup.close()

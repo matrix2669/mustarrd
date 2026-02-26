@@ -83,8 +83,14 @@ async def create_account(
     client = XtreamClient(account.server_url, account.username, account.password)
     try:
         auth_data = await client.authenticate()
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Connection failed: {str(e)}")
+    except Exception:
+        logger.exception(
+            "Account validation failed during create account_name=%s server_url=%s username=%s",
+            account.name,
+            account.server_url,
+            account.username,
+        )
+        raise HTTPException(status_code=400, detail="Provider connection failed")
     finally:
         await client.close()
 
@@ -211,8 +217,9 @@ async def test_account(
 
     try:
         password = await resolve_account_password_with_migration(session, account)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+    except ValueError:
+        logger.exception("Account credentials missing or invalid account_id=%s", account_id)
+        raise HTTPException(status_code=400, detail="Account credentials are not configured")
 
     client = XtreamClient(account.server_url, account.username, password)
     try:
@@ -241,7 +248,8 @@ async def test_account(
             "server_info": auth_data.get("server_info", {}),
         }
 
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Connection failed: {str(e)}")
+    except Exception:
+        logger.exception("Account test failed account_id=%s", account_id)
+        raise HTTPException(status_code=400, detail="Provider connection failed")
     finally:
         await client.close()

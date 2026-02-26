@@ -3,6 +3,7 @@ import logging
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -90,7 +91,10 @@ async def connect_complete(
     pin_data = await plex_service.check_pin(payload.pin_id)
     auth_token = pin_data.get("authToken")
     if not auth_token:
-        raise HTTPException(status_code=400, detail="Plex authentication is not complete yet")
+        return JSONResponse(
+            status_code=202,
+            content={"status": "pending", "detail": "Plex authentication is not complete yet"},
+        )
 
     profile = await plex_service.get_user_profile(auth_token)
     request.session["plex_admin_token"] = auth_token
@@ -166,6 +170,7 @@ async def list_resource_libraries(
     return {
         "resource_id": resource_id,
         "connection_uri": connection["uri"],
+        "base_url": connection["uri"],
         "libraries": libraries,
     }
 

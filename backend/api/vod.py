@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import Optional
+import logging
 
 from auth import require_admin_or_download_user, AuthContext
 from database import get_session
@@ -14,6 +15,7 @@ from services.download_manager import download_manager
 
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 class MovieDownloadRequest(BaseModel):
@@ -67,6 +69,9 @@ async def get_movie_categories(
     client = await _get_client(session, account)
     try:
         return await client.get_vod_categories()
+    except Exception:
+        logger.exception("Failed to load VOD categories account_id=%s", account_id)
+        raise HTTPException(status_code=400, detail="Failed to load VOD categories from provider")
     finally:
         await client.close()
 
@@ -82,6 +87,13 @@ async def get_movies(
     client = await _get_client(session, account)
     try:
         return await client.get_vod_streams(category_id)
+    except Exception:
+        logger.exception(
+            "Failed to load VOD streams account_id=%s category_id=%s",
+            account_id,
+            category_id,
+        )
+        raise HTTPException(status_code=400, detail="Failed to load VOD content from provider")
     finally:
         await client.close()
 
@@ -97,6 +109,9 @@ async def get_movie_info(
     client = await _get_client(session, account)
     try:
         return await client.get_vod_info(vod_id)
+    except Exception:
+        logger.exception("Failed to load VOD info account_id=%s vod_id=%s", account_id, vod_id)
+        raise HTTPException(status_code=400, detail="Failed to load VOD details from provider")
     finally:
         await client.close()
 
@@ -120,8 +135,15 @@ async def download_movie(
             request_source=auth.provider if not auth.is_admin else "admin",
         )
     except ValueError as exc:
+        logger.exception(
+            "Failed to queue movie download account_id=%s vod_id=%s",
+            data.account_id,
+            data.vod_id,
+        )
         message = str(exc)
-        raise HTTPException(status_code=400, detail=message)
+        if "Account not found" in message:
+            raise HTTPException(status_code=404, detail="Account not found")
+        raise HTTPException(status_code=400, detail="Unable to queue movie download")
 
     download = await download_manager.queue_download(download)
     return download.to_dict()
@@ -137,6 +159,9 @@ async def get_series_categories(
     client = await _get_client(session, account)
     try:
         return await client.get_series_categories()
+    except Exception:
+        logger.exception("Failed to load series categories account_id=%s", account_id)
+        raise HTTPException(status_code=400, detail="Failed to load series categories from provider")
     finally:
         await client.close()
 
@@ -152,6 +177,13 @@ async def get_series(
     client = await _get_client(session, account)
     try:
         return await client.get_series(category_id)
+    except Exception:
+        logger.exception(
+            "Failed to load series account_id=%s category_id=%s",
+            account_id,
+            category_id,
+        )
+        raise HTTPException(status_code=400, detail="Failed to load series from provider")
     finally:
         await client.close()
 
@@ -167,6 +199,9 @@ async def get_series_info(
     client = await _get_client(session, account)
     try:
         return await client.get_series_info(series_id)
+    except Exception:
+        logger.exception("Failed to load series info account_id=%s series_id=%s", account_id, series_id)
+        raise HTTPException(status_code=400, detail="Failed to load series details from provider")
     finally:
         await client.close()
 
@@ -196,7 +231,16 @@ async def download_series(
                 request_source=auth.provider if not auth.is_admin else "admin",
             )
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc))
+            logger.exception(
+                "Failed to queue series episode download account_id=%s series_id=%s episode_id=%s",
+                data.account_id,
+                data.series_id,
+                episode.id,
+            )
+            message = str(exc)
+            if "Account not found" in message:
+                raise HTTPException(status_code=404, detail="Account not found")
+            raise HTTPException(status_code=400, detail="Unable to queue series download")
 
         download = await download_manager.queue_download(download)
         downloads.append(download.to_dict())

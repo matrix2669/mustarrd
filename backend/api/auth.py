@@ -5,7 +5,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth import (
@@ -107,6 +107,13 @@ def _hash_setup_token(raw_token: str) -> str:
     return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
 
 
+def _normalize_username(raw_username: str | None) -> str:
+    username = (raw_username or "").strip()
+    if not username:
+        raise HTTPException(status_code=400, detail="Username is required")
+    return username
+
+
 async def _resolve_future_visibility(context: AuthContext, session: AsyncSession) -> bool:
     app_settings = await get_or_create_app_settings(session)
     app_default = bool(app_settings.show_future_programs)
@@ -194,8 +201,10 @@ async def admin_bootstrap_complete(
     if not verify_password(payload.legacy_password, app_settings.admin_password_hash):
         raise HTTPException(status_code=401, detail="Authentication failed")
 
-    username = payload.username.strip()
-    existing = await session.execute(select(User).where(User.username == username))
+    username = _normalize_username(payload.username)
+    existing = await session.execute(
+        select(User).where(func.lower(User.username) == username.lower())
+    )
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="Username already exists")
 
@@ -243,12 +252,14 @@ async def setup_auth(
             )
 
     hashed = hash_password(payload.password)
-    desired_username = (payload.username or "admin").strip()
+    desired_username = _normalize_username(payload.username or "admin")
     app_settings.admin_password_hash = hashed
 
     existing_admin = await get_admin_user(session)
     if not existing_admin:
-        existing_username = await session.execute(select(User).where(User.username == desired_username))
+        existing_username = await session.execute(
+            select(User).where(func.lower(User.username) == desired_username.lower())
+        )
         if existing_username.scalar_one_or_none():
             raise HTTPException(status_code=409, detail="Admin username is unavailable")
         admin_user = User(
@@ -292,8 +303,10 @@ async def login_credentials(
     if await _bootstrap_required(session):
         raise HTTPException(status_code=423, detail="Admin username setup is required before login")
 
-    username = payload.username.strip()
-    result = await session.execute(select(User).where(User.username == username))
+    username = _normalize_username(payload.username)
+    result = await session.execute(
+        select(User).where(func.lower(User.username) == username.lower())
+    )
     user = result.scalar_one_or_none()
     if not user or user.status != "active" or not user.password_hash:
         raise HTTPException(status_code=401, detail="Authentication failed")

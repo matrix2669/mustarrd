@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import Optional
+import logging
 
 from auth import require_admin_or_download_user, AuthContext
 from database import get_session
@@ -12,6 +13,7 @@ from services.xtream_client import XtreamClient
 
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.get("/accounts/{account_id}/categories")
@@ -32,8 +34,9 @@ async def get_categories(
     try:
         categories = await epg_service.get_categories(session, account_id)
         return categories
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        logger.exception("Failed to load channel categories account_id=%s", account_id)
+        raise HTTPException(status_code=500, detail="Failed to load channel categories")
 
 
 @router.get("/accounts/{account_id}/channels")
@@ -74,8 +77,13 @@ async def get_channels(
         finally:
             await client.close()
 
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        logger.exception(
+            "Failed to load channels account_id=%s category_id=%s",
+            account_id,
+            category_id,
+        )
+        raise HTTPException(status_code=400, detail="Failed to load channels from provider")
 
 
 @router.get("/accounts/{account_id}/channels/{channel_id}/epg")
@@ -109,8 +117,13 @@ async def get_channel_epg(
             days_back=actual_days,
         )
         return epg_data
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        logger.exception(
+            "Failed to load channel EPG account_id=%s channel_id=%s",
+            account_id,
+            channel_id,
+        )
+        raise HTTPException(status_code=500, detail="Failed to load channel guide data")
 
 
 @router.get("/accounts/{account_id}/channels/{channel_id}/catchup")
@@ -139,8 +152,13 @@ async def get_catchup_programs(
             session, account_id, channel_id, actual_days
         )
         return programs
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        logger.exception(
+            "Failed to load catchup programs account_id=%s channel_id=%s",
+            account_id,
+            channel_id,
+        )
+        raise HTTPException(status_code=500, detail="Failed to load catchup programs")
 
 
 @router.get("/accounts/{account_id}/channels/{channel_id}")
@@ -175,5 +193,10 @@ async def get_channel_info(
 
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        logger.exception(
+            "Failed to load channel info account_id=%s channel_id=%s",
+            account_id,
+            channel_id,
+        )
+        raise HTTPException(status_code=400, detail="Failed to load channel from provider")
