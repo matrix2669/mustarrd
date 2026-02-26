@@ -455,8 +455,12 @@ export default function Onboarding() {
                   placeholder="https://provider.example.com"
                   size={isMobile ? 'md' : 'sm'}
                   required
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  inputMode="url"
                   value={accountForm.server_url}
-                  onChange={(e) => setAccountForm((prev) => ({ ...prev, server_url: e.target.value }))}
+                  onChange={(e) => setAccountForm((prev) => ({ ...prev, server_url: e.target.value.toLowerCase() }))}
                 />
                 <TextInput
                   label="Username"

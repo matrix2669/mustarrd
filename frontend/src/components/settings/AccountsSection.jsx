@@ -58,8 +58,12 @@ function AccountForm({ account, onSubmit, onCancel, isLoading }) {
           label="Server URL"
           placeholder="https://provider.example.com"
           required
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+          inputMode="url"
           value={formData.server_url}
-          onChange={(e) => setFormData({ ...formData, server_url: e.target.value })}
+          onChange={(e) => setFormData({ ...formData, server_url: e.target.value.toLowerCase() })}
         />
         <TextInput
           label="Username"
