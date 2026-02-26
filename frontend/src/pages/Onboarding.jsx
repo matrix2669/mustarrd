@@ -9,9 +9,12 @@ import {
   Checkbox,
   Group,
   Loader,
+  MultiSelect,
   PasswordInput,
   Radio,
+  Select,
   Stack,
+  Switch,
   Text,
   TextInput,
   Title,
@@ -21,13 +24,14 @@ import { notifications } from '@mantine/notifications'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { IconAlertCircle, IconCheck } from '@tabler/icons-react'
 
-import { accountsApi, onboardingApi } from '../api'
+import { accountsApi, adminPlexApi, onboardingApi } from '../api'
 import classes from './Onboarding.module.css'
 
 function getMaxUnlockedStep(status) {
   if (!status) return 0
   if ((status.account_count || 0) < 1) return 0
-  return 1
+  if (!status.processing_confirmed || !status.comskip_confirmed) return 1
+  return 2
 }
 
 export default function Onboarding() {
@@ -38,6 +42,17 @@ export default function Onboarding() {
   const [selectedProfile, setSelectedProfile] = useState('')
   const [comskipChoice, setComskipChoice] = useState('enable')
   const [acknowledgeUnavailable, setAcknowledgeUnavailable] = useState(false)
+  const [plexForm, setPlexForm] = useState({
+    resource_id: '',
+    resource_name: '',
+    base_url: '',
+    machine_identifier: '',
+    library_section_ids: [],
+    auto_allow_all_server_users: true,
+    enabled: true,
+  })
+  const [plexResources, setPlexResources] = useState([])
+  const [plexLibraries, setPlexLibraries] = useState([])
   const [accountForm, setAccountForm] = useState({
     name: '',
     server_url: '',
@@ -49,6 +64,11 @@ export default function Onboarding() {
     queryKey: ['onboarding', 'status'],
     queryFn: onboardingApi.status,
     refetchOnWindowFocus: true,
+  })
+  const { data: plexConfig } = useQuery({
+    queryKey: ['admin', 'plex'],
+    queryFn: adminPlexApi.get,
+    refetchOnWindowFocus: false,
   })
 
   const createAccountMutation = useMutation({
@@ -84,18 +104,129 @@ export default function Onboarding() {
       await queryClient.invalidateQueries({ queryKey: ['settings'] })
       await queryClient.invalidateQueries({ queryKey: ['onboarding', 'status'] })
       if (nextStatus?.completed) {
-        navigate('/browse', { replace: true })
-        return
+        setCurrentStep(2)
+      } else {
+        notifications.show({
+          title: 'Setup incomplete',
+          message: 'Account, processing, and Comskip must be completed to continue.',
+          color: 'yellow',
+        })
       }
-      notifications.show({
-        title: 'Setup incomplete',
-        message: 'Account, processing, and Comskip must be completed to continue.',
-        color: 'yellow',
-      })
     },
     onError: (err) => {
       notifications.show({
         title: 'Could not save setup',
+        message: err.message,
+        color: 'red',
+      })
+    },
+  })
+  const savePlexMutation = useMutation({
+    mutationFn: adminPlexApi.save,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'plex'] })
+      notifications.show({
+        title: 'Plex Saved',
+        message: 'Plex user and library sync settings updated.',
+        color: 'green',
+      })
+      navigate('/browse', { replace: true })
+    },
+    onError: (err) => {
+      notifications.show({
+        title: 'Plex Save Failed',
+        message: err.message,
+        color: 'red',
+      })
+    },
+  })
+  const listPlexResourcesMutation = useMutation({
+    mutationFn: adminPlexApi.listResources,
+    onSuccess: (resources) => {
+      setPlexResources(resources || [])
+    },
+    onError: (err) => {
+      notifications.show({
+        title: 'Plex Resources Failed',
+        message: err.message,
+        color: 'red',
+      })
+    },
+  })
+  const listPlexLibrariesMutation = useMutation({
+    mutationFn: (resourceId) => adminPlexApi.listLibraries(resourceId),
+    onSuccess: (data) => {
+      setPlexLibraries(data?.libraries || [])
+      if (data?.base_url) {
+        setPlexForm((prev) => ({ ...prev, base_url: data.base_url }))
+      }
+    },
+    onError: (err) => {
+      notifications.show({
+        title: 'Plex Libraries Failed',
+        message: err.message,
+        color: 'red',
+      })
+    },
+  })
+  const connectPlexStartMutation = useMutation({
+    mutationFn: () => adminPlexApi.connectStart(),
+    onSuccess: (data, variables) => {
+      const popup = variables?.popupRef || null
+      if (popup && !popup.closed) {
+        try {
+          popup.opener = null
+          popup.location.replace(data.auth_url)
+        } catch {
+          // noop
+        }
+      }
+      const pollMs = Math.max(1, Number(data.poll_interval_seconds || 2)) * 1000
+      const timeoutMs = Math.max(30, Number(data.expires_in || 300)) * 1000
+      const startedAt = Date.now()
+      const pinId = data.id
+
+      const timer = setInterval(async () => {
+        if (Date.now() - startedAt > timeoutMs) {
+          clearInterval(timer)
+          notifications.show({
+            title: 'Plex Connection Timeout',
+            message: 'Please try connecting again.',
+            color: 'yellow',
+          })
+          return
+        }
+
+        try {
+          const connectStatus = await adminPlexApi.connectComplete(pinId)
+          if (connectStatus?.status !== 'connected') return
+
+          clearInterval(timer)
+          try {
+            if (popup && !popup.closed) popup.close()
+          } catch {
+            // noop
+          }
+          notifications.show({
+            title: 'Plex Connected',
+            message: 'Choose a server and libraries to enable sync.',
+            color: 'green',
+          })
+          listPlexResourcesMutation.mutate()
+        } catch (err) {
+          if ((err.message || '').includes('not complete')) return
+          clearInterval(timer)
+          notifications.show({
+            title: 'Plex Connection Failed',
+            message: err.message,
+            color: 'red',
+          })
+        }
+      }, pollMs)
+    },
+    onError: (err) => {
+      notifications.show({
+        title: 'Plex Connection Failed',
         message: err.message,
         color: 'red',
       })
@@ -106,10 +237,6 @@ export default function Onboarding() {
 
   useEffect(() => {
     if (!status) return
-    if (status.completed) {
-      navigate('/browse', { replace: true })
-      return
-    }
 
     if (!selectedProfile) {
       setSelectedProfile(status.selected_profile || status.recommended_profile || '')
@@ -127,6 +254,34 @@ export default function Onboarding() {
     const maxUnlocked = getMaxUnlockedStep(status)
     setCurrentStep((prev) => (prev > maxUnlocked ? maxUnlocked : prev))
   }, [navigate, selectedProfile, status])
+
+  useEffect(() => {
+    if (!plexConfig) return
+    setPlexForm((prev) => ({
+      ...prev,
+      resource_id: plexConfig.resource_id || '',
+      resource_name: plexConfig.resource_name || '',
+      base_url: plexConfig.base_url || '',
+      machine_identifier: plexConfig.machine_identifier || '',
+      library_section_ids: plexConfig.library_section_ids || [],
+      auto_allow_all_server_users: Boolean(plexConfig.auto_allow_all_server_users),
+      enabled: Boolean(plexConfig.enabled),
+    }))
+  }, [plexConfig])
+
+  useEffect(() => {
+    if (currentStep !== 2) return
+    if (!plexResources.length) {
+      listPlexResourcesMutation.mutate()
+    }
+  }, [currentStep, plexResources.length])
+
+  useEffect(() => {
+    if (currentStep !== 2) return
+    if (!plexForm.resource_id) return
+    if (plexLibraries.length > 0) return
+    listPlexLibrariesMutation.mutate(plexForm.resource_id)
+  }, [currentStep, plexForm.resource_id, plexLibraries.length])
 
   if (isLoading) {
     return (
@@ -146,7 +301,13 @@ export default function Onboarding() {
 
   const accountComplete = (status?.account_count || 0) > 0
   const comskipAvailable = Boolean(status?.tools?.comskip?.available)
-  const isBusy = createAccountMutation.isPending || saveProcessingMutation.isPending
+  const isBusy =
+    createAccountMutation.isPending ||
+    saveProcessingMutation.isPending ||
+    savePlexMutation.isPending ||
+    connectPlexStartMutation.isPending ||
+    listPlexResourcesMutation.isPending ||
+    listPlexLibrariesMutation.isPending
 
   const canOpenStep = (step) => step <= getMaxUnlockedStep(status)
 
@@ -189,6 +350,10 @@ export default function Onboarding() {
     })
   }
 
+  const handleFinish = () => {
+    navigate('/browse', { replace: true })
+  }
+
   return (
     <Stack gap="md">
       <Group justify="space-between" align="center" wrap="nowrap">
@@ -228,6 +393,23 @@ export default function Onboarding() {
             <span className={classes.stepBody}>
               <span className={classes.stepLabel}>Processing + Comskip</span>
               <span className={classes.stepDescription}>Set defaults</span>
+            </span>
+          </button>
+
+          <div className={`${classes.stepConnector} ${currentStep > 1 ? classes.stepConnectorActive : ''}`} />
+
+          <button
+            type="button"
+            className={`${classes.stepButton} ${currentStep === 2 ? classes.stepButtonActive : ''}`}
+            onClick={() => {
+              if (!isBusy && canOpenStep(2)) setCurrentStep(2)
+            }}
+            disabled={!canOpenStep(2) || isBusy}
+          >
+            <span className={classes.stepIcon}>{3}</span>
+            <span className={classes.stepBody}>
+              <span className={classes.stepLabel}>Plex Sync</span>
+              <span className={classes.stepDescription}>Optional</span>
             </span>
           </button>
         </div>
@@ -354,11 +536,125 @@ export default function Onboarding() {
                     Back
                   </Button>
                   <Button onClick={handleSaveProcessingAndComskip} loading={saveProcessingMutation.isPending} fullWidth={isMobile}>
-                    Save & Finish
+                    Save & Continue
                   </Button>
                 </Group>
               </Box>
             </Group>
+          </Stack>
+        )}
+
+        {currentStep === 2 && (
+          <Stack gap="md" mt="md">
+            <Alert color="blue" icon={<IconAlertCircle size={16} />}>
+              Plex user access and library refresh are optional. You can skip this and finish onboarding now.
+            </Alert>
+
+            <Group justify="space-between" align="center">
+              <Button
+                variant="light"
+                onClick={() => {
+                  const popup = window.open('about:blank', '_blank')
+                  connectPlexStartMutation.mutate({ popupRef: popup })
+                }}
+                loading={connectPlexStartMutation.isPending}
+              >
+                Connect Plex Account
+              </Button>
+              <Button
+                variant="subtle"
+                onClick={() => listPlexResourcesMutation.mutate()}
+                loading={listPlexResourcesMutation.isPending}
+              >
+                Refresh Servers
+              </Button>
+            </Group>
+
+            <Select
+              label="Plex Server"
+              placeholder="Select an owned server"
+              data={plexResources.map((resource) => ({
+                value: resource.resource_id,
+                label: `${resource.name}${resource.platform ? ` (${resource.platform})` : ''}`,
+              }))}
+              value={plexForm.resource_id || null}
+              onChange={(value) => {
+                if (!value) return
+                const selected = plexResources.find((resource) => resource.resource_id === value)
+                setPlexForm((prev) => ({
+                  ...prev,
+                  resource_id: value,
+                  resource_name: selected?.name || '',
+                  machine_identifier: selected?.machine_identifier || null,
+                  base_url: selected?.base_url || '',
+                }))
+                setPlexLibraries([])
+                listPlexLibrariesMutation.mutate(value)
+              }}
+            />
+
+            <MultiSelect
+              label="Libraries to Refresh"
+              placeholder="Choose one or more libraries"
+              data={plexLibraries.map((lib) => ({
+                value: String(lib.id),
+                label: `${lib.title}${lib.type ? ` (${lib.type})` : ''}`,
+              }))}
+              value={(plexForm.library_section_ids || []).map((value) => String(value))}
+              onChange={(values) => setPlexForm((prev) => ({ ...prev, library_section_ids: values }))}
+              searchable
+            />
+
+            <Switch
+              label="Enable Plex auto access for all server users"
+              checked={plexForm.auto_allow_all_server_users}
+              onChange={(e) =>
+                setPlexForm((prev) => ({ ...prev, auto_allow_all_server_users: e.currentTarget.checked }))
+              }
+            />
+            <Switch
+              label="Enable Plex auth integration"
+              checked={plexForm.enabled}
+              onChange={(e) => setPlexForm((prev) => ({ ...prev, enabled: e.currentTarget.checked }))}
+            />
+
+            <Box
+              style={{
+                width: '100%',
+                position: isMobile ? 'sticky' : 'static',
+                bottom: isMobile ? 0 : 'auto',
+                background: 'var(--mantine-color-body)',
+                paddingTop: isMobile ? 8 : 0,
+                zIndex: 5,
+              }}
+            >
+              <Group justify="space-between" grow={isMobile}>
+                <Button variant="subtle" onClick={() => setCurrentStep(1)} disabled={isBusy} fullWidth={isMobile}>
+                  Back
+                </Button>
+                <Button variant="default" onClick={handleFinish} disabled={isBusy} fullWidth={isMobile}>
+                  Skip For Now
+                </Button>
+                <Button
+                  onClick={() =>
+                    savePlexMutation.mutate({
+                      resource_id: plexForm.resource_id,
+                      resource_name: plexForm.resource_name || null,
+                      base_url: plexForm.base_url,
+                      machine_identifier: plexForm.machine_identifier || null,
+                      library_section_ids: (plexForm.library_section_ids || []).map((value) => String(value)),
+                      auto_allow_all_server_users: plexForm.auto_allow_all_server_users,
+                      enabled: plexForm.enabled,
+                    })
+                  }
+                  disabled={!plexForm.resource_id || !plexForm.base_url}
+                  loading={savePlexMutation.isPending}
+                  fullWidth={isMobile}
+                >
+                  Save Plex + Finish
+                </Button>
+              </Group>
+            </Box>
           </Stack>
         )}
       </Card>
