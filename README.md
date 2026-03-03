@@ -32,6 +32,14 @@ Mustarrd connects to your IPTV provider and lets you download past programs — 
 
 ### Docker (Recommended)
 
+Before first startup, edit the volume paths in `docker-compose.yml` so files go where you want on your host.
+Update these host-side paths:
+
+- `./config` (app settings/database)
+- `./downloads` (working/in-progress files)
+- `./completed` (final media output - I use a folder linked to a video library in Plex)
+
+
 ```bash
 curl -O https://raw.githubusercontent.com/razzamatazm/mustarrd/main/docker-compose.yml
 mkdir -p config downloads completed
@@ -45,7 +53,7 @@ Then open **http://localhost:4177** in your browser.
 - Use image: `ghcr.io/razzamatazm/mustarrd/backend:latest`
 - Community Apps template: [`unraid/mustarrd.xml`](./unraid/mustarrd.xml)
 - Recommended mappings:
-  - `/app/config` -> `/mnt/user/appdata/mustarrd`
+  - `/app/config` -> `/mnt/cache/appdata/mustarrd`
   - `/app/downloads` -> `/mnt/user/downloads/mustarrd`
   - `/app/completed` -> your media share (for example `/mnt/user/media`)
 - Port mapping: container `4177` to host `4177` (or another host port if preferred)
@@ -53,25 +61,21 @@ Then open **http://localhost:4177** in your browser.
 - Keep `PUID`/`PGID` aligned with your Unraid user that should own created files
 
 
-### Desktop App (macOS / Windows)
-
-- An electron app builder is included in the electron folder, but Docker is by far the recommended way to use the app.
-
 
 ## First Run
 
 1. Open **http://localhost:4177**
-2. You'll be prompted to **set an admin password** — do this before anyone else on your network can reach the page
-3. Go to **Accounts → Add Account** and enter your IPTV provider details:
+2. You'll be prompted to **set an admin username and password**.
+3. Enter your IPTV provider details:
    - Server URL (e.g. `https://your-provider.com`)
    - Username and password (from your provider)
-   - Catchup days (how far back you can download — your provider sets this limit)
-4. Mustarrd will sync your provider's channel list and program guide. This takes a minute or two on first load.
+4. Optional - link to your Plex install to allow request access to your plex users and automatic library scans on file completion.
+4. Mustarrd will sync your provider's channel list and program guide to use in "Search All TV" mode.  This takes a minute or two on first load. Individual channels will load instantly if you select one.
 5. Go to **Browse**, pick a channel, and start downloading or search all.
 
 ## How to Use
 
-### Browse and Download a Program
+### Browse and Download a Programs
 
 1. Go to **Browse** and select an account
 2. Click a channel to open its program guide
@@ -109,7 +113,7 @@ Filename templates are customizable in Settings if you want a different format.
 | `./completed/` | Finished files — point this at your media library |
 | `./config/` | Database, settings, and Comskip config — keep this private |
 
-Change the `./completed/` path in `docker-compose.yml` to point directly at your Plex or Jellyfin media folder.
+Before first run, update the host paths in `docker-compose.yml` (`./config`, `./downloads`, `./completed`) to match your system.
 
 ## Configuration
 
@@ -152,14 +156,6 @@ npm run dev
 ```bash
 docker-compose up -d
 ```
-
-### Build and Publish Images
-
-```bash
-scripts/push-ghcr-buildx.sh --repo razzamatazm/mustarrd --tag latest --tag vX.Y.Z
-```
-
-See `desktop-electron/README.md` for building the macOS/Windows desktop app.
 
 ## License
 
