@@ -220,12 +220,10 @@ class DownloadManager:
 
     def _processed_output_candidates(self, input_path: str, settings: Optional[AppSettings]) -> list[str]:
         input_file = Path(input_path)
-        stem = input_file.stem
         candidates: list[Path] = []
 
         if settings:
             fmt = (getattr(settings, "transcode_format", None) or "mkv").strip().lower()
-            candidates.append(input_file.with_stem(f"{stem}_nocommercials").with_suffix(f".{fmt}"))
             candidates.append(input_file.with_suffix(f".{fmt}"))
 
         return [str(c) for c in candidates]
@@ -870,7 +868,6 @@ class DownloadManager:
             patterns = [
                 f"{stem}_seg*.ts",
                 f"{stem}.concat.txt",
-                f"{stem}_nocommercials.*",
                 f"{stem}.edl",
                 f"{stem}.txt",
                 f"{stem}.logo",

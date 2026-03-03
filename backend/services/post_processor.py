@@ -1064,7 +1064,18 @@ class PostProcessor:
             return output
 
         input_file = Path(input_path)
-        output_path = input_file.with_stem(f"{input_file.stem}_nocommercials").with_suffix(f".{output_format.value}")
+        output_path = input_file.with_suffix(f".{output_format.value}")
+        same_path_output = output_path.resolve() == input_file.resolve()
+        work_output_path = output_path
+        if same_path_output:
+            work_output_path = input_file.with_stem(
+                f"{input_file.stem}_postproc_tmp"
+            ).with_suffix(f".{output_format.value}")
+            if work_output_path.exists():
+                try:
+                    work_output_path.unlink()
+                except Exception:
+                    pass
 
         # Get video duration
         duration = await self._get_duration(input_path, log_callback=log_callback)
@@ -1182,7 +1193,7 @@ class PostProcessor:
             else:
                 cmd.extend(["-c", "copy"])
 
-            cmd.extend(["-progress", "pipe:1", "-nostats", "-y", str(output_path)])
+            cmd.extend(["-progress", "pipe:1", "-nostats", "-y", str(work_output_path)])
 
             kept_duration = sum(max(0.0, end - start) for start, end in keep_segments)
             async def mapped_callback(p: float):
@@ -1205,9 +1216,9 @@ class PostProcessor:
                         log_callback,
                         "ffmpeg concat remux failed; retrying with full transcode (video+audio)."
                     )
-                    if output_path.exists():
+                    if work_output_path.exists():
                         try:
-                            output_path.unlink()
+                            work_output_path.unlink()
                         except Exception:
                             pass
                     retry_cmd = [self._ffmpeg_path]
@@ -1225,7 +1236,7 @@ class PostProcessor:
                         self._preferred_video_codec(hw_accel)
                     ))
                     retry_cmd.extend(["-c:a", "aac", "-avoid_negative_ts", "make_zero"])
-                    retry_cmd.extend(["-progress", "pipe:1", "-nostats", "-y", str(output_path)])
+                    retry_cmd.extend(["-progress", "pipe:1", "-nostats", "-y", str(work_output_path)])
                     await self._notify_log(
                         log_callback,
                         f"ffmpeg concat retry cmd: {' '.join(shlex.quote(str(c)) for c in retry_cmd)}"
@@ -1237,13 +1248,12 @@ class PostProcessor:
                         kept_duration,
                         progress_callback=mapped_callback if progress_callback else None
                     )
-                    if returncode == 0:
-                        return str(output_path)
 
-                log_path = self._write_ffmpeg_log(str(input_path), "concat", stderr)
-                if log_path:
-                    await self._notify_log(log_callback, f"ffmpeg log saved: {log_path}")
-                raise Exception(f"ffmpeg concat failed: {stderr.decode(errors='ignore')}")
+                if returncode != 0:
+                    log_path = self._write_ffmpeg_log(str(input_path), "concat", stderr)
+                    if log_path:
+                        await self._notify_log(log_callback, f"ffmpeg log saved: {log_path}")
+                    raise Exception(f"ffmpeg concat failed: {stderr.decode(errors='ignore')}")
 
         finally:
             # Cleanup temp files
@@ -1255,7 +1265,11 @@ class PostProcessor:
 
         self._cleanup_comskip_outputs(input_path, edl_path)
 
-        if remove_original:
+        if same_path_output:
+            if not work_output_path.exists():
+                raise Exception("Commercial removal output missing before replace.")
+            os.replace(str(work_output_path), str(output_path))
+        elif remove_original:
             os.remove(input_path)
 
         return str(output_path)
