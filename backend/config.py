@@ -18,7 +18,26 @@ def _default_data_root() -> Path:
 def _using_docker_paths() -> bool:
     if os.environ.get("CATCHUP_DOCKER") == "1":
         return True
-    return Path("/.dockerenv").exists()
+
+    # Common runtime markers across Docker, Podman, and OCI containers.
+    if Path("/.dockerenv").exists() or Path("/run/.containerenv").exists():
+        return True
+
+    container_hint = os.environ.get("container", "").strip().lower()
+    if container_hint in {"docker", "podman", "containerd", "oci"}:
+        return True
+
+    # Fallback for runtimes that only expose cgroup/container IDs.
+    cgroup_path = Path("/proc/1/cgroup")
+    if cgroup_path.exists():
+        try:
+            cgroup_text = cgroup_path.read_text()
+            if any(token in cgroup_text for token in ("docker", "podman", "containerd", "libpod", "kubepods")):
+                return True
+        except OSError:
+            pass
+
+    return False
 
 
 def _using_desktop_mode() -> bool:
