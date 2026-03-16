@@ -808,6 +808,13 @@ export default function Settings() {
           {toolsStatus.comskip?.error && (
             <Text size="xs" c="red">comskip error: {toolsStatus.comskip.error}</Text>
           )}
+          {toolsStatus.vaapi?.enabled && (
+            <Text size="xs" c="dimmed">
+              VA-API driver: {toolsStatus.vaapi.driver || 'auto/unset'}
+              {toolsStatus.vaapi.source ? ` (${toolsStatus.vaapi.source})` : ''}
+              {toolsStatus.vaapi.kernel_driver ? `, kernel: ${toolsStatus.vaapi.kernel_driver}` : ''}
+            </Text>
+          )}
         </Stack>
       )}
 
@@ -884,6 +891,13 @@ export default function Settings() {
               ffmpeg is unavailable. The Docker image includes ffmpeg; install or fix it manually if running locally.
             </Text>
           </Alert>
+        )}
+
+        {toolsStatus?.vaapi?.enabled && formData.hw_accel === 'vaapi' && !formData.remux_only && (
+          <Text size="xs" c="dimmed">
+            Active VA-API driver: {toolsStatus.vaapi.driver || 'auto/unset'}.
+            {toolsStatus.vaapi.source ? ` Source: ${toolsStatus.vaapi.source}.` : ''}
+          </Text>
         )}
       </Stack>
 

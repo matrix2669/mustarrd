@@ -10,11 +10,12 @@ services:
       - ./downloads:/app/downloads
       # Final completed output folder (change host path to your media location)
       - ./completed:/app/completed
-    # Intel/AMD iGPU acceleration on Linux (VA-API/QSV)
+    # Linux iGPU acceleration via /dev/dri (VA-API/QSV for Intel, VA-API for AMD)
     devices:
-      - /dev/dri:/dev/dri # For Intel Integrated GPU Transcoding
+      - /dev/dri:/dev/dri # Optional: pass through render nodes for Linux hardware transcoding
     environment:
-      - LIBVA_DRIVER_NAME=iHD # Use i965 if iHD fails on older Intel iGPUs.
+      # Optional manual VA-API override. Leave unset for automatic Intel/AMD selection.
+      # - LIBVA_DRIVER_NAME=radeonsi
       # App timezone used for EPG display (defaults to UTC if unset).
       # - CATCHUP_TIMEZONE=America/Los_Angeles
       # Container/system timezone (used for logs, cron-like tools, etc.).

@@ -6,6 +6,7 @@ import platform
 import subprocess
 import shlex
 import re
+from functools import lru_cache
 from pathlib import Path
 from typing import Optional, Callable, List, Dict, Tuple
 from enum import Enum
@@ -52,6 +53,12 @@ ENCODER_MAP = {
 
 class PostProcessor:
     """Handles transcoding and commercial detection/removal."""
+
+    VAAPI_RENDER_DEVICE = Path("/dev/dri/renderD128")
+    VAAPI_DEFAULT_DRIVERS_PATH = (
+        "/usr/local/lib/x86_64-linux-gnu/dri:/usr/local/lib/aarch64-linux-gnu/dri:"
+        "/usr/lib/x86_64-linux-gnu/dri:/usr/lib/aarch64-linux-gnu/dri"
+    )
 
     def __init__(self):
         self._ffmpeg_path = shutil.which("ffmpeg")
@@ -287,6 +294,102 @@ class PostProcessor:
         except Exception:
             return []
 
+    def _read_text_file(self, path: Path) -> Optional[str]:
+        try:
+            return path.read_text().strip()
+        except OSError:
+            return None
+
+    @lru_cache(maxsize=1)
+    def _resolve_vaapi_driver(self) -> Dict[str, Optional[str]]:
+        """Resolve the Linux VA-API driver to use, if any."""
+        if platform.system() != "Linux":
+            return {
+                "enabled": False,
+                "driver": None,
+                "source": "unsupported",
+                "device": None,
+                "kernel_driver": None,
+                "vendor": None,
+            }
+
+        env_driver = (os.environ.get("LIBVA_DRIVER_NAME") or "").strip()
+        if env_driver:
+            return {
+                "enabled": True,
+                "driver": env_driver,
+                "source": "env",
+                "device": str(self.VAAPI_RENDER_DEVICE),
+                "kernel_driver": None,
+                "vendor": None,
+            }
+
+        device = self.VAAPI_RENDER_DEVICE
+        if not device.exists():
+            return {
+                "enabled": True,
+                "driver": None,
+                "source": "device-missing",
+                "device": str(device),
+                "kernel_driver": None,
+                "vendor": None,
+            }
+
+        try:
+            sysfs_base = device.resolve(strict=True).parent.parent
+        except OSError:
+            return {
+                "enabled": True,
+                "driver": None,
+                "source": "sysfs-unavailable",
+                "device": str(device),
+                "kernel_driver": None,
+                "vendor": None,
+            }
+
+        driver_link = sysfs_base / "device" / "driver"
+        vendor_path = sysfs_base / "device" / "vendor"
+        kernel_driver = None
+        vendor = self._read_text_file(vendor_path)
+
+        try:
+            kernel_driver = driver_link.resolve(strict=True).name
+        except OSError:
+            kernel_driver = None
+
+        driver_map = {
+            "amdgpu": "radeonsi",
+            "i915": "iHD",
+            "xe": "iHD",
+        }
+        driver = driver_map.get((kernel_driver or "").lower())
+        source = "auto-detected" if driver else "auto"
+        return {
+            "enabled": True,
+            "driver": driver,
+            "source": source,
+            "device": str(device),
+            "kernel_driver": kernel_driver,
+            "vendor": vendor,
+        }
+
+    def get_vaapi_diagnostics(self) -> Dict[str, Optional[str] | bool]:
+        details = dict(self._resolve_vaapi_driver())
+        details["drivers_path"] = os.environ.get("LIBVA_DRIVERS_PATH", self.VAAPI_DEFAULT_DRIVERS_PATH)
+        return details
+
+    def _build_ffmpeg_env(self, hw_accel: Optional[HardwareAccel] = None) -> Dict[str, str]:
+        env = os.environ.copy()
+        if platform.system() == "Linux":
+            env.setdefault("LIBVA_DRIVERS_PATH", self.VAAPI_DEFAULT_DRIVERS_PATH)
+            if hw_accel == HardwareAccel.VAAPI:
+                details = self._resolve_vaapi_driver()
+                if details.get("driver"):
+                    env["LIBVA_DRIVER_NAME"] = str(details["driver"])
+                else:
+                    env.pop("LIBVA_DRIVER_NAME", None)
+        return env
+
     def get_available_hardware_accels(self) -> List[Dict]:
         """Detect which hardware acceleration methods are available."""
         available = []
@@ -445,24 +548,17 @@ class PostProcessor:
         self,
         cmd: List[str],
         duration: float,
-        progress_callback: Optional[Callable[[float], None]] = None
+        progress_callback: Optional[Callable[[float], None]] = None,
+        env: Optional[Dict[str, str]] = None,
     ) -> tuple[int, bytes]:
         """Run ffmpeg and emit progress updates using -progress output."""
-        env = os.environ.copy()
-        if platform.system() == "Linux":
-            # Ensure VA-API driver selection is available for child processes.
-            env.setdefault("LIBVA_DRIVER_NAME", "iHD")
-            env.setdefault(
-                "LIBVA_DRIVERS_PATH",
-                "/usr/local/lib/x86_64-linux-gnu/dri:/usr/local/lib/aarch64-linux-gnu/dri:"
-                "/usr/lib/x86_64-linux-gnu/dri:/usr/lib/aarch64-linux-gnu/dri",
-            )
+        runtime_env = env or self._build_ffmpeg_env()
         try:
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                env=env
+                env=runtime_env
             )
         except FileNotFoundError as e:
             raise Exception(f"ffmpeg not found at {cmd[0]}") from e
@@ -520,7 +616,12 @@ class PostProcessor:
             return cmd
         if not cmd:
             return cmd
-        return ["/usr/bin/env", "LIBVA_DRIVER_NAME=iHD", *cmd]
+        details = self._resolve_vaapi_driver()
+        drivers_path = os.environ.get("LIBVA_DRIVERS_PATH", self.VAAPI_DEFAULT_DRIVERS_PATH)
+        env_cmd = ["/usr/bin/env", f"LIBVA_DRIVERS_PATH={drivers_path}"]
+        if details.get("driver"):
+            env_cmd.append(f"LIBVA_DRIVER_NAME={details['driver']}")
+        return [*env_cmd, *cmd]
 
     def _escape_concat_path(self, path: Path) -> str:
         text = str(path)
@@ -732,24 +833,31 @@ class PostProcessor:
             log_callback,
             f"ffmpeg cmd: {' '.join(shlex.quote(str(c)) for c in cmd)}"
         )
+        ffmpeg_env = self._build_ffmpeg_env(hw_accel)
         if hw_accel == HardwareAccel.VAAPI:
+            vaapi = self.get_vaapi_diagnostics()
             cmd = self._prepend_vaapi_env(cmd)
-        if platform.system() == "Linux":
-            driver_name = os.environ.get("LIBVA_DRIVER_NAME", "iHD")
-            drivers_path = os.environ.get(
-                "LIBVA_DRIVERS_PATH",
-                "/usr/local/lib/x86_64-linux-gnu/dri:/usr/local/lib/aarch64-linux-gnu/dri:"
-                "/usr/lib/x86_64-linux-gnu/dri:/usr/lib/aarch64-linux-gnu/dri",
-            )
             await self._notify_log(
                 log_callback,
-                f"ffmpeg env: LIBVA_DRIVER_NAME={driver_name} "
-                f"LIBVA_DRIVERS_PATH={drivers_path}"
+                "ffmpeg env: "
+                f"LIBVA_DRIVER_NAME={ffmpeg_env.get('LIBVA_DRIVER_NAME', 'auto/unset')} "
+                f"LIBVA_DRIVERS_PATH={ffmpeg_env.get('LIBVA_DRIVERS_PATH', self.VAAPI_DEFAULT_DRIVERS_PATH)} "
+                f"(source={vaapi.get('source')}, kernel_driver={vaapi.get('kernel_driver') or 'unknown'})"
+            )
+        elif platform.system() == "Linux":
+            await self._notify_log(
+                log_callback,
+                f"ffmpeg env: LIBVA_DRIVERS_PATH={ffmpeg_env.get('LIBVA_DRIVERS_PATH', self.VAAPI_DEFAULT_DRIVERS_PATH)}"
             )
 
         # Run ffmpeg with progress
         duration = await self._get_duration(input_path, log_callback=log_callback)
-        returncode, stderr = await self._run_ffmpeg_with_progress(cmd, duration, progress_callback)
+        returncode, stderr = await self._run_ffmpeg_with_progress(
+            cmd,
+            duration,
+            progress_callback,
+            env=ffmpeg_env,
+        )
         if returncode != 0:
             if remux_only and output_format in [OutputFormat.MP4, OutputFormat.MKV]:
                 await self._notify_log(
@@ -793,7 +901,8 @@ class PostProcessor:
                 returncode, stderr = await self._run_ffmpeg_with_progress(
                     retry_cmd,
                     duration,
-                    progress_callback
+                    progress_callback,
+                    env=ffmpeg_env,
                 )
                 if returncode == 0:
                     return str(output_path)
@@ -1202,12 +1311,22 @@ class PostProcessor:
                 log_callback,
                 f"ffmpeg concat cmd: {' '.join(shlex.quote(str(c)) for c in cmd)}"
             )
+            ffmpeg_env = self._build_ffmpeg_env(hw_accel)
             if hw_accel == HardwareAccel.VAAPI:
+                vaapi = self.get_vaapi_diagnostics()
                 cmd = self._prepend_vaapi_env(cmd)
+                await self._notify_log(
+                    log_callback,
+                    "ffmpeg env: "
+                    f"LIBVA_DRIVER_NAME={ffmpeg_env.get('LIBVA_DRIVER_NAME', 'auto/unset')} "
+                    f"LIBVA_DRIVERS_PATH={ffmpeg_env.get('LIBVA_DRIVERS_PATH', self.VAAPI_DEFAULT_DRIVERS_PATH)} "
+                    f"(source={vaapi.get('source')}, kernel_driver={vaapi.get('kernel_driver') or 'unknown'})"
+                )
             returncode, stderr = await self._run_ffmpeg_with_progress(
                 cmd,
                 kept_duration,
-                progress_callback=mapped_callback if progress_callback else None
+                progress_callback=mapped_callback if progress_callback else None,
+                env=ffmpeg_env,
             )
 
             if returncode != 0:
@@ -1246,7 +1365,8 @@ class PostProcessor:
                     returncode, stderr = await self._run_ffmpeg_with_progress(
                         retry_cmd,
                         kept_duration,
-                        progress_callback=mapped_callback if progress_callback else None
+                        progress_callback=mapped_callback if progress_callback else None,
+                        env=ffmpeg_env,
                     )
 
                 if returncode != 0:

@@ -281,6 +281,7 @@ async def get_template_variables(_admin: None = Depends(require_admin)):
 async def get_tools_status(_admin: None = Depends(require_admin)):
     """Check availability of post-processing tools."""
     tool_status = post_processor.get_tool_runtime_status()
+    vaapi_status = post_processor.get_vaapi_diagnostics()
     ffmpeg_status = tool_status["ffmpeg"]
     ffprobe_status = tool_status["ffprobe"]
     comskip_status = tool_status["comskip"]
@@ -309,6 +310,7 @@ async def get_tools_status(_admin: None = Depends(require_admin)):
         },
         "transcode_formats": ["ts", "mp4", "mkv"],
         "hardware_accels": post_processor.get_available_hardware_accels(),
+        "vaapi": vaapi_status,
     }
 
 

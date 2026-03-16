@@ -17,8 +17,9 @@ else
 fi
 APP_USER="appuser"
 APP_GROUP="appgroup"
-LIBVA_DRIVER_NAME="${LIBVA_DRIVER_NAME:-iHD}"
-export LIBVA_DRIVER_NAME
+if [[ -n "${LIBVA_DRIVER_NAME:-}" ]]; then
+  export LIBVA_DRIVER_NAME
+fi
 
 ensure_owned_path() {
   local path="$1"
