@@ -48,6 +48,28 @@ async def _apply_lightweight_migrations(conn) -> None:
             )
         )
 
+    if not await _column_exists(conn, "epg_programs", "provider_start"):
+        await conn.execute(text("ALTER TABLE epg_programs ADD COLUMN provider_start VARCHAR(255)"))
+
+    if not await _column_exists(conn, "epg_programs", "provider_stop"):
+        await conn.execute(text("ALTER TABLE epg_programs ADD COLUMN provider_stop VARCHAR(255)"))
+
+    if not await _column_exists(conn, "xtream_accounts", "catchup_resolution_mode"):
+        await conn.execute(
+            text("ALTER TABLE xtream_accounts ADD COLUMN catchup_resolution_mode VARCHAR(32) DEFAULT 'auto'")
+        )
+
+    if not await _column_exists(conn, "xtream_accounts", "catchup_fallback_offset_minutes"):
+        await conn.execute(
+            text("ALTER TABLE xtream_accounts ADD COLUMN catchup_fallback_offset_minutes INTEGER DEFAULT 0")
+        )
+
+    if not await _column_exists(conn, "scheduled_recordings", "provider_start"):
+        await conn.execute(text("ALTER TABLE scheduled_recordings ADD COLUMN provider_start VARCHAR(255)"))
+
+    if not await _column_exists(conn, "scheduled_recordings", "provider_stop"):
+        await conn.execute(text("ALTER TABLE scheduled_recordings ADD COLUMN provider_stop VARCHAR(255)"))
+
 
 async def get_session() -> AsyncSession:
     async with async_session_maker() as session:

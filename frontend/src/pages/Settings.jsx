@@ -757,21 +757,12 @@ export default function Settings() {
     <Stack gap="lg">
       <Stack gap={2}>
         <Text fw={600} size="lg">Guide</Text>
-        <Text size="sm" c="dimmed">How the program guide displays and behaves</Text>
+        <Text size="sm" c="dimmed">The guide now follows each account's actual catch-up resolution so the grid matches the downloadable slot.</Text>
       </Stack>
 
-      <NumberInput
-        label="EPG Time Offset (hours)"
-        description="Shift guide times if your provider's schedule doesn't match your timezone"
-        min={-12}
-        max={12}
-        step={1}
-        value={(formData.epg_offset_minutes || 0) / 60}
-        onChange={(val) => {
-          const hours = typeof val === 'number' ? val : 0
-          handleChange('epg_offset_minutes', hours * 60)
-        }}
-      />
+      <Text size="sm" c="dimmed">
+        Use per-account catch-up overrides in Accounts when a provider needs a fallback offset or should ignore provider timing tokens.
+      </Text>
 
       <Divider variant="dashed" />
     </Stack>

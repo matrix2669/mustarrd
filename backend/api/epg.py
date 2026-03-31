@@ -7,7 +7,7 @@ from sqlalchemy import select, or_, func
 
 from auth import require_admin_or_download_user, AuthContext
 from database import get_session
-from models import XtreamAccount, AppSettings, EPGProgram
+from models import XtreamAccount, EPGProgram
 from services.epg_service import epg_service
 from services.epg_ingest_manager import epg_ingest_manager
 
@@ -43,10 +43,6 @@ async def search_epg(
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
 
-    settings_result = await session.execute(select(AppSettings))
-    app_settings_row = settings_result.scalar_one_or_none()
-    epg_offset_minutes = app_settings_row.epg_offset_minutes if app_settings_row else 0
-
     query = f"%{q.lower()}%"
     result = await session.execute(
         select(EPGProgram)
@@ -62,7 +58,7 @@ async def search_epg(
         .offset(offset)
     )
     programs = result.scalars().all()
-    return [epg_service.serialize_program(row, epg_offset_minutes) for row in programs]
+    return [epg_service.serialize_program(row, account) for row in programs]
 
 
 @router.get("/epg/status")

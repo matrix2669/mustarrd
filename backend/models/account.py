@@ -4,6 +4,9 @@ from sqlalchemy.orm import Mapped, mapped_column
 from database import Base
 
 
+DEFAULT_CATCHUP_RESOLUTION_MODE = "auto"
+
+
 class XtreamAccount(Base):
     __tablename__ = "xtream_accounts"
 
@@ -23,6 +26,8 @@ class XtreamAccount(Base):
     max_connections: Mapped[int | None] = mapped_column(Integer, nullable=True)
     active_connections: Mapped[int | None] = mapped_column(Integer, nullable=True)
     expiration_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    catchup_resolution_mode: Mapped[str] = mapped_column(String(32), default=DEFAULT_CATCHUP_RESOLUTION_MODE)
+    catchup_fallback_offset_minutes: Mapped[int] = mapped_column(Integer, default=0)
 
     def to_dict(self):
         return {
@@ -37,4 +42,6 @@ class XtreamAccount(Base):
             "max_connections": self.max_connections,
             "active_connections": self.active_connections,
             "expiration_date": self.expiration_date.isoformat() if self.expiration_date else None,
+            "catchup_resolution_mode": self.catchup_resolution_mode or DEFAULT_CATCHUP_RESOLUTION_MODE,
+            "catchup_fallback_offset_minutes": int(self.catchup_fallback_offset_minutes or 0),
         }

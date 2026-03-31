@@ -737,6 +737,8 @@ class EPGIngestManager:
                         "end_time": end_utc,
                         "start_timestamp": start_ts,
                         "stop_timestamp": stop_ts,
+                        "provider_start": str(entry.get("start")).strip() if entry.get("start") is not None else None,
+                        "provider_stop": str(entry.get("stop")).strip() if entry.get("stop") is not None else None,
                         "duration_minutes": duration_minutes,
                         "has_archive": has_archive,
                     })

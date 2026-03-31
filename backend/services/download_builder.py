@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 import os
 
@@ -18,8 +18,8 @@ def _parse_program_times(program: dict) -> tuple[datetime, datetime, int, dateti
     stop_timestamp = program.get("stop_timestamp")
 
     if start_timestamp and stop_timestamp:
-        program_start_utc = datetime.utcfromtimestamp(int(start_timestamp))
-        program_end_utc = datetime.utcfromtimestamp(int(stop_timestamp))
+        program_start_utc = datetime.fromtimestamp(int(start_timestamp), tz=timezone.utc)
+        program_end_utc = datetime.fromtimestamp(int(stop_timestamp), tz=timezone.utc)
         duration_minutes = int((program_end_utc - program_start_utc).total_seconds() / 60)
     else:
         program_start_utc = datetime.fromisoformat(program["start_time"])
@@ -34,6 +34,26 @@ def _parse_program_times(program: dict) -> tuple[datetime, datetime, int, dateti
         program_end_local = program_end_utc
 
     return program_start_utc, program_end_utc, duration_minutes, program_start_local, program_end_local
+
+
+def _resolve_provider_start(
+    program: dict,
+    fallback_start_utc: datetime,
+    resolution_mode: str,
+    fallback_offset_minutes: int,
+) -> tuple[datetime, Optional[str]]:
+    mode = (resolution_mode or "auto").strip().lower()
+    provider_start = program.get("provider_start")
+    if provider_start is not None:
+        provider_start = str(provider_start).strip()
+    if mode != "fallback_only" and provider_start:
+        return fallback_start_utc, provider_start
+
+    offset_minutes = int(fallback_offset_minutes or 0)
+    if offset_minutes:
+        return fallback_start_utc + timedelta(minutes=offset_minutes), None
+
+    return fallback_start_utc, None
 
 
 async def build_download_from_program(
@@ -90,9 +110,25 @@ async def build_download_from_program(
     if post_padding:
         padded_duration += post_padding
 
+    offset_for_url_start = int(account.catchup_fallback_offset_minutes or 0)
+    fallback_url_start, provider_start = _resolve_provider_start(
+        program,
+        program_start_utc,
+        getattr(account, "catchup_resolution_mode", "auto"),
+        offset_for_url_start,
+    )
+    padded_url_start = fallback_url_start
+    if pre_padding:
+        padded_url_start = fallback_url_start - timedelta(minutes=pre_padding)
+
     password = await resolve_account_password_with_migration(session, account)
     client = XtreamClient(account.server_url, account.username, password)
-    source_url = client.build_timeshift_url(channel_id, padded_start_utc, padded_duration)
+    source_url = client.build_timeshift_url(
+        channel_id,
+        padded_url_start,
+        padded_duration,
+        provider_start=provider_start,
+    )
 
     return Download(
         account_id=account_id,

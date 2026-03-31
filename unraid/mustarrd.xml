@@ -28,7 +28,6 @@
   <Config Name="Processed Media" Target="/app/completed" Default="" Mode="rw" Description="Final output location for completed files" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/data/media/tvrecordings/</Config>
   <Config Name="VAAPI Driver" Target="LIBVA_DRIVER_NAME" Default="iHD" Mode="" Description="Set to i965 for older Intel iGPU generations" Type="Variable" Display="advanced" Required="false" Mask="false">iHD</Config>
   <Config Name="Timezone" Target="TZ" Default="" Mode="" Description="Your local Timezone" Type="Variable" Display="always" Required="true" Mask="false">America/Los_Angeles</Config>
-  <Config Name="EPG Timezone" Target="CATCHUP_TIMEZONE" Default="UTC" Mode="" Description="Program guide display timezone inside Mustarrd" Type="Variable" Display="advanced" Required="false" Mask="false">UTC</Config>
   <Config Name="GPU Device" Target="/dev/dri" Default="" Mode="" Description="Optional Intel/AMD GPU passthrough for ffmpeg acceleration" Type="Device" Display="advanced" Required="false" Mask="false">/dev/dri</Config>
   <Config Name="Variable: PUID" Target="PUID" Default="99" Mode="{3}" Description="User ID for the running container" Type="Variable" Display="advanced" Required="true" Mask="false">99</Config>
   <Config Name="Variable: PGID" Target="PGID" Default="100" Mode="{3}" Description="Group ID for the running container" Type="Variable" Display="advanced" Required="true" Mask="false">100</Config>

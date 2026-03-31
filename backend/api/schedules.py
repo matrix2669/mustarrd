@@ -27,7 +27,7 @@ class ScheduleCreate(BaseModel):
     post_padding_minutes: Optional[conint(ge=0)] = 0
 
 
-def _parse_program(program: dict) -> tuple[datetime, datetime, int, int, int]:
+def _parse_program(program: dict) -> tuple[datetime, datetime, int, int, int, str | None, str | None]:
     start_timestamp = program.get("start_timestamp")
     stop_timestamp = program.get("stop_timestamp")
 
@@ -58,7 +58,14 @@ def _parse_program(program: dict) -> tuple[datetime, datetime, int, int, int]:
     if duration_minutes <= 0:
         raise ValueError("Invalid program duration")
 
-    return start_time, end_time, start_ts, stop_ts, duration_minutes
+    provider_start = program.get("provider_start")
+    provider_stop = program.get("provider_stop")
+    if provider_start is not None:
+        provider_start = str(provider_start).strip() or None
+    if provider_stop is not None:
+        provider_stop = str(provider_stop).strip() or None
+
+    return start_time, end_time, start_ts, stop_ts, duration_minutes, provider_start, provider_stop
 
 
 def _sanitize_filename(name: Optional[str]) -> Optional[str]:
@@ -143,7 +150,7 @@ async def create_schedule(
         raise HTTPException(status_code=404, detail="Account not found")
 
     try:
-        start_time, end_time, start_ts, stop_ts, duration_minutes = _parse_program(data.program)
+        start_time, end_time, start_ts, stop_ts, duration_minutes, provider_start, provider_stop = _parse_program(data.program)
     except ValueError:
         logger.exception(
             "Invalid schedule payload account_id=%s channel_id=%s",
@@ -210,6 +217,8 @@ async def create_schedule(
         program_end=end_time,
         start_timestamp=start_ts,
         stop_timestamp=stop_ts,
+        provider_start=provider_start,
+        provider_stop=provider_stop,
         duration_minutes=duration_minutes,
         pre_padding_minutes=int(data.pre_padding_minutes or 0),
         post_padding_minutes=int(data.post_padding_minutes or 0),

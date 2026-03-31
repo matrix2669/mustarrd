@@ -28,6 +28,8 @@ class EPGProgram(Base):
     end_time: Mapped[datetime] = mapped_column(DateTime)
     start_timestamp: Mapped[int] = mapped_column(Integer)
     stop_timestamp: Mapped[int] = mapped_column(Integer)
+    provider_start: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    provider_stop: Mapped[str | None] = mapped_column(String(255), nullable=True)
     duration_minutes: Mapped[int] = mapped_column(Integer)
     has_archive: Mapped[bool] = mapped_column(Boolean, default=True)
 

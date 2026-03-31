@@ -4,11 +4,10 @@ from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from models import XtreamAccount, EPGProgram, AppSettings
+from models import XtreamAccount, EPGProgram
 from services.account_credentials import resolve_account_password_with_migration
 from services.xtream_client import XtreamClient
 from config import settings as app_settings
-from zoneinfo import ZoneInfo
 
 
 class EPGService:
@@ -16,8 +15,17 @@ class EPGService:
         self._cache: dict = {}  # Simple in-memory cache
         self._cache_ttl = app_settings.epg_cache_ttl
 
-    def _get_cache_key(self, account_id: int, channel_id: str, epg_offset_minutes: int) -> str:
-        return f"{account_id}:{channel_id}:{app_settings.timezone}:{epg_offset_minutes}"
+    def _get_cache_key(
+        self,
+        account_id: int,
+        channel_id: str,
+        catchup_resolution_mode: str,
+        catchup_fallback_offset_minutes: int,
+    ) -> str:
+        return (
+            f"{account_id}:{channel_id}:{catchup_resolution_mode}:"
+            f"{int(catchup_fallback_offset_minutes or 0)}"
+        )
 
     def _is_cache_valid(self, cache_key: str) -> bool:
         if cache_key not in self._cache:
@@ -102,11 +110,19 @@ class EPGService:
         days_back: Optional[int] = None
     ) -> list:
         """Get EPG data for a specific channel."""
-        # Load EPG offset
-        result = await session.execute(select(AppSettings))
-        app_settings_row = result.scalar_one_or_none()
-        epg_offset_minutes = app_settings_row.epg_offset_minutes if app_settings_row else 0
-        cache_key = self._get_cache_key(account_id, channel_id, epg_offset_minutes)
+        account_result = await session.execute(
+            select(XtreamAccount).where(XtreamAccount.id == account_id)
+        )
+        account = account_result.scalar_one_or_none()
+        if not account:
+            raise Exception(f"Account {account_id} not found")
+
+        cache_key = self._get_cache_key(
+            account_id,
+            channel_id,
+            account.catchup_resolution_mode or "auto",
+            account.catchup_fallback_offset_minutes or 0,
+        )
 
         if use_cache and not prefer_live and self._is_cache_valid(cache_key):
             return self._cache[cache_key]["data"]
@@ -126,7 +142,7 @@ class EPGService:
             try:
                 epg_data = await client.get_epg(channel_id)
                 processed = [
-                    self._process_epg_entry(entry, epg_offset_minutes, fallback_channel_id=channel_id)
+                    self._process_epg_entry(entry, account, fallback_channel_id=channel_id)
                     for entry in epg_data
                 ]
                 filtered = self._filter_programs_by_cutoff(processed, cutoff)
@@ -158,7 +174,7 @@ class EPGService:
         db_rows = db_result.scalars().all()
         if db_rows:
             processed = [
-                self.serialize_program(row, epg_offset_minutes)
+                self.serialize_program(row, account)
                 for row in db_rows
             ]
             processed = self._dedupe_programs(processed)
@@ -179,7 +195,7 @@ class EPGService:
     def _process_epg_entry(
         self,
         entry: dict,
-        epg_offset_minutes: int = 0,
+        account: Optional[XtreamAccount] = None,
         fallback_channel_id: Optional[str] = None
     ) -> dict:
         """Process and normalize an EPG entry."""
@@ -205,23 +221,15 @@ class EPGService:
         start_time_utc = datetime.fromtimestamp(start_timestamp, tz=timezone.utc) if start_timestamp else None
         end_time_utc = datetime.fromtimestamp(stop_timestamp, tz=timezone.utc) if stop_timestamp else None
 
-        if start_time_utc and end_time_utc:
-            try:
-                tz = ZoneInfo(app_settings.timezone)
-            except Exception:
-                tz = timezone.utc
-            start_time = start_time_utc.astimezone(tz)
-            end_time = end_time_utc.astimezone(tz)
-        else:
-            start_time = start_time_utc
-            end_time = end_time_utc
-
-        if epg_offset_minutes:
-            offset = timedelta(minutes=epg_offset_minutes)
-            if start_time:
-                start_time = start_time + offset
-            if end_time:
-                end_time = end_time + offset
+        provider_start = entry.get("start")
+        provider_stop = entry.get("stop")
+        start_time, end_time = self._resolve_display_window(
+            start_time_utc,
+            end_time_utc,
+            provider_start,
+            provider_stop,
+            account,
+        )
 
         duration_minutes = 0
         if start_time and end_time:
@@ -241,6 +249,8 @@ class EPGService:
             "end_time": end_time.isoformat() if end_time else None,
             "start_timestamp": start_timestamp,
             "stop_timestamp": stop_timestamp,
+            "provider_start": str(provider_start).strip() if provider_start is not None else None,
+            "provider_stop": str(provider_stop).strip() if provider_stop is not None else None,
             "duration_minutes": duration_minutes,
             "has_archive": entry.get("has_archive", 0) == 1,
             "channel_id": channel_id or None,
@@ -266,23 +276,31 @@ class EPGService:
 
         past_programs = []
         for program in epg_data:
-            if not program.get("start_time"):
+            start_ts = self._coerce_timestamp(program.get("start_timestamp"))
+            stop_ts = self._coerce_timestamp(program.get("stop_timestamp"))
+            if not start_ts or not stop_ts:
                 continue
 
-            start_time = datetime.fromisoformat(program["start_time"])
+            start_time = datetime.fromtimestamp(start_ts, tz=timezone.utc)
+            end_time = datetime.fromtimestamp(stop_ts, tz=timezone.utc)
 
             # Include programs that have ended and are within the catchup window
-            if start_time >= cutoff and start_time < now:
+            if start_time >= cutoff and end_time < now:
                 if program.get("has_archive", False):
                     past_programs.append(program)
 
         # Sort by start time, most recent first
-        past_programs.sort(key=lambda x: x["start_time"], reverse=True)
+        past_programs.sort(key=lambda x: self._coerce_timestamp(x.get("start_timestamp")), reverse=True)
         return past_programs
 
-    def serialize_program(self, row: EPGProgram, epg_offset_minutes: int = 0) -> dict:
-        start_time = self._normalize_time(row.start_time, epg_offset_minutes)
-        end_time = self._normalize_time(row.end_time, epg_offset_minutes)
+    def serialize_program(self, row: EPGProgram, account: Optional[XtreamAccount] = None) -> dict:
+        start_time, end_time = self._resolve_display_window(
+            row.start_time,
+            row.end_time,
+            row.provider_start,
+            row.provider_stop,
+            account,
+        )
         duration_minutes = 0
         if start_time and end_time:
             duration_minutes = int((end_time - start_time).total_seconds() / 60)
@@ -296,6 +314,8 @@ class EPGService:
             "end_time": end_time.isoformat() if end_time else None,
             "start_timestamp": row.start_timestamp,
             "stop_timestamp": row.stop_timestamp,
+            "provider_start": row.provider_start,
+            "provider_stop": row.provider_stop,
             "duration_minutes": duration_minutes,
             "has_archive": row.has_archive,
             "channel_id": row.channel_id,
@@ -306,32 +326,68 @@ class EPGService:
     def _filter_programs_by_cutoff(self, programs: list[dict], cutoff: datetime) -> list:
         filtered: list[dict] = []
         for program in programs:
-            end_time_raw = program.get("end_time")
-            if not end_time_raw:
+            stop_ts = self._coerce_timestamp(program.get("stop_timestamp"))
+            if not stop_ts:
                 continue
-            try:
-                end_time = datetime.fromisoformat(end_time_raw)
-            except (TypeError, ValueError):
-                continue
-            if end_time.tzinfo is None:
-                end_time = end_time.replace(tzinfo=timezone.utc)
+            end_time = datetime.fromtimestamp(stop_ts, tz=timezone.utc)
             if end_time >= cutoff:
                 filtered.append(program)
         return filtered
 
-    def _normalize_time(self, dt_value: Optional[datetime], epg_offset_minutes: int) -> Optional[datetime]:
+    def _normalize_time(self, dt_value: Optional[datetime]) -> Optional[datetime]:
         if not dt_value:
             return None
         if dt_value.tzinfo is None:
             dt_value = dt_value.replace(tzinfo=timezone.utc)
-        try:
-            tz = ZoneInfo(app_settings.timezone)
-        except Exception:
-            tz = timezone.utc
-        normalized = dt_value.astimezone(tz)
-        if epg_offset_minutes:
-            normalized = normalized + timedelta(minutes=epg_offset_minutes)
-        return normalized
+        return dt_value.astimezone(timezone.utc)
+
+    def _parse_provider_time(self, value: Optional[str]) -> Optional[datetime]:
+        if value is None:
+            return None
+        text = str(value).strip()
+        if not text:
+            return None
+
+        for fmt in ("%Y-%m-%d:%H-%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
+            try:
+                parsed = datetime.strptime(text, fmt)
+                return parsed
+            except ValueError:
+                continue
+        return None
+
+    def _resolve_display_window(
+        self,
+        start_time_utc: Optional[datetime],
+        end_time_utc: Optional[datetime],
+        provider_start: Optional[str],
+        provider_stop: Optional[str],
+        account: Optional[XtreamAccount],
+    ) -> tuple[Optional[datetime], Optional[datetime]]:
+        duration = None
+        if start_time_utc and end_time_utc:
+            duration = end_time_utc - start_time_utc
+
+        mode = (getattr(account, "catchup_resolution_mode", None) or "auto").strip().lower()
+        if mode != "fallback_only":
+            parsed_provider_start = self._parse_provider_time(provider_start)
+            if parsed_provider_start:
+                parsed_provider_stop = self._parse_provider_time(provider_stop)
+                if parsed_provider_stop:
+                    return parsed_provider_start, parsed_provider_stop
+                if duration is not None:
+                    return parsed_provider_start, parsed_provider_start + duration
+
+        normalized_start = self._normalize_time(start_time_utc)
+        normalized_end = self._normalize_time(end_time_utc)
+        fallback_offset = int(getattr(account, "catchup_fallback_offset_minutes", 0) or 0)
+        if fallback_offset:
+            offset = timedelta(minutes=fallback_offset)
+            if normalized_start:
+                normalized_start = normalized_start + offset
+            if normalized_end:
+                normalized_end = normalized_end + offset
+        return normalized_start, normalized_end
 
     def _coerce_timestamp(self, value) -> int:
         if value is None:

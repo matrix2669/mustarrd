@@ -305,18 +305,20 @@ function normalizeProgramTitle(value) {
 }
 
 function getProgramStartMinute(program) {
+  const startTime = program?.start_time || program?.program_start
+  if (startTime) {
+    const parsed = dayjs(startTime)
+    if (parsed.isValid()) {
+      return Math.floor(parsed.valueOf() / 60000)
+    }
+  }
+
   const rawTimestamp = Number(program?.start_timestamp)
   if (Number.isFinite(rawTimestamp) && rawTimestamp > 0) {
     return Math.floor(rawTimestamp / 60)
   }
 
-  const startTime = program?.start_time || program?.program_start
-  if (!startTime) return null
-
-  const parsed = dayjs(startTime)
-  if (!parsed.isValid()) return null
-
-  return Math.floor(parsed.valueOf() / 60000)
+  return null
 }
 
 function buildProgramSelectionKey(program, fallbackChannelId = null) {

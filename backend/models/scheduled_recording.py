@@ -35,6 +35,8 @@ class ScheduledRecording(Base):
     program_end: Mapped[datetime] = mapped_column(DateTime)
     start_timestamp: Mapped[int] = mapped_column(Integer, default=0)
     stop_timestamp: Mapped[int] = mapped_column(Integer, default=0)
+    provider_start: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    provider_stop: Mapped[str | None] = mapped_column(String(255), nullable=True)
     duration_minutes: Mapped[int] = mapped_column(Integer)
 
     # Schedule info
@@ -78,6 +80,8 @@ class ScheduledRecording(Base):
             "program_end": self.program_end.isoformat() if self.program_end else None,
             "start_timestamp": self.start_timestamp,
             "stop_timestamp": self.stop_timestamp,
+            "provider_start": self.provider_start,
+            "provider_stop": self.provider_stop,
             "duration_minutes": self.duration_minutes,
             "pre_padding_minutes": self.pre_padding_minutes,
             "post_padding_minutes": self.post_padding_minutes,

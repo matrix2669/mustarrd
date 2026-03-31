@@ -117,7 +117,6 @@ def _default_completed_folder() -> str:
 class Settings(BaseSettings):
     app_name: str = "Catchup DVR"
     debug: bool = False
-    timezone: str = "UTC"
     # Auto-generated on first run and persisted to the config directory so
     # sessions survive restarts with no user action required. Override with
     # CATCHUP_SESSION_SECRET env var to supply your own value.

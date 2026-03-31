@@ -150,14 +150,16 @@ class XtreamClient:
         self,
         stream_id: str,
         start_time: datetime,
-        duration_minutes: int
+        duration_minutes: int,
+        provider_start: Optional[str] = None,
     ) -> str:
         """
         Build catchup/timeshift URL.
 
         Format: {server}/timeshift/{username}/{password}/{duration}/{YYYY-MM-DD:HH-MM}/{stream_id}.ts
         """
-        date_str = start_time.strftime("%Y-%m-%d:%H-%M")
+        raw_provider_start = (provider_start or "").strip()
+        date_str = raw_provider_start or start_time.strftime("%Y-%m-%d:%H-%M")
         return f"{self.server_url}/timeshift/{self.username}/{self.password}/{duration_minutes}/{date_str}/{stream_id}.ts"
 
     def build_stream_url(self, stream_id: str, extension: str = "ts") -> str:

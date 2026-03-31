@@ -121,7 +121,6 @@ Most users never need to touch these. Set them in `docker-compose.yml` or a `bac
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `CATCHUP_TIMEZONE` | Timezone for the program guide display | `UTC` |
 | `CATCHUP_DEFAULT_DOWNLOAD_FOLDER` | In-progress download location | `/app/downloads` |
 | `CATCHUP_DEFAULT_COMPLETED_FOLDER` | Finished file location | `/app/completed` |
 | `CATCHUP_MAX_CONCURRENT_DOWNLOADS` | Max simultaneous downloads | `2` |

@@ -87,6 +87,8 @@ class ScheduledManager:
                         "end_time": schedule.program_end.isoformat() if schedule.program_end else None,
                         "start_timestamp": schedule.start_timestamp,
                         "stop_timestamp": schedule.stop_timestamp,
+                        "provider_start": schedule.provider_start,
+                        "provider_stop": schedule.provider_stop,
                         "duration_minutes": schedule.duration_minutes,
                         "epg_id": schedule.epg_id,
                         "id": schedule.program_id,
