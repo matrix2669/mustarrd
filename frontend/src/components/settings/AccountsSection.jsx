@@ -14,7 +14,6 @@ import {
   Loader,
   Alert,
   NumberInput,
-  Select,
 } from '@mantine/core'
 import { useDisclosure } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
@@ -33,17 +32,9 @@ import dayjs from 'dayjs'
 
 import { accountsApi, channelsApi, epgApi } from '../../api'
 
-function getCatchupModeLabel(account) {
-  const mode = account?.catchup_resolution_mode || 'auto'
-  const offset = Number(account?.catchup_fallback_offset_minutes || 0)
-
-  if (mode === 'fallback_only') {
-    return offset ? `Catch-up: fallback ${offset >= 0 ? '+' : ''}${offset} min` : 'Catch-up: fallback'
-  }
-  if (mode === 'prefer_provider') {
-    return offset ? `Catch-up: token, else ${offset >= 0 ? '+' : ''}${offset} min` : 'Catch-up: token preferred'
-  }
-  return offset ? `Catch-up: auto, else ${offset >= 0 ? '+' : ''}${offset} min` : 'Catch-up: auto'
+function getGuideOffsetLabel(account) {
+  const offset = Number(account?.guide_offset_hours || 0)
+  return offset ? `Guide offset: ${offset >= 0 ? '+' : ''}${offset}h` : 'Guide offset: 0h'
 }
 
 function AccountForm({ account, onSubmit, onCancel, isLoading }) {
@@ -52,8 +43,7 @@ function AccountForm({ account, onSubmit, onCancel, isLoading }) {
     server_url: account?.server_url || '',
     username: account?.username || '',
     password: account?.password || '',
-    catchup_resolution_mode: account?.catchup_resolution_mode || 'auto',
-    catchup_fallback_offset_minutes: account?.catchup_fallback_offset_minutes || 0,
+    guide_offset_hours: account?.guide_offset_hours || 0,
   })
 
   const handleSubmit = (e) => {
@@ -99,29 +89,17 @@ function AccountForm({ account, onSubmit, onCancel, isLoading }) {
           value={formData.password}
           onChange={(e) => setFormData({ ...formData, password: e.target.value })}
         />
-        <Select
-          label="Catch-up Override"
-          description="Use provider timing tokens when possible, or force a per-account fallback if this provider resolves the wrong show."
-          data={[
-            { value: 'auto', label: 'Auto (use provider token when available)' },
-            { value: 'prefer_provider', label: 'Prefer provider token, otherwise fallback offset' },
-            { value: 'fallback_only', label: 'Always use fallback offset' },
-          ]}
-          value={formData.catchup_resolution_mode}
-          onChange={(value) => setFormData({ ...formData, catchup_resolution_mode: value || 'auto' })}
-          allowDeselect={false}
-        />
         <NumberInput
-          label="Catch-up Fallback Offset (minutes)"
-          description="Only affects download URL selection for this account. Guide display settings are configured separately under Guide."
-          min={-720}
-          max={720}
-          step={15}
-          value={formData.catchup_fallback_offset_minutes}
+          label="Guide Alignment Offset (hours)"
+          description="Shifts the displayed guide times for this account only. Downloads and schedules still target the same underlying program record."
+          min={-12}
+          max={12}
+          step={1}
+          value={formData.guide_offset_hours}
           onChange={(value) =>
             setFormData({
               ...formData,
-              catchup_fallback_offset_minutes: typeof value === 'number' ? value : 0,
+              guide_offset_hours: typeof value === 'number' ? value : 0,
             })}
         />
         <Group justify="flex-end" mt="md">
@@ -192,7 +170,7 @@ function AccountCard({ account, onEdit, onDelete, onTest, catchupSummary }) {
           </Badge>
         )}
         <Badge variant="light" size="sm" color="grape">
-          {getCatchupModeLabel(account)}
+          {getGuideOffsetLabel(account)}
         </Badge>
         {account.max_connections && (
           <Badge variant="outline" size="sm">

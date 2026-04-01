@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 import os
+import re
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -39,21 +40,47 @@ def _parse_program_times(program: dict) -> tuple[datetime, datetime, int, dateti
 def _resolve_provider_start(
     program: dict,
     fallback_start_utc: datetime,
-    resolution_mode: str,
-    fallback_offset_minutes: int,
+    pre_padding_minutes: int,
 ) -> tuple[datetime, Optional[str]]:
-    mode = (resolution_mode or "auto").strip().lower()
     provider_start = program.get("provider_start")
     if provider_start is not None:
         provider_start = str(provider_start).strip()
-    if mode != "fallback_only" and provider_start:
-        return fallback_start_utc, provider_start
-
-    offset_minutes = int(fallback_offset_minutes or 0)
-    if offset_minutes:
-        return fallback_start_utc + timedelta(minutes=offset_minutes), None
+    normalized_provider_start = None
+    if provider_start:
+        normalized_provider_start = _normalize_provider_start_token(provider_start, pre_padding_minutes)
+    if normalized_provider_start:
+        return fallback_start_utc, normalized_provider_start
 
     return fallback_start_utc, None
+
+
+def _normalize_provider_start_token(provider_start: str, pre_padding_minutes: int) -> Optional[str]:
+    token = (provider_start or "").strip()
+    if not token:
+        return None
+
+    parsed = None
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}:\d{2}-\d{2}", token):
+        parsed = datetime.strptime(token, "%Y-%m-%d:%H-%M")
+    else:
+        for fmt in (
+            "%Y-%m-%d %H:%M:%S",
+            "%Y-%m-%d %H:%M",
+            "%Y-%m-%dT%H:%M:%S",
+            "%Y-%m-%dT%H:%M",
+        ):
+            try:
+                parsed = datetime.strptime(token, fmt)
+                break
+            except ValueError:
+                continue
+
+    if parsed is None:
+        return None
+
+    if pre_padding_minutes:
+        parsed = parsed - timedelta(minutes=int(pre_padding_minutes or 0))
+    return parsed.strftime("%Y-%m-%d:%H-%M")
 
 
 async def build_download_from_program(
@@ -110,12 +137,10 @@ async def build_download_from_program(
     if post_padding:
         padded_duration += post_padding
 
-    offset_for_url_start = int(account.catchup_fallback_offset_minutes or 0)
     fallback_url_start, provider_start = _resolve_provider_start(
         program,
         program_start_utc,
-        getattr(account, "catchup_resolution_mode", "auto"),
-        offset_for_url_start,
+        pre_padding,
     )
     padded_url_start = fallback_url_start
     if pre_padding:

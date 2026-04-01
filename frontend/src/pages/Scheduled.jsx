@@ -33,7 +33,7 @@ import {
 import dayjs from 'dayjs'
 import duration from 'dayjs/plugin/duration'
 
-import { schedulesApi } from '../api'
+import { accountsApi, schedulesApi } from '../api'
 
 dayjs.extend(duration)
 
@@ -69,14 +69,35 @@ function getStatusBadge(status) {
   )
 }
 
-function ScheduleCard({ schedule, isDesktop, onCancel, onDelete, onOpenFileLocation, onPlayFile }) {
+function applyGuideOffset(value, offsetHours) {
+  const parsed = dayjs(value)
+  if (!parsed.isValid()) {
+    return parsed
+  }
+  return parsed.add(Number(offsetHours) || 0, 'hour')
+}
+
+function ScheduleCard({
+  schedule,
+  guideOffsetHours = 0,
+  isDesktop,
+  onCancel,
+  onDelete,
+  onOpenFileLocation,
+  onPlayFile,
+}) {
   const activeStatuses = ['scheduled', 'queued', 'downloading', 'processing', 'paused_low_space']
   const isActive = activeStatuses.includes(schedule.status)
   const canDelete = !isActive
 
-  const startTime = dayjs(schedule.program_start)
-  const endTime = dayjs(schedule.program_end)
-  const availableAt = schedule.available_at ? dayjs(schedule.available_at) : endTime
+  const rawStartTime = dayjs(schedule.program_start)
+  const rawEndTime = dayjs(schedule.program_end)
+  const rawAvailableAt = schedule.available_at ? dayjs(schedule.available_at) : rawEndTime
+  const startTime = applyGuideOffset(schedule.program_start, guideOffsetHours)
+  const endTime = applyGuideOffset(schedule.program_end, guideOffsetHours)
+  const availableAt = schedule.available_at
+    ? applyGuideOffset(schedule.available_at, guideOffsetHours)
+    : endTime
   const totalDuration = (schedule.duration_minutes || 0)
     + (schedule.pre_padding_minutes || 0)
     + (schedule.post_padding_minutes || 0)
@@ -142,6 +163,16 @@ function ScheduleCard({ schedule, isDesktop, onCancel, onDelete, onOpenFileLocat
         <Text size="xs" c="dimmed">
           Expected start: {availableAt.format('MMM D, YYYY h:mm A')}
         </Text>
+
+        <Text size="xs" c="dimmed">
+          Original slot: {rawStartTime.format('MMM D, YYYY h:mm A')} - {rawEndTime.format('h:mm A')}
+        </Text>
+
+        {rawAvailableAt.isValid() && (
+          <Text size="xs" c="dimmed">
+            Original available at: {rawAvailableAt.format('MMM D, YYYY h:mm A')}
+          </Text>
+        )}
 
         {schedule.status_message && (
           <Alert color="yellow" variant="light" p="xs">
@@ -217,6 +248,11 @@ export default function Scheduled() {
     queryKey: ['schedules'],
     queryFn: schedulesApi.list,
     refetchInterval: 5000,
+  })
+
+  const { data: accounts } = useQuery({
+    queryKey: ['accounts'],
+    queryFn: accountsApi.list,
   })
 
   useEffect(() => {
@@ -317,6 +353,9 @@ export default function Scheduled() {
   const historySchedules = localItems?.filter((s) =>
     ['completed', 'failed', 'cancelled'].includes(s.status)
   ) || []
+  const accountGuideOffsets = Object.fromEntries(
+    (accounts || []).map((account) => [Number(account.id), Number(account.guide_offset_hours || 0)])
+  )
 
   if (isLoading) {
     return (
@@ -364,6 +403,7 @@ export default function Scheduled() {
                 <ScheduleCard
                   key={schedule.id}
                   schedule={schedule}
+                  guideOffsetHours={accountGuideOffsets[Number(schedule.account_id)] || 0}
                   isDesktop={isDesktop}
                   onCancel={(s) => cancelMutation.mutate(s)}
                   onDelete={(s) => deleteMutation.mutate(s)}
@@ -391,6 +431,7 @@ export default function Scheduled() {
                 <ScheduleCard
                   key={schedule.id}
                   schedule={schedule}
+                  guideOffsetHours={accountGuideOffsets[Number(schedule.account_id)] || 0}
                   isDesktop={isDesktop}
                   onCancel={(s) => cancelMutation.mutate(s)}
                   onDelete={(s) => deleteMutation.mutate(s)}

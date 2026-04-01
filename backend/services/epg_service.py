@@ -19,13 +19,9 @@ class EPGService:
         self,
         account_id: int,
         channel_id: str,
-        catchup_resolution_mode: str,
-        catchup_fallback_offset_minutes: int,
+        guide_offset_hours: int,
     ) -> str:
-        return (
-            f"{account_id}:{channel_id}:{catchup_resolution_mode}:"
-            f"{int(catchup_fallback_offset_minutes or 0)}"
-        )
+        return f"{account_id}:{channel_id}:{int(guide_offset_hours or 0)}"
 
     def _is_cache_valid(self, cache_key: str) -> bool:
         if cache_key not in self._cache:
@@ -120,8 +116,7 @@ class EPGService:
         cache_key = self._get_cache_key(
             account_id,
             channel_id,
-            account.catchup_resolution_mode or "auto",
-            account.catchup_fallback_offset_minutes or 0,
+            account.guide_offset_hours or 0,
         )
 
         if use_cache and not prefer_live and self._is_cache_valid(cache_key):
@@ -223,13 +218,7 @@ class EPGService:
 
         provider_start = entry.get("start")
         provider_stop = entry.get("stop")
-        start_time, end_time = self._resolve_display_window(
-            start_time_utc,
-            end_time_utc,
-            provider_start,
-            provider_stop,
-            account,
-        )
+        start_time, end_time = self._resolve_display_window(start_time_utc, end_time_utc, account)
 
         duration_minutes = 0
         if start_time and end_time:
@@ -294,13 +283,7 @@ class EPGService:
         return past_programs
 
     def serialize_program(self, row: EPGProgram, account: Optional[XtreamAccount] = None) -> dict:
-        start_time, end_time = self._resolve_display_window(
-            row.start_time,
-            row.end_time,
-            row.provider_start,
-            row.provider_stop,
-            account,
-        )
+        start_time, end_time = self._resolve_display_window(row.start_time, row.end_time, account)
         duration_minutes = 0
         if start_time and end_time:
             duration_minutes = int((end_time - start_time).total_seconds() / 60)
@@ -341,48 +324,17 @@ class EPGService:
             dt_value = dt_value.replace(tzinfo=timezone.utc)
         return dt_value.astimezone(timezone.utc)
 
-    def _parse_provider_time(self, value: Optional[str]) -> Optional[datetime]:
-        if value is None:
-            return None
-        text = str(value).strip()
-        if not text:
-            return None
-
-        for fmt in ("%Y-%m-%d:%H-%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
-            try:
-                parsed = datetime.strptime(text, fmt)
-                return parsed
-            except ValueError:
-                continue
-        return None
-
     def _resolve_display_window(
         self,
         start_time_utc: Optional[datetime],
         end_time_utc: Optional[datetime],
-        provider_start: Optional[str],
-        provider_stop: Optional[str],
         account: Optional[XtreamAccount],
     ) -> tuple[Optional[datetime], Optional[datetime]]:
-        duration = None
-        if start_time_utc and end_time_utc:
-            duration = end_time_utc - start_time_utc
-
-        mode = (getattr(account, "catchup_resolution_mode", None) or "auto").strip().lower()
-        if mode != "fallback_only":
-            parsed_provider_start = self._parse_provider_time(provider_start)
-            if parsed_provider_start:
-                parsed_provider_stop = self._parse_provider_time(provider_stop)
-                if parsed_provider_stop:
-                    return parsed_provider_start, parsed_provider_stop
-                if duration is not None:
-                    return parsed_provider_start, parsed_provider_start + duration
-
         normalized_start = self._normalize_time(start_time_utc)
         normalized_end = self._normalize_time(end_time_utc)
-        fallback_offset = int(getattr(account, "catchup_fallback_offset_minutes", 0) or 0)
-        if fallback_offset:
-            offset = timedelta(minutes=fallback_offset)
+        guide_offset_hours = int(getattr(account, "guide_offset_hours", 0) or 0)
+        if guide_offset_hours:
+            offset = timedelta(hours=guide_offset_hours)
             if normalized_start:
                 normalized_start = normalized_start + offset
             if normalized_end:

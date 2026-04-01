@@ -31,16 +31,14 @@ def _parse_program(program: dict) -> tuple[datetime, datetime, int, int, int, st
     start_timestamp = program.get("start_timestamp")
     stop_timestamp = program.get("stop_timestamp")
 
-    if not program.get("start_time") or not program.get("end_time"):
-        if not (start_timestamp and stop_timestamp):
-            raise ValueError("Program start/end time missing")
-
-    if program.get("start_time") and program.get("end_time"):
+    if start_timestamp and stop_timestamp:
+        start_time = datetime.fromtimestamp(int(start_timestamp), tz=timezone.utc)
+        end_time = datetime.fromtimestamp(int(stop_timestamp), tz=timezone.utc)
+    elif program.get("start_time") and program.get("end_time"):
         start_time = datetime.fromisoformat(program["start_time"])
         end_time = datetime.fromisoformat(program["end_time"])
     else:
-        start_time = datetime.fromtimestamp(int(start_timestamp), tz=timezone.utc)
-        end_time = datetime.fromtimestamp(int(stop_timestamp), tz=timezone.utc)
+        raise ValueError("Program start/end time missing")
 
     if start_time.tzinfo is None:
         start_time = start_time.replace(tzinfo=timezone.utc)

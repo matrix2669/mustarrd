@@ -2,14 +2,13 @@ import asyncio
 import logging
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from auth import require_admin, require_admin_or_download_user, AuthContext
 from database import get_session
 from models import XtreamAccount
-from models.account import DEFAULT_CATCHUP_RESOLUTION_MODE
 from services.epg_ingest_manager import epg_ingest_manager
 from services.account_credentials import (
     encrypt_account_password,
@@ -20,8 +19,6 @@ from services.xtream_client import XtreamClient
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-
-VALID_CATCHUP_RESOLUTION_MODES = {"auto", "prefer_provider", "fallback_only"}
 
 
 def _log_task_result(task: asyncio.Task):
@@ -36,16 +33,7 @@ class AccountCreate(BaseModel):
     server_url: str
     username: str
     password: str
-    catchup_resolution_mode: str = DEFAULT_CATCHUP_RESOLUTION_MODE
-    catchup_fallback_offset_minutes: int = 0
-
-    @field_validator("catchup_resolution_mode")
-    @classmethod
-    def _validate_create_mode(cls, value: str) -> str:
-        normalized = (value or DEFAULT_CATCHUP_RESOLUTION_MODE).strip().lower()
-        if normalized not in VALID_CATCHUP_RESOLUTION_MODES:
-            raise ValueError("Invalid catch-up resolution mode")
-        return normalized
+    guide_offset_hours: int = 0
 
 
 class AccountUpdate(BaseModel):
@@ -54,18 +42,7 @@ class AccountUpdate(BaseModel):
     username: str | None = None
     password: str | None = None
     is_active: bool | None = None
-    catchup_resolution_mode: str | None = None
-    catchup_fallback_offset_minutes: int | None = None
-
-    @field_validator("catchup_resolution_mode")
-    @classmethod
-    def _validate_update_mode(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        normalized = value.strip().lower()
-        if normalized not in VALID_CATCHUP_RESOLUTION_MODES:
-            raise ValueError("Invalid catch-up resolution mode")
-        return normalized
+    guide_offset_hours: int | None = None
 
 
 @router.get("")
@@ -141,8 +118,7 @@ async def create_account(
         max_connections=user_info.get("max_connections"),
         active_connections=user_info.get("active_cons"),
         expiration_date=exp_date,
-        catchup_resolution_mode=account.catchup_resolution_mode,
-        catchup_fallback_offset_minutes=int(account.catchup_fallback_offset_minutes or 0),
+        guide_offset_hours=int(account.guide_offset_hours or 0),
     )
 
     session.add(db_account)
@@ -198,7 +174,7 @@ async def update_account(
             account.password_encrypted = encrypt_account_password(value)
             account.password = ""
             continue
-        if field == "catchup_fallback_offset_minutes" and value is not None:
+        if field == "guide_offset_hours" and value is not None:
             value = int(value)
         setattr(account, field, value)
 

@@ -64,6 +64,11 @@ async def _apply_lightweight_migrations(conn) -> None:
             text("ALTER TABLE xtream_accounts ADD COLUMN catchup_fallback_offset_minutes INTEGER DEFAULT 0")
         )
 
+    if not await _column_exists(conn, "xtream_accounts", "guide_offset_hours"):
+        await conn.execute(
+            text("ALTER TABLE xtream_accounts ADD COLUMN guide_offset_hours INTEGER DEFAULT 0")
+        )
+
     if not await _column_exists(conn, "scheduled_recordings", "provider_start"):
         await conn.execute(text("ALTER TABLE scheduled_recordings ADD COLUMN provider_start VARCHAR(255)"))
 
