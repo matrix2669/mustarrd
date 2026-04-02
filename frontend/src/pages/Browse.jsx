@@ -744,8 +744,8 @@ export default function Browse() {
 
   return (
     <Stack>
-      <Group justify="space-between">
-        <Group gap="md" align="center">
+      <Group justify="space-between" align="flex-start" wrap="wrap" gap="md">
+        <Group gap="md" align="center" wrap="wrap" style={{ flex: 1, minWidth: 0 }}>
           <Title order={2}>
             {browseTab === 'vod'
               ? 'Browse On Demand'
@@ -761,8 +761,6 @@ export default function Browse() {
               disabled={updatePreferencesMutation.isPending}
             />
           )}
-        </Group>
-        <Group>
           {accountOptions.length > 1 && (
             <Select
               placeholder="Select account"
@@ -770,6 +768,7 @@ export default function Browse() {
               value={selectedAccountId}
               onChange={setSelectedAccountId}
               w={200}
+              style={{ flexShrink: 0 }}
             />
           )}
         </Group>

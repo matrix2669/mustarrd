@@ -35,7 +35,6 @@ import {
   IconCheck,
   IconX,
   IconMoon,
-  IconCalendar,
   IconDownload,
   IconLock,
   IconServer,
@@ -116,7 +115,6 @@ const ADMIN_SECTIONS = [
   { id: 'users', label: 'Users', icon: IconUsers },
   { id: 'plex', label: 'Plex Integration', icon: IconServer },
   { id: 'recording', label: 'Recording', icon: IconDownload },
-  { id: 'guide', label: 'Guide', icon: IconCalendar },
   { id: 'processing', label: 'Post-Processing', icon: IconWand },
   { id: 'naming', label: 'File Naming', icon: IconFile },
   { id: 'appearance', label: 'Appearance', icon: IconMoon },
@@ -753,21 +751,6 @@ export default function Settings() {
     </Stack>
   )
 
-  const renderGuide = () => (
-    <Stack gap="lg">
-      <Stack gap={2}>
-        <Text fw={600} size="lg">Guide</Text>
-        <Text size="sm" c="dimmed">The guide now follows each account's actual catch-up resolution so the grid matches the downloadable slot.</Text>
-      </Stack>
-
-      <Text size="sm" c="dimmed">
-        Use per-account catch-up overrides in Accounts when a provider needs a fallback offset or should ignore provider timing tokens.
-      </Text>
-
-      <Divider variant="dashed" />
-    </Stack>
-  )
-
   const renderProcessing = () => (
     <Stack gap="lg">
       <Stack gap={2}>
@@ -1306,7 +1289,6 @@ export default function Settings() {
 
   const sectionContent = {
     recording: renderRecording,
-    guide: renderGuide,
     processing: renderProcessing,
     naming: renderNaming,
     appearance: renderAppearance,
@@ -1316,7 +1298,7 @@ export default function Settings() {
     accounts: () => <AccountsSection showTitle={false} />,
     logs: () => <LogsSection showTitle={false} />,
   }
-  const configSections = new Set(['recording', 'guide', 'processing', 'naming', 'appearance', 'security'])
+  const configSections = new Set(['recording', 'processing', 'naming', 'appearance', 'security'])
   const inConfigSection = isAdmin && configSections.has(activeSection)
   const visibleSectionId = availableSections.some((section) => section.id === activeSection)
     ? activeSection
