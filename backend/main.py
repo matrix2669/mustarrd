@@ -1,4 +1,5 @@
 import asyncio
+import hmac
 import logging
 import json
 from base64 import b64decode, b64encode
@@ -20,7 +21,7 @@ from config import settings
 from database import async_session_maker, init_db
 from api import (
     accounts,
-    auth,
+    auth as auth_api,
     channels,
     downloads,
     settings as settings_api,
@@ -33,6 +34,7 @@ from api import (
     admin_plex,
 )
 from models import AppSettings
+from security import CSRF_HEADER_NAME, CSRF_SESSION_KEY, origin_is_allowed
 from services.server_log_bridge import start_server_log_bridge, stop_server_log_bridge
 
 
@@ -88,13 +90,18 @@ app = FastAPI(
     description="Catchup DVR - Xtream Codes Timeshift Downloader",
     version="1.0.0",
     lifespan=lifespan,
+    docs_url="/docs" if settings.debug else None,
+    redoc_url="/redoc" if settings.debug else None,
+    openapi_url="/openapi.json" if settings.debug else None,
 )
 
 SETUP_ALLOWED_PATHS = {
     "/api/auth/status",
+    "/api/auth/csrf",
     "/api/auth/setup",
     "/api/health",
 }
+UNSAFE_HTTP_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
 
 async def _is_admin_password_configured() -> bool:
@@ -223,14 +230,57 @@ def _resolve_session_cookie_secure_mode() -> str:
     return "auto"
 
 
+class CSRFMiddleware:
+    def __init__(self, app: ASGIApp, allowed_origins: list[str] | None = None):
+        self.app = app
+        self.allowed_origins = [origin for origin in (allowed_origins or []) if origin]
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send):
+        if scope.get("type") != "http":
+            await self.app(scope, receive, send)
+            return
+
+        method = str(scope.get("method") or "").upper()
+        path = scope.get("path", "")
+        if not path.startswith("/api") or method not in UNSAFE_HTTP_METHODS or path == "/api/auth/csrf":
+            await self.app(scope, receive, send)
+            return
+
+        connection = HTTPConnection(scope)
+        session = scope.get("session") or {}
+        expected_token = session.get(CSRF_SESSION_KEY)
+        provided_token = connection.headers.get(CSRF_HEADER_NAME)
+        if not expected_token or not provided_token or not hmac.compare_digest(
+            str(expected_token), str(provided_token)
+        ):
+            response = JSONResponse(status_code=403, content={"detail": "CSRF validation failed"})
+            await response(scope, receive, send)
+            return
+
+        origin = connection.headers.get("origin")
+        if origin and not origin_is_allowed(origin, scope, self.allowed_origins):
+            response = JSONResponse(status_code=403, content={"detail": "Origin validation failed"})
+            await response(scope, receive, send)
+            return
+
+        await self.app(scope, receive, send)
+
+
+ALLOWED_CORS_ORIGINS = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
+
+
 # CORS for frontend development
 app.add_middleware(SetupLockdownMiddleware)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[o.strip() for o in settings.cors_origins.split(",") if o.strip()],
+    allow_origins=ALLOWED_CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+)
+app.add_middleware(
+    CSRFMiddleware,
+    allowed_origins=ALLOWED_CORS_ORIGINS,
 )
 app.add_middleware(
     AutoSecureSessionMiddleware,
@@ -240,7 +290,7 @@ app.add_middleware(
 )
 
 # API routes
-app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
+app.include_router(auth_api.router, prefix="/api/auth", tags=["auth"])
 app.include_router(accounts.router, prefix="/api/accounts", tags=["accounts"])
 app.include_router(channels.router, prefix="/api", tags=["channels"])
 app.include_router(downloads.router, prefix="/api/downloads", tags=["downloads"])

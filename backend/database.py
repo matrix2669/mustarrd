@@ -1,4 +1,6 @@
-from sqlalchemy import inspect, text
+import logging
+
+from sqlalchemy import inspect, select, text
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
 
@@ -7,6 +9,9 @@ from config import settings
 
 class Base(DeclarativeBase):
     pass
+
+
+logger = logging.getLogger(__name__)
 
 
 engine = create_async_engine(
@@ -25,6 +30,7 @@ async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         await _apply_lightweight_migrations(conn)
+    await _migrate_legacy_account_passwords()
 
 
 async def _column_exists(conn, table_name: str, column_name: str) -> bool:
@@ -74,6 +80,27 @@ async def _apply_lightweight_migrations(conn) -> None:
 
     if not await _column_exists(conn, "scheduled_recordings", "provider_stop"):
         await conn.execute(text("ALTER TABLE scheduled_recordings ADD COLUMN provider_stop VARCHAR(255)"))
+
+
+async def _migrate_legacy_account_passwords() -> None:
+    from models import XtreamAccount
+    from services.account_credentials import encrypt_account_password
+
+    async with async_session_maker() as session:
+        result = await session.execute(select(XtreamAccount).where(XtreamAccount.password != ""))
+        accounts = result.scalars().all()
+
+        migrated = 0
+        for account in accounts:
+            if not account.password or account.password_encrypted:
+                continue
+            account.password_encrypted = encrypt_account_password(account.password)
+            account.password = ""
+            migrated += 1
+
+        if migrated:
+            await session.commit()
+            logger.info("Migrated %s legacy account credentials to encrypted storage", migrated)
 
 
 async def get_session() -> AsyncSession:

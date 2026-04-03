@@ -24,6 +24,7 @@ from auth import (
 from database import get_session
 from config import settings
 from models import User, UserIdentity, PlexServer, UserSetupToken
+from security import ensure_csrf_token
 from services.credential_crypto import credential_crypto
 from services.plex_service import plex_service
 
@@ -174,6 +175,11 @@ async def auth_status(
         "password_reset_required": bool(context.user.password_reset_required) if context.user else False,
         "show_future_programs": await _resolve_future_visibility(context, session) if context.authenticated else bool(app_settings.show_future_programs),
     }
+
+
+@router.get("/csrf")
+async def get_csrf_token(request: Request):
+    return {"csrf_token": ensure_csrf_token(request)}
 
 
 @router.get("/admin-bootstrap/status")

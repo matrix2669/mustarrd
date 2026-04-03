@@ -1,7 +1,40 @@
 const API_BASE = '/api'
+let csrfTokenPromise = null
+
+async function getCsrfToken(forceRefresh = false) {
+  if (!forceRefresh && csrfTokenPromise) {
+    return csrfTokenPromise
+  }
+
+  csrfTokenPromise = fetch(`${API_BASE}/auth/csrf`, {
+    credentials: 'include',
+    headers: {
+      Accept: 'application/json',
+    },
+  })
+    .then(async (response) => {
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ detail: 'Unable to fetch CSRF token' }))
+        throw new Error(String(error?.detail ?? 'Unable to fetch CSRF token'))
+      }
+      const data = await response.json()
+      if (!data?.csrf_token) {
+        throw new Error('Unable to fetch CSRF token')
+      }
+      return data.csrf_token
+    })
+    .catch((error) => {
+      csrfTokenPromise = null
+      throw error
+    })
+
+  return csrfTokenPromise
+}
 
 async function request(endpoint, options = {}) {
   const url = `${API_BASE}${endpoint}`
+  const method = String(options.method || 'GET').toUpperCase()
+  let errorPayload = null
   const config = {
     credentials: 'include',
     headers: {
@@ -15,10 +48,22 @@ async function request(endpoint, options = {}) {
     config.body = JSON.stringify(config.body)
   }
 
-  const response = await fetch(url, config)
+  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method) && !config.headers['X-CSRF-Token']) {
+    config.headers['X-CSRF-Token'] = await getCsrfToken()
+  }
+
+  let response = await fetch(url, config)
+  if (response.status === 403 && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+    errorPayload = await response.json().catch(() => ({}))
+    if ((errorPayload?.detail || '').includes('CSRF')) {
+      config.headers['X-CSRF-Token'] = await getCsrfToken(true)
+      response = await fetch(url, config)
+      errorPayload = null
+    }
+  }
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Request failed' }))
+    const error = errorPayload ?? await response.json().catch(() => ({ detail: 'Request failed' }))
     let detail = error?.detail ?? 'Request failed'
     if (typeof detail === 'object' && detail !== null) {
       detail = detail.message || detail.error || JSON.stringify(detail)
