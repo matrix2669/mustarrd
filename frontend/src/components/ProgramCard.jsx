@@ -1,13 +1,15 @@
 import { Card, Stack, Text, Group, Badge, ActionIcon } from '@mantine/core'
 import { IconDownload, IconClock } from '@tabler/icons-react'
-import dayjs from 'dayjs'
+import { getChannelDisplayTime, getNowUtc, getProgramInstant } from '../utils/channelTime'
 
-export default function ProgramCard({ program, channel, onClick, showDownload = true }) {
-  const startTime = dayjs(program.start_time)
-  const endTime = dayjs(program.end_time)
-  const now = dayjs()
-  const isPast = endTime.isBefore(now)
-  const isCurrent = startTime.isBefore(now) && endTime.isAfter(now)
+export default function ProgramCard({ program, channel, onClick, showDownload = true, guideOffsetHours = 0 }) {
+  const startTime = getChannelDisplayTime(program, 'start', guideOffsetHours)
+  const endTime = getChannelDisplayTime(program, 'end', guideOffsetHours)
+  const now = getNowUtc()
+  const startInstant = getProgramInstant(program, 'start')
+  const endInstant = getProgramInstant(program, 'end')
+  const isPast = Boolean(endInstant?.isBefore(now))
+  const isCurrent = Boolean(startInstant?.isBefore(now) && endInstant?.isAfter(now))
   const isDownloadable = isPast && program.has_archive
 
   return (
@@ -53,7 +55,7 @@ export default function ProgramCard({ program, channel, onClick, showDownload = 
             color={isCurrent ? 'green' : isPast ? 'gray' : 'blue'}
             leftSection={<IconClock size={10} />}
           >
-            {startTime.format('h:mm A')} - {endTime.format('h:mm A')}
+            {startTime?.format('h:mm A') || 'Unknown'} - {endTime?.format('h:mm A') || 'Unknown'}
           </Badge>
           <Badge size="sm" variant="outline">
             {program.duration_minutes}m

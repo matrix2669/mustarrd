@@ -27,10 +27,11 @@ import {
   IconAlertCircle,
   IconServer,
   IconRefresh,
+  IconStar,
 } from '@tabler/icons-react'
 import dayjs from 'dayjs'
 
-import { accountsApi, channelsApi, epgApi } from '../../api'
+import { accountsApi, channelsApi, epgApi, settingsApi } from '../../api'
 
 function getGuideOffsetLabel(account) {
   const offset = Number(account?.guide_offset_hours || 0)
@@ -115,7 +116,7 @@ function AccountForm({ account, onSubmit, onCancel, isLoading }) {
   )
 }
 
-function AccountCard({ account, onEdit, onDelete, onTest, catchupSummary }) {
+function AccountCard({ account, isDefault, onSetDefault, onEdit, onDelete, onTest, catchupSummary, defaultPending }) {
   const isExpired = account.expiration_date && dayjs(account.expiration_date).isBefore(dayjs())
 
   return (
@@ -123,6 +124,11 @@ function AccountCard({ account, onEdit, onDelete, onTest, catchupSummary }) {
       <Group justify="space-between" mb="xs">
         <Text fw={500}>{account.name}</Text>
         <Group gap="xs">
+          {isDefault && (
+            <Badge color="yellow" variant="light">
+              Default
+            </Badge>
+          )}
           <Badge color={account.is_active ? 'green' : 'gray'} variant="light">
             {account.is_active ? 'Active' : 'Inactive'}
           </Badge>
@@ -133,6 +139,13 @@ function AccountCard({ account, onEdit, onDelete, onTest, catchupSummary }) {
               </ActionIcon>
             </Menu.Target>
             <Menu.Dropdown>
+              <Menu.Item
+                leftSection={<IconStar size={14} />}
+                onClick={() => onSetDefault(account)}
+                disabled={isDefault || defaultPending}
+              >
+                {isDefault ? 'Default Account' : 'Set as Default'}
+              </Menu.Item>
               <Menu.Item leftSection={<IconPlugConnected size={14} />} onClick={() => onTest(account)}>
                 Test Connection
               </Menu.Item>
@@ -196,6 +209,10 @@ export default function AccountsSection({ showTitle = true }) {
     queryKey: ['accounts'],
     queryFn: accountsApi.list,
   })
+  const { data: appSettings } = useQuery({
+    queryKey: ['settings'],
+    queryFn: settingsApi.get,
+  })
   const { data: epgStatus } = useQuery({
     queryKey: ['epg', 'status'],
     queryFn: epgApi.status,
@@ -236,6 +253,7 @@ export default function AccountsSection({ showTitle = true }) {
     mutationFn: accountsApi.create,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['accounts'] })
+      queryClient.invalidateQueries({ queryKey: ['accounts', 'public'] })
       closeModal()
       setEditingAccount(null)
       notifications.show({
@@ -257,6 +275,7 @@ export default function AccountsSection({ showTitle = true }) {
     mutationFn: ({ id, data }) => accountsApi.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['accounts'] })
+      queryClient.invalidateQueries({ queryKey: ['accounts', 'public'] })
       closeModal()
       setEditingAccount(null)
       notifications.show({
@@ -278,6 +297,9 @@ export default function AccountsSection({ showTitle = true }) {
     mutationFn: accountsApi.delete,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['accounts'] })
+      queryClient.invalidateQueries({ queryKey: ['accounts', 'public'] })
+      queryClient.invalidateQueries({ queryKey: ['settings'] })
+      queryClient.invalidateQueries({ queryKey: ['settings', 'public'] })
       notifications.show({
         title: 'Success',
         message: 'Account deleted',
@@ -297,6 +319,7 @@ export default function AccountsSection({ showTitle = true }) {
     mutationFn: accountsApi.test,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['accounts'] })
+      queryClient.invalidateQueries({ queryKey: ['accounts', 'public'] })
       notifications.show({
         title: 'Connection Successful',
         message: 'Server connection verified',
@@ -331,6 +354,28 @@ export default function AccountsSection({ showTitle = true }) {
     },
   })
 
+  const setDefaultAccountMutation = useMutation({
+    mutationFn: (accountId) => settingsApi.update({ default_account_id: accountId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings'] })
+      queryClient.invalidateQueries({ queryKey: ['settings', 'public'] })
+      queryClient.invalidateQueries({ queryKey: ['accounts'] })
+      queryClient.invalidateQueries({ queryKey: ['accounts', 'public'] })
+      notifications.show({
+        title: 'Default Updated',
+        message: 'Default account saved',
+        color: 'green',
+      })
+    },
+    onError: (error) => {
+      notifications.show({
+        title: 'Update Failed',
+        message: error.message,
+        color: 'red',
+      })
+    },
+  })
+
   const handleAddClick = () => {
     setEditingAccount(null)
     openModal()
@@ -349,6 +394,10 @@ export default function AccountsSection({ showTitle = true }) {
 
   const handleTest = (account) => {
     testMutation.mutate(account.id)
+  }
+
+  const handleSetDefault = (account) => {
+    setDefaultAccountMutation.mutate(account.id)
   }
 
   const handleForceRefresh = () => {
@@ -429,10 +478,13 @@ export default function AccountsSection({ showTitle = true }) {
             <AccountCard
               key={account.id}
               account={account}
+              isDefault={Number(appSettings?.default_account_id) === Number(account.id)}
+              onSetDefault={handleSetDefault}
               onEdit={handleEdit}
               onDelete={handleDelete}
               onTest={handleTest}
               catchupSummary={catchupSummaryByAccount[account.id]}
+              defaultPending={setDefaultAccountMutation.isPending}
             />
           ))}
         </div>

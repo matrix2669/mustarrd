@@ -13,6 +13,7 @@
   - `python -m venv venv && source venv/bin/activate`
   - `pip install -r requirements.txt`
   - `python main.py` (serves API on `http://localhost:4177`)
+  - Prefer the repo venv for backend commands and tests, e.g. `backend/venv/bin/python3.13 -m unittest ...`
 - Frontend dev:
   - `cd frontend`
   - `npm install`
@@ -30,6 +31,7 @@
 
 ## Testing Guidelines
 - No automated test suite is present yet. If you add tests, place them under `backend/tests/` or `frontend/src/__tests__/` and document how to run them.
+- When running backend tests or one-off backend Python commands, use the repo venv interpreter instead of the system Python.
 
 ## Commit & Pull Request Guidelines
 - Commit messages follow short, imperative sentences (e.g., “Fix missing Path import”).

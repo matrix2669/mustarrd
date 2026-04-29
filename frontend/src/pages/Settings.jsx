@@ -133,8 +133,6 @@ export default function Settings() {
   const [leaveModalOpen, setLeaveModalOpen] = useState(false)
   const [pendingNavigation, setPendingNavigation] = useState(null)
   const [isSavingAndLeaving, setIsSavingAndLeaving] = useState(false)
-  const [desktopStartupSupported, setDesktopStartupSupported] = useState(false)
-  const [desktopStartupLoading, setDesktopStartupLoading] = useState(false)
   const [activeSection, setActiveSection] = useState('security')
   const [searchParams, setSearchParams] = useSearchParams()
   const [currentPassword, setCurrentPassword] = useState('')
@@ -269,78 +267,9 @@ export default function Settings() {
     }
   }, [settings, formData])
 
-  const applyDesktopStartupSetting = useCallback(async (enabled) => {
-    const desktopApi = window.mustarrdDesktop
-    if (!desktopApi?.setLaunchOnStartup) {
-      return
-    }
-
-    try {
-      const result = await desktopApi.setLaunchOnStartup(enabled)
-      if (result?.supported) {
-        setDesktopStartupSupported(true)
-        if (typeof result.enabled === 'boolean') {
-          setFormData((prev) => {
-            if (!prev) return prev
-            if (prev.launch_on_startup === result.enabled) return prev
-            return { ...prev, launch_on_startup: result.enabled }
-          })
-        }
-      }
-    } catch (error) {
-      notifications.show({
-        title: 'Startup Setting',
-        message: error.message || 'Unable to update startup behavior on this device.',
-        color: 'red',
-      })
-    }
-  }, [])
-
-  useEffect(() => {
-    let cancelled = false
-
-    const loadDesktopStartup = async () => {
-      const desktopApi = window.mustarrdDesktop
-      if (!desktopApi?.getLaunchOnStartup) {
-        return
-      }
-
-      setDesktopStartupLoading(true)
-      try {
-        const result = await desktopApi.getLaunchOnStartup()
-        if (cancelled) {
-          return
-        }
-        setDesktopStartupSupported(Boolean(result?.supported))
-        if (result?.supported && typeof result.enabled === 'boolean') {
-          setFormData((prev) => {
-            if (!prev) return prev
-            if (prev.launch_on_startup === result.enabled) return prev
-            return { ...prev, launch_on_startup: result.enabled }
-          })
-        }
-      } finally {
-        if (!cancelled) {
-          setDesktopStartupLoading(false)
-        }
-      }
-    }
-
-    if (settings) {
-      loadDesktopStartup()
-    }
-
-    return () => {
-      cancelled = true
-    }
-  }, [settings])
-
   const updateMutation = useMutation({
     mutationFn: settingsApi.update,
-    onSuccess: (_data, variables) => {
-      if (typeof variables?.launch_on_startup === 'boolean') {
-        void applyDesktopStartupSetting(variables.launch_on_startup)
-      }
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['settings'] })
       setHasChanges(false)
       notifications.show({
@@ -1012,22 +941,6 @@ export default function Settings() {
           onChange={(e) => setColorScheme(e.currentTarget.checked ? 'dark' : 'light')}
         />
       </SettingRow>
-
-      {(desktopStartupSupported || desktopStartupLoading) && (
-        <>
-          <Divider variant="dashed" />
-          <SettingRow
-            label="Run app at system startup"
-            description="Automatically launch Mustarrd when you sign in"
-          >
-            <Switch
-              checked={formData.launch_on_startup !== false}
-              disabled={desktopStartupLoading}
-              onChange={(e) => handleChange('launch_on_startup', e.currentTarget.checked)}
-            />
-          </SettingRow>
-        </>
-      )}
     </Stack>
   )
 

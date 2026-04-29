@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends
+from fastapi import HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -15,7 +16,7 @@ from config import (
     legacy_desktop_download_folder,
     legacy_desktop_completed_folder,
 )
-from models import AppSettings
+from models import AppSettings, XtreamAccount
 from services.download_manager import download_manager
 from services.epg_service import epg_service
 from services.post_processor import post_processor
@@ -44,6 +45,7 @@ class SettingsUpdate(BaseModel):
     min_free_space_gb: Optional[int] = None
     default_pre_padding_minutes: Optional[int] = None
     default_post_padding_minutes: Optional[int] = None
+    default_account_id: Optional[int] = None
     # Post-processing
     transcode_enabled: Optional[bool] = None
     transcode_format: Optional[str] = None
@@ -208,6 +210,14 @@ async def update_settings(
     for field, value in update_dict.items():
         if value is None and field in NON_NULLABLE_FIELDS:
             continue
+        if field == "default_account_id" and value is not None:
+            value = int(value)
+            account_result = await session.execute(
+                select(XtreamAccount).where(XtreamAccount.id == value)
+            )
+            account = account_result.scalar_one_or_none()
+            if account is None:
+                raise HTTPException(status_code=400, detail="Default account not found")
         if field == "epg_offset_minutes" and value is not None:
             value = int(value)
         if field == "max_concurrent_post_processing" and value is not None:
@@ -337,4 +347,5 @@ async def get_public_settings(
         "show_future_programs": show_future,
         "default_pre_padding_minutes": settings.default_pre_padding_minutes or 1,
         "default_post_padding_minutes": settings.default_post_padding_minutes or 5,
+        "default_account_id": settings.default_account_id,
     }

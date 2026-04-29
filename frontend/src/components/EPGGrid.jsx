@@ -2,7 +2,12 @@ import { useMemo, useRef, useEffect } from 'react'
 import { Stack, Text, Group, Badge, ScrollArea, Box, Divider } from '@mantine/core'
 import { useMediaQuery } from '@mantine/hooks'
 import { IconClock, IconDownload, IconCalendar } from '@tabler/icons-react'
-import dayjs from 'dayjs'
+import {
+  getChannelDisplayTime,
+  getGuideOffsetHours,
+  getNowUtc,
+  getProgramInstant,
+} from '../utils/channelTime'
 
 const previousDownloadStatusMeta = {
   pending: { label: 'Queued', color: 'yellow' },
@@ -22,9 +27,10 @@ function ProgramBlock({
   isSchedulable,
   elementId,
   previousDownload,
+  guideOffsetHours,
 }) {
-  const startTime = dayjs(program.start_time)
-  const endTime = dayjs(program.end_time)
+  const startTime = getChannelDisplayTime(program, 'start', guideOffsetHours)
+  const endTime = getChannelDisplayTime(program, 'end', guideOffsetHours)
   const isMobile = useMediaQuery('(max-width: 48em)')
   const previousStatus = previousDownload?.status
   const previousMeta = (previousStatus && previousDownloadStatusMeta[previousStatus]) || null
@@ -101,7 +107,7 @@ function ProgramBlock({
 
         <Group gap="xs">
           <Text size="xs" c="dimmed">
-            {startTime.format('h:mm A')} – {endTime.format('h:mm A')}
+            {startTime?.format('h:mm A') || 'Unknown'} – {endTime?.format('h:mm A') || 'Unknown'}
           </Text>
           <Badge size="xs" variant="light" color={isCurrent ? 'green' : isPast ? 'gray' : 'yellow'}>
             {program.duration_minutes}m
@@ -123,14 +129,14 @@ function ProgramBlock({
   )
 }
 
-function DaySection({ date, programs, onProgramClick, getProgramPreviousDownload }) {
-  const now = dayjs()
-  const isToday = date.isSame(now, 'day')
+function DaySection({ date, programs, onProgramClick, getProgramPreviousDownload, guideOffsetHours }) {
+  const now = getNowUtc()
+  const displayNow = now.add(getGuideOffsetHours(guideOffsetHours), 'hour')
+  const isToday = date.isSame(displayNow, 'day')
 
-  // Sort programs by start time
   const sortedPrograms = useMemo(() => {
     return [...programs].sort((a, b) =>
-      dayjs(b.start_time).valueOf() - dayjs(a.start_time).valueOf()
+      (getProgramInstant(b, 'start')?.valueOf() || 0) - (getProgramInstant(a, 'start')?.valueOf() || 0)
     )
   }, [programs])
 
@@ -160,10 +166,10 @@ function DaySection({ date, programs, onProgramClick, getProgramPreviousDownload
 
       <Stack gap={6}>
         {sortedPrograms.map((program, idx) => {
-          const start = dayjs(program.start_time)
-          const end = dayjs(program.end_time)
-          const isPast = end.isBefore(now)
-          const isCurrent = start.isBefore(now) && end.isAfter(now)
+          const start = getProgramInstant(program, 'start')
+          const end = getProgramInstant(program, 'end')
+          const isPast = Boolean(end?.isBefore(now))
+          const isCurrent = Boolean(start?.isBefore(now) && end?.isAfter(now))
           const isDownloadable = isPast && program.has_archive
           const isSchedulable = !isPast
           const elementId = `epg-program-${program.epg_id || program.id || idx}`
@@ -182,6 +188,7 @@ function DaySection({ date, programs, onProgramClick, getProgramPreviousDownload
               isSchedulable={isSchedulable}
               elementId={elementId}
               previousDownload={previousDownload}
+              guideOffsetHours={guideOffsetHours}
             />
           )
         })}
@@ -195,29 +202,29 @@ export default function EPGGrid({
   onProgramClick,
   showFuture = false,
   getProgramPreviousDownload = null,
+  guideOffsetHours = 0,
 }) {
   const scrollAreaRef = useRef(null)
   const didAutoScrollRef = useRef(false)
-  const now = useMemo(() => dayjs(), [epgData, showFuture])
+  const normalizedGuideOffsetHours = getGuideOffsetHours(guideOffsetHours)
+  const now = useMemo(() => getNowUtc(), [epgData, showFuture])
 
   const visiblePrograms = useMemo(() => {
     if (!epgData) return epgData
     if (showFuture) return epgData
-    return epgData.filter((program) => dayjs(program.end_time).isBefore(now))
+    return epgData.filter((program) => getProgramInstant(program, 'end')?.isBefore(now))
   }, [epgData, showFuture, now])
 
-  // Group programs by day
   const programsByDay = useMemo(() => {
     const grouped = {}
 
     if (!visiblePrograms) return []
 
     visiblePrograms.forEach((program) => {
-      if (!program.start_time) return
+      const date = getChannelDisplayTime(program, 'start', normalizedGuideOffsetHours)?.startOf('day')
+      if (!date) return
 
-      const date = dayjs(program.start_time).startOf('day')
       const key = date.format('YYYY-MM-DD')
-
       if (!grouped[key]) {
         grouped[key] = {
           date,
@@ -227,20 +234,19 @@ export default function EPGGrid({
       grouped[key].programs.push(program)
     })
 
-    // Sort days
     return Object.values(grouped).sort((a, b) => b.date.valueOf() - a.date.valueOf())
-  }, [visiblePrograms])
+  }, [normalizedGuideOffsetHours, visiblePrograms])
 
   const scrollTargetId = useMemo(() => {
     let target = null
     for (const { programs } of programsByDay) {
       const sorted = [...programs].sort((a, b) =>
-        dayjs(b.start_time).valueOf() - dayjs(a.start_time).valueOf()
+        (getProgramInstant(b, 'start')?.valueOf() || 0) - (getProgramInstant(a, 'start')?.valueOf() || 0)
       )
       for (const program of sorted) {
-        const start = dayjs(program.start_time)
-        const end = dayjs(program.end_time)
-        const isCurrent = start.isBefore(now) && end.isAfter(now)
+        const start = getProgramInstant(program, 'start')
+        const end = getProgramInstant(program, 'end')
+        const isCurrent = Boolean(start?.isBefore(now) && end?.isAfter(now))
         if (isCurrent) {
           target = program
           break
@@ -248,14 +254,15 @@ export default function EPGGrid({
       }
       if (target) break
     }
+
     if (!target) {
       for (const { programs } of programsByDay) {
         const sorted = [...programs].sort((a, b) =>
-          dayjs(b.start_time).valueOf() - dayjs(a.start_time).valueOf()
+          (getProgramInstant(b, 'start')?.valueOf() || 0) - (getProgramInstant(a, 'start')?.valueOf() || 0)
         )
         for (const program of sorted) {
-          const end = dayjs(program.end_time)
-          if (end.isBefore(now)) {
+          const end = getProgramInstant(program, 'end')
+          if (end?.isBefore(now)) {
             target = program
             break
           }
@@ -263,10 +270,10 @@ export default function EPGGrid({
         if (target) break
       }
     }
-    return target ? `epg-program-${target.epg_id || target.id || 'target'}` : null
-  }, [programsByDay, now])
 
-  // Scroll to today on load
+    return target ? `epg-program-${target.epg_id || target.id || 'target'}` : null
+  }, [now, programsByDay])
+
   useEffect(() => {
     didAutoScrollRef.current = false
   }, [epgData, showFuture])
@@ -289,12 +296,11 @@ export default function EPGGrid({
     )
   }
 
-  // Count downloadable programs
   const downloadableCount = visiblePrograms.filter(
-    (p) => p.has_archive && dayjs(p.end_time).isBefore(dayjs())
+    (p) => p.has_archive && getProgramInstant(p, 'end')?.isBefore(now)
   ).length
   const schedulableCount = visiblePrograms.filter(
-    (p) => dayjs(p.end_time).isAfter(dayjs())
+    (p) => getProgramInstant(p, 'end')?.isAfter(now)
   ).length
 
   return (
@@ -322,6 +328,7 @@ export default function EPGGrid({
                 programs={programs}
                 onProgramClick={onProgramClick}
                 getProgramPreviousDownload={getProgramPreviousDownload}
+                guideOffsetHours={normalizedGuideOffsetHours}
               />
             </Box>
           ))}

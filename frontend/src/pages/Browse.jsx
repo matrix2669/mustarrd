@@ -35,6 +35,7 @@ import DownloadModal from '../components/DownloadModal'
 import ScheduleModal from '../components/ScheduleModal'
 import MovieModal from '../components/VodMovieModal'
 import SeriesModal from '../components/VodSeriesModal'
+import { formatChannelDateTime, getGuideOffsetHours, getProgramInstant, getNowUtc } from '../utils/channelTime'
 
 function ChannelList({ channels, selectedChannel, onSelectChannel, isLoading }) {
   const [search, setSearch] = useState('')
@@ -305,17 +306,9 @@ function normalizeProgramTitle(value) {
 }
 
 function getProgramStartMinute(program) {
-  const startTime = program?.start_time || program?.program_start
+  const startTime = getProgramInstant(program, 'start')
   if (startTime) {
-    const parsed = dayjs(startTime)
-    if (parsed.isValid()) {
-      return Math.floor(parsed.valueOf() / 60000)
-    }
-  }
-
-  const rawTimestamp = Number(program?.start_timestamp)
-  if (Number.isFinite(rawTimestamp) && rawTimestamp > 0) {
-    return Math.floor(rawTimestamp / 60)
+    return Math.floor(startTime.valueOf() / 60000)
   }
 
   return null
@@ -369,13 +362,6 @@ export default function Browse() {
     queryFn: accountsApi.publicList,
   })
 
-  // Set default account when loaded
-  useMemo(() => {
-    if (accounts?.length > 0 && !selectedAccountId) {
-      setSelectedAccountId(accounts[0].id.toString())
-    }
-  }, [accounts, selectedAccountId])
-
   // Fetch channels
   const { data: channels, isLoading: channelsLoading } = useQuery({
     queryKey: ['channels', selectedAccountId],
@@ -419,6 +405,31 @@ export default function Browse() {
     queryKey: ['settings', 'public'],
     queryFn: settingsApi.getPublic,
   })
+  const selectedGuideOffsetHours = useMemo(() => {
+    const account = accounts?.find((entry) => Number(entry.id) === Number(selectedAccountId))
+    return getGuideOffsetHours(account?.guide_offset_hours)
+  }, [accounts, selectedAccountId])
+  useEffect(() => {
+    if (!accounts?.length) {
+      if (selectedAccountId) {
+        setSelectedAccountId(null)
+      }
+      return
+    }
+
+    const availableAccountIds = accounts.map((account) => account.id.toString())
+    if (selectedAccountId && availableAccountIds.includes(selectedAccountId)) {
+      return
+    }
+
+    const configuredDefaultId = appSettings?.default_account_id?.toString()
+    if (configuredDefaultId && availableAccountIds.includes(configuredDefaultId)) {
+      setSelectedAccountId(configuredDefaultId)
+      return
+    }
+
+    setSelectedAccountId(availableAccountIds[0])
+  }, [accounts, appSettings?.default_account_id, selectedAccountId])
   const { data: preferences } = useQuery({
     queryKey: ['auth', 'preferences'],
     queryFn: authApi.getPreferences,
@@ -676,8 +687,8 @@ export default function Browse() {
       return
     }
 
-    const endTime = dayjs(program.end_time)
-    const isPast = endTime.isBefore(dayjs())
+    const endTime = getProgramInstant(program, 'end')
+    const isPast = Boolean(endTime?.isBefore(getNowUtc()))
     if (isPast && !program.has_archive) {
       return
     }
@@ -856,6 +867,7 @@ export default function Browse() {
                             getProgramPreviousDownload={(program) =>
                               getProgramPreviousDownload(program, selectedChannel?.stream_id)
                             }
+                            guideOffsetHours={selectedGuideOffsetHours}
                           />
                         ) : (
                           <Text c="dimmed" ta="center" py="xl">
@@ -971,6 +983,7 @@ export default function Browse() {
                           getProgramPreviousDownload={(program) =>
                             getProgramPreviousDownload(program, selectedChannel?.stream_id)
                           }
+                          guideOffsetHours={selectedGuideOffsetHours}
                         />
                       ) : (
                         <Text c="dimmed" ta="center" py="xl">
@@ -1034,9 +1047,8 @@ export default function Browse() {
                 >
                   <Stack gap="xs">
                     {globalEpgResults.map((program) => {
-                      const start = dayjs(program.start_time)
-                      const end = dayjs(program.end_time)
-                      const isPast = end.isBefore(dayjs())
+                      const end = getProgramInstant(program, 'end')
+                      const isPast = Boolean(end?.isBefore(getNowUtc()))
                       const isDownloadable = isPast && program.has_archive
                       const isClickable = !isPast || isDownloadable
                       const actionLabel = isDownloadable ? 'Download' : isPast ? 'Unavailable' : 'Schedule'
@@ -1086,7 +1098,9 @@ export default function Browse() {
                             </Text>
                             <Group gap="xs">
                               <Badge size="xs" variant="outline">
-                                {start.format('MMM D, h:mm A')} - {end.format('h:mm A')}
+                                {formatChannelDateTime(program, 'start', selectedGuideOffsetHours, 'MMM D, h:mm A')}
+                                {' - '}
+                                {formatChannelDateTime(program, 'end', selectedGuideOffsetHours, 'h:mm A')}
                               </Badge>
                               <Badge size="xs" variant="light">
                                 {program.duration_minutes}m
@@ -1340,6 +1354,7 @@ export default function Browse() {
         program={downloadProgram}
         channel={selectedChannel}
         accountId={selectedAccountId}
+        guideOffsetHours={selectedGuideOffsetHours}
       />
       <ScheduleModal
         opened={!!scheduleProgram}
@@ -1347,6 +1362,7 @@ export default function Browse() {
         program={scheduleProgram}
         channel={selectedChannel}
         accountId={selectedAccountId}
+        guideOffsetHours={selectedGuideOffsetHours}
       />
       <MovieModal
         opened={!!selectedMovie}

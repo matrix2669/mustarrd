@@ -34,6 +34,7 @@ import dayjs from 'dayjs'
 import duration from 'dayjs/plugin/duration'
 
 import { accountsApi, schedulesApi } from '../api'
+import { formatChannelDateTime, getGuideOffsetHours } from '../utils/channelTime'
 
 dayjs.extend(duration)
 
@@ -69,14 +70,6 @@ function getStatusBadge(status) {
   )
 }
 
-function applyGuideOffset(value, offsetHours) {
-  const parsed = dayjs(value)
-  if (!parsed.isValid()) {
-    return parsed
-  }
-  return parsed.add(Number(offsetHours) || 0, 'hour')
-}
-
 function ScheduleCard({
   schedule,
   guideOffsetHours = 0,
@@ -90,14 +83,9 @@ function ScheduleCard({
   const isActive = activeStatuses.includes(schedule.status)
   const canDelete = !isActive
 
-  const rawStartTime = dayjs(schedule.program_start)
-  const rawEndTime = dayjs(schedule.program_end)
-  const rawAvailableAt = schedule.available_at ? dayjs(schedule.available_at) : rawEndTime
-  const startTime = applyGuideOffset(schedule.program_start, guideOffsetHours)
-  const endTime = applyGuideOffset(schedule.program_end, guideOffsetHours)
-  const availableAt = schedule.available_at
-    ? applyGuideOffset(schedule.available_at, guideOffsetHours)
-    : endTime
+  const startTime = formatChannelDateTime(schedule, 'start', guideOffsetHours, 'MMM D, YYYY h:mm A')
+  const endTime = formatChannelDateTime(schedule, 'end', guideOffsetHours, 'h:mm A')
+  const availableAt = formatChannelDateTime(schedule, 'available', guideOffsetHours, 'MMM D, YYYY h:mm A')
   const totalDuration = (schedule.duration_minutes || 0)
     + (schedule.pre_padding_minutes || 0)
     + (schedule.post_padding_minutes || 0)
@@ -153,7 +141,7 @@ function ScheduleCard({
 
         <Group gap="xs" wrap="nowrap">
           <Text size="xs" c="dimmed">
-            {startTime.format('MMM D, YYYY h:mm A')}
+            {startTime || 'Unknown'}
           </Text>
           <Text size="xs" c="dimmed">
             ({formatDuration(totalDuration)})
@@ -161,18 +149,12 @@ function ScheduleCard({
         </Group>
 
         <Text size="xs" c="dimmed">
-          Expected start: {availableAt.format('MMM D, YYYY h:mm A')}
+          Expected start: {availableAt || 'Unknown'}
         </Text>
 
         <Text size="xs" c="dimmed">
-          Original slot: {rawStartTime.format('MMM D, YYYY h:mm A')} - {rawEndTime.format('h:mm A')}
+          Slot: {startTime || 'Unknown'} - {endTime || 'Unknown'}
         </Text>
-
-        {rawAvailableAt.isValid() && (
-          <Text size="xs" c="dimmed">
-            Original available at: {rawAvailableAt.format('MMM D, YYYY h:mm A')}
-          </Text>
-        )}
 
         {schedule.status_message && (
           <Alert color="yellow" variant="light" p="xs">
@@ -354,7 +336,7 @@ export default function Scheduled() {
     ['completed', 'failed', 'cancelled'].includes(s.status)
   ) || []
   const accountGuideOffsets = Object.fromEntries(
-    (accounts || []).map((account) => [Number(account.id), Number(account.guide_offset_hours || 0)])
+    (accounts || []).map((account) => [Number(account.id), getGuideOffsetHours(account.guide_offset_hours)])
   )
 
   if (isLoading) {

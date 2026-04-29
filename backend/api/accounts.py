@@ -8,7 +8,7 @@ from sqlalchemy import select
 
 from auth import require_admin, require_admin_or_download_user, AuthContext
 from database import get_session
-from models import XtreamAccount
+from models import AppSettings, XtreamAccount
 from services.epg_ingest_manager import epg_ingest_manager
 from services.account_credentials import (
     encrypt_account_password,
@@ -198,6 +198,11 @@ async def delete_account(
 
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
+
+    settings_result = await session.execute(select(AppSettings))
+    app_settings = settings_result.scalar_one_or_none()
+    if app_settings and app_settings.default_account_id == account.id:
+        app_settings.default_account_id = None
 
     await session.delete(account)
     await session.commit()

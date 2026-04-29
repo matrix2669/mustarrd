@@ -36,8 +36,9 @@ import {
 import dayjs from 'dayjs'
 import duration from 'dayjs/plugin/duration'
 
-import { authApi, downloadsApi, createDownloadWebSocket } from '../api'
+import { accountsApi, authApi, downloadsApi, createDownloadWebSocket } from '../api'
 import ProgressBar from '../components/ProgressBar'
+import { formatChannelDateTime, getGuideOffsetHours } from '../utils/channelTime'
 
 dayjs.extend(duration)
 
@@ -85,7 +86,17 @@ function getStatusBadge(status) {
   )
 }
 
-function DownloadCard({ download, isDesktop, isAdmin, onCancel, onRetry, onDelete, onOpenFileLocation, onPlayFile }) {
+function DownloadCard({
+  download,
+  isAdmin,
+  isDesktop,
+  onCancel,
+  onRetry,
+  onDelete,
+  onOpenFileLocation,
+  onPlayFile,
+  guideOffsetHours = 0,
+}) {
   const [showLogDetails, setShowLogDetails] = useState(false)
   const isActive = ['pending', 'downloading', 'processing'].includes(download.status)
   const canRetry = ['failed', 'cancelled'].includes(download.status)
@@ -159,7 +170,7 @@ function DownloadCard({ download, isDesktop, isAdmin, onCancel, onRetry, onDelet
 
         <Group gap="xs" wrap="nowrap">
           <Text size="xs" c="dimmed">
-            {dayjs(download.program_start).format('MMM D, YYYY h:mm A')}
+            {formatChannelDateTime(download, 'start', guideOffsetHours, 'MMM D, YYYY h:mm A') || 'Unknown'}
           </Text>
           <Text size="xs" c="dimmed">
             ({formatDuration(download.duration_minutes)})
@@ -327,7 +338,6 @@ export default function Downloads() {
   const desktopApi = typeof window !== 'undefined' ? window.mustarrdDesktop : null
   const isDesktop = Boolean(desktopApi?.openFileLocation && desktopApi?.playFile)
 
-  // Fetch downloads
   const { data: downloads, isLoading, error } = useQuery({
     queryKey: ['downloads'],
     queryFn: downloadsApi.list,
@@ -337,7 +347,11 @@ export default function Downloads() {
     queryKey: ['auth', 'status'],
     queryFn: authApi.status,
   })
-  // WebSocket for real-time updates
+  const { data: accounts } = useQuery({
+    queryKey: ['accounts'],
+    queryFn: accountsApi.list,
+  })
+
   useEffect(() => {
     const ws = createDownloadWebSocket((data) => {
       if (data.type === 'progress') {
@@ -359,7 +373,6 @@ export default function Downloads() {
           },
         }))
 
-        // Refresh on status change
         if (['completed', 'failed', 'cancelled'].includes(data.status)) {
           queryClient.invalidateQueries({ queryKey: ['downloads'] })
         }
@@ -464,7 +477,6 @@ export default function Downloads() {
     }
   }
 
-  // Merge WebSocket updates with fetched data
   const enhancedDownloads = downloads?.map((d) => ({
     ...d,
     ...localProgress[d.id],
@@ -478,6 +490,9 @@ export default function Downloads() {
   const historyDownloads = enhancedDownloads?.filter((d) =>
     ['completed', 'failed', 'cancelled'].includes(d.status)
   ) || []
+  const accountGuideOffsets = Object.fromEntries(
+    (accounts || []).map((account) => [Number(account.id), getGuideOffsetHours(account.guide_offset_hours)])
+  )
 
   if (isLoading) {
     return (
@@ -532,6 +547,7 @@ export default function Downloads() {
                   onDelete={(d) => deleteMutation.mutate(d)}
                   onOpenFileLocation={handleOpenFileLocation}
                   onPlayFile={handlePlayFile}
+                  guideOffsetHours={accountGuideOffsets[Number(download.account_id)] || 0}
                 />
               ))}
             </Stack>
@@ -561,6 +577,7 @@ export default function Downloads() {
                   onDelete={(d) => deleteMutation.mutate(d)}
                   onOpenFileLocation={handleOpenFileLocation}
                   onPlayFile={handlePlayFile}
+                  guideOffsetHours={accountGuideOffsets[Number(download.account_id)] || 0}
                 />
               ))}
             </Stack>

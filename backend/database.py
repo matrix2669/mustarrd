@@ -54,6 +54,9 @@ async def _apply_lightweight_migrations(conn) -> None:
             )
         )
 
+    if not await _column_exists(conn, "app_settings", "default_account_id"):
+        await conn.execute(text("ALTER TABLE app_settings ADD COLUMN default_account_id INTEGER"))
+
     if not await _column_exists(conn, "epg_programs", "provider_start"):
         await conn.execute(text("ALTER TABLE epg_programs ADD COLUMN provider_start VARCHAR(255)"))
 

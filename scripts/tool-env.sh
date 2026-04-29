@@ -127,7 +127,7 @@ catchup_collect_bundled_library_dirs() {
 
 catchup_apply_terminal_tool_env() {
   local repo_root="$1"
-  local tools_root="$repo_root/desktop-electron/tools"
+  local tools_root="$repo_root/tools"
 
   if [[ ! -d "$tools_root" ]]; then
     return 0

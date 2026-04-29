@@ -24,9 +24,9 @@ import {
   IconTrophy,
   IconFile,
 } from '@tabler/icons-react'
-import dayjs from 'dayjs'
 
 import { downloadsApi, schedulesApi, settingsApi } from '../api'
+import { formatChannelDateTime, getChannelDisplayTime, getGuideOffsetHours } from '../utils/channelTime'
 
 const typeIcons = {
   tv_show: IconVideo,
@@ -44,7 +44,7 @@ const typeLabels = {
   other: 'Other',
 }
 
-export default function ScheduleModal({ opened, onClose, program, channel, accountId }) {
+export default function ScheduleModal({ opened, onClose, program, channel, accountId, guideOffsetHours = 0 }) {
   const queryClient = useQueryClient()
   const [filename, setFilename] = useState('')
   const [detectedType, setDetectedType] = useState('other')
@@ -54,6 +54,7 @@ export default function ScheduleModal({ opened, onClose, program, channel, accou
   const [offsetsDirty, setOffsetsDirty] = useState(false)
   const { colorScheme } = useMantineColorScheme()
   const theme = useMantineTheme()
+  const normalizedGuideOffsetHours = getGuideOffsetHours(guideOffsetHours)
 
   const accordionStyles = {
     item: {
@@ -106,14 +107,14 @@ export default function ScheduleModal({ opened, onClose, program, channel, accou
         })
         .catch((err) => {
           console.error('Failed to get filename preview:', err)
-          const date = dayjs(program.start_time).format('YYYY-MM-DD')
+          const date = formatChannelDateTime(program, 'start', normalizedGuideOffsetHours, 'YYYY-MM-DD')
           setFilename(`${channel.name} - ${program.title} - ${date}`)
         })
         .finally(() => {
           setIsLoadingPreview(false)
         })
     }
-  }, [opened, program, channel, accountId])
+  }, [accountId, channel, normalizedGuideOffsetHours, opened, program])
 
   const scheduleMutation = useMutation({
     mutationFn: (data) => schedulesApi.create(data),
@@ -151,12 +152,12 @@ export default function ScheduleModal({ opened, onClose, program, channel, accou
     return null
   }
 
-  const startTime = dayjs(program.start_time)
-  const endTime = dayjs(program.end_time)
+  const startTime = getChannelDisplayTime(program, 'start', normalizedGuideOffsetHours)
+  const endTime = getChannelDisplayTime(program, 'end', normalizedGuideOffsetHours)
   const TypeIcon = typeIcons[detectedType] || IconFile
   const totalDuration = (program.duration_minutes || 0) + prePadding + postPadding
-  const adjustedStart = startTime.subtract(prePadding, 'minute')
-  const availableAt = endTime.add(postPadding, 'minute')
+  const adjustedStart = startTime?.subtract(prePadding, 'minute')
+  const availableAt = endTime?.add(postPadding, 'minute')
 
   return (
     <Modal
@@ -177,7 +178,7 @@ export default function ScheduleModal({ opened, onClose, program, channel, accou
 
         <Group gap="xs">
           <Badge variant="light" leftSection={<IconClock size={12} />}>
-            {startTime.format('MMM D, YYYY h:mm A')}
+            {startTime?.format('MMM D, YYYY h:mm A') || 'Unknown'}
           </Badge>
           <Badge variant="light">
             {program.duration_minutes} minutes
@@ -189,7 +190,7 @@ export default function ScheduleModal({ opened, onClose, program, channel, accou
 
         <Alert variant="light" color="teal" icon={<IconCalendar size={16} />}>
           <Text size="sm">
-            Recording will start after it airs. Expected start: {availableAt.format('MMM D, YYYY h:mm A')}.
+            Recording will start after it airs. Expected start: {availableAt?.format('MMM D, YYYY h:mm A') || 'Unknown'}.
           </Text>
         </Alert>
 
@@ -227,7 +228,7 @@ export default function ScheduleModal({ opened, onClose, program, channel, accou
                   }}
                 />
                 <Text size="sm" c="dimmed">
-                  Recording starts at {adjustedStart.format('MMM D, YYYY h:mm A')} and runs for{' '}
+                  Recording starts at {adjustedStart?.format('MMM D, YYYY h:mm A') || 'Unknown'} and runs for{' '}
                   {totalDuration} minutes.
                 </Text>
               </Stack>
