@@ -35,7 +35,13 @@ import DownloadModal from '../components/DownloadModal'
 import ScheduleModal from '../components/ScheduleModal'
 import MovieModal from '../components/VodMovieModal'
 import SeriesModal from '../components/VodSeriesModal'
-import { formatChannelDateTime, getGuideOffsetHours, getProgramInstant, getNowUtc } from '../utils/channelTime'
+import {
+  formatChannelDateTime,
+  getChannelDisplayTime,
+  getGuideOffsetHours,
+  getProgramInstant,
+  getNowUtc,
+} from '../utils/channelTime'
 
 function ChannelList({ channels, selectedChannel, onSelectChannel, isLoading }) {
   const [search, setSearch] = useState('')
@@ -305,8 +311,8 @@ function normalizeProgramTitle(value) {
     .toLowerCase()
 }
 
-function getProgramStartMinute(program) {
-  const startTime = getProgramInstant(program, 'start')
+function getProgramStartMinute(program, guideOffsetHours = 0) {
+  const startTime = getChannelDisplayTime(program, 'start', guideOffsetHours)
   if (startTime) {
     return Math.floor(startTime.valueOf() / 60000)
   }
@@ -314,10 +320,10 @@ function getProgramStartMinute(program) {
   return null
 }
 
-function buildProgramSelectionKey(program, fallbackChannelId = null) {
+function buildProgramSelectionKey(program, fallbackChannelId = null, guideOffsetHours = 0) {
   const channelId = (program?.channel_id ?? fallbackChannelId ?? '').toString().trim()
   const title = normalizeProgramTitle(program?.title ?? program?.program_title)
-  const startMinute = getProgramStartMinute(program)
+  const startMinute = getProgramStartMinute(program, guideOffsetHours)
 
   if (!channelId || !title || startMinute == null) {
     return null
@@ -508,7 +514,7 @@ export default function Browse() {
         return
       }
 
-      const key = buildProgramSelectionKey(download)
+      const key = buildProgramSelectionKey(download, null, selectedGuideOffsetHours)
       if (!key) return
 
       const existing = lookup.get(key)
@@ -526,15 +532,15 @@ export default function Browse() {
     })
 
     return lookup
-  }, [downloads, selectedAccountId])
+  }, [downloads, selectedAccountId, selectedGuideOffsetHours])
 
   const getProgramPreviousDownload = useCallback(
     (program, fallbackChannelId = null) => {
-      const key = buildProgramSelectionKey(program, fallbackChannelId)
+      const key = buildProgramSelectionKey(program, fallbackChannelId, selectedGuideOffsetHours)
       if (!key) return null
       return previousDownloadLookup.get(key) || null
     },
-    [previousDownloadLookup]
+    [previousDownloadLookup, selectedGuideOffsetHours]
   )
 
   useEffect(() => {

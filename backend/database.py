@@ -84,6 +84,12 @@ async def _apply_lightweight_migrations(conn) -> None:
     if not await _column_exists(conn, "scheduled_recordings", "provider_stop"):
         await conn.execute(text("ALTER TABLE scheduled_recordings ADD COLUMN provider_stop VARCHAR(255)"))
 
+    if not await _column_exists(conn, "downloads", "start_timestamp"):
+        await conn.execute(text("ALTER TABLE downloads ADD COLUMN start_timestamp INTEGER DEFAULT 0"))
+
+    if not await _column_exists(conn, "downloads", "stop_timestamp"):
+        await conn.execute(text("ALTER TABLE downloads ADD COLUMN stop_timestamp INTEGER DEFAULT 0"))
+
 
 async def _migrate_legacy_account_passwords() -> None:
     from models import XtreamAccount

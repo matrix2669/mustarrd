@@ -348,8 +348,8 @@ export default function Downloads() {
     queryFn: authApi.status,
   })
   const { data: accounts } = useQuery({
-    queryKey: ['accounts'],
-    queryFn: accountsApi.list,
+    queryKey: ['accounts', 'public'],
+    queryFn: accountsApi.publicList,
   })
 
   useEffect(() => {

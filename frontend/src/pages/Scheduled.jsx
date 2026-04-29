@@ -233,8 +233,8 @@ export default function Scheduled() {
   })
 
   const { data: accounts } = useQuery({
-    queryKey: ['accounts'],
-    queryFn: accountsApi.list,
+    queryKey: ['accounts', 'public'],
+    queryFn: accountsApi.publicList,
   })
 
   useEffect(() => {

@@ -9,7 +9,7 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from models import AppSettings, EPGProgram, ScheduledRecording, XtreamAccount
+from models import AppSettings, Download, EPGProgram, ScheduledRecording, XtreamAccount
 from services.download_builder import build_download_from_program
 from services.epg_service import epg_service
 from services.xtream_client import XtreamClient
@@ -150,6 +150,27 @@ class CatchupResolutionTests(unittest.TestCase):
         self.assertEqual(payload["provider_start"], "2026-03-30:13-00")
         self.assertEqual(payload["provider_stop"], "2026-03-30:14-00")
 
+    def test_download_to_dict_includes_program_timestamps(self):
+        row = Download(
+            account_id=1,
+            channel_id="123",
+            channel_name="Test Channel",
+            program_title="Test Show",
+            program_start=datetime(2026, 3, 30, 21, 0, tzinfo=timezone.utc),
+            program_end=datetime(2026, 3, 30, 22, 0, tzinfo=timezone.utc),
+            start_timestamp=1774904400,
+            stop_timestamp=1774908000,
+            duration_minutes=60,
+            source_url="https://provider.example.com/timeshift/user/pass/60/2026-03-30:17-00/123.ts",
+            output_path="/tmp/test.ts",
+            status="pending",
+        )
+
+        payload = row.to_dict()
+
+        self.assertEqual(payload["start_timestamp"], 1774904400)
+        self.assertEqual(payload["stop_timestamp"], 1774908000)
+
     def test_schedule_parser_prefers_original_timestamps_over_shifted_display_times(self):
         start_time, end_time, start_ts, stop_ts, duration_minutes, _, _ = _parse_program(
             {
@@ -228,6 +249,10 @@ class CatchupResolutionTests(unittest.TestCase):
         )
 
         self.assertEqual(first.source_url, second.source_url)
+        self.assertEqual(first.start_timestamp, 1774864800)
+        self.assertEqual(first.stop_timestamp, 1774868400)
+        self.assertEqual(second.start_timestamp, 1774864800)
+        self.assertEqual(second.stop_timestamp, 1774868400)
 
     def test_invalid_provider_token_falls_back_to_generated_start_without_account_offset(self):
         download = asyncio.run(

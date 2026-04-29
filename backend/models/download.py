@@ -28,6 +28,8 @@ class Download(Base):
     program_title: Mapped[str] = mapped_column(String(500))
     program_start: Mapped[datetime] = mapped_column(DateTime)
     program_end: Mapped[datetime] = mapped_column(DateTime)
+    start_timestamp: Mapped[int] = mapped_column(Integer, default=0)
+    stop_timestamp: Mapped[int] = mapped_column(Integer, default=0)
     duration_minutes: Mapped[int] = mapped_column(Integer)
 
     # Download info
@@ -55,6 +57,8 @@ class Download(Base):
             "program_title": self.program_title,
             "program_start": self.program_start.isoformat() if self.program_start else None,
             "program_end": self.program_end.isoformat() if self.program_end else None,
+            "start_timestamp": self.start_timestamp,
+            "stop_timestamp": self.stop_timestamp,
             "duration_minutes": self.duration_minutes,
             "output_path": self.output_path,
             "requested_by_user_id": self.requested_by_user_id,

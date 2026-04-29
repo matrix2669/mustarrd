@@ -69,6 +69,7 @@ async def list_accounts_public(
             "id": acc.id,
             "name": acc.name,
             "is_active": acc.is_active,
+            "guide_offset_hours": int(acc.guide_offset_hours or 0),
         }
         for acc in accounts
     ]

@@ -10,7 +10,7 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from api.accounts import delete_account
+from api.accounts import delete_account, list_accounts_public
 from api.settings import SettingsUpdate, update_settings
 from database import _apply_lightweight_migrations
 from models import AppSettings, XtreamAccount
@@ -25,6 +25,40 @@ class _ScalarResult:
 
 
 class DefaultAccountSettingsTests(unittest.IsolatedAsyncioTestCase):
+    async def test_public_accounts_include_guide_offset_hours(self):
+        session = AsyncMock()
+        session.execute = AsyncMock(
+            return_value=SimpleNamespace(
+                scalars=lambda: SimpleNamespace(
+                    all=lambda: [
+                        XtreamAccount(
+                            id=3,
+                            name="Provider A",
+                            server_url="http://example",
+                            username="user",
+                            password="",
+                            is_active=True,
+                            guide_offset_hours=4,
+                        )
+                    ]
+                )
+            )
+        )
+
+        result = await list_accounts_public(None, session)
+
+        self.assertEqual(
+            result,
+            [
+                {
+                    "id": 3,
+                    "name": "Provider A",
+                    "is_active": True,
+                    "guide_offset_hours": 4,
+                }
+            ],
+        )
+
     async def test_migration_adds_default_account_id_column_when_missing(self):
         conn = AsyncMock()
 

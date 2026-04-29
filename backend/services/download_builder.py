@@ -162,6 +162,8 @@ async def build_download_from_program(
         program_title=program.get("title", "Unknown"),
         program_start=program_start,
         program_end=program_end,
+        start_timestamp=int(program_start_utc.timestamp()),
+        stop_timestamp=int(program_end_utc.timestamp()),
         duration_minutes=padded_duration,
         source_url=source_url,
         output_path=os.path.join(download_folder, filename),
