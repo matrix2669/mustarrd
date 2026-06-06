@@ -15,7 +15,7 @@ from auth import (
 )
 from config import settings
 from database import get_session
-from models import Download, DownloadStatus, XtreamAccount, User
+from models import AppSettings, Download, DownloadStatus, XtreamAccount, User
 from services.download_manager import download_manager
 from services.file_namer import file_namer
 from services.epg_service import epg_service
@@ -332,10 +332,23 @@ async def get_download_file(
         raise HTTPException(status_code=404, detail="No file path available for this download")
 
     file_path = Path(download.output_path).expanduser().resolve()
-    allowed_roots = [
-        Path(settings.default_download_folder).expanduser().resolve(),
-        Path(settings.default_completed_folder).expanduser().resolve(),
-    ]
+    db_settings_result = await session.execute(select(AppSettings))
+    db_settings = db_settings_result.scalar_one_or_none()
+    # Union of env defaults and DB-configured folders so recordings made before a
+    # folder change remain accessible (de-duplicated after resolve).
+    roots_raw = [settings.default_download_folder, settings.default_completed_folder]
+    if db_settings:
+        if db_settings.download_folder:
+            roots_raw.append(db_settings.download_folder)
+        if db_settings.completed_folder:
+            roots_raw.append(db_settings.completed_folder)
+    seen: set = set()
+    allowed_roots = []
+    for r in roots_raw:
+        resolved = Path(r).expanduser().resolve()
+        if resolved not in seen:
+            seen.add(resolved)
+            allowed_roots.append(resolved)
     if not any(file_path.is_relative_to(root) for root in allowed_roots):
         raise HTTPException(status_code=403, detail="Access denied")
     if not file_path.is_file():
