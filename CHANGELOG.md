@@ -6,6 +6,22 @@ All notable changes to Mustarrd are listed here. Most recent changes are at the 
 
 ## 2026-06-07
 
+### Improved: Settings now groups post-processing options under clearer headings
+
+**What you would notice:** In Settings, the Post-Processing section previously showed "Max Concurrent Post-Processing" under a heading labelled "RECORDING FORMAT," which made it look like a format setting when it is not. The concurrent jobs control now lives under its own "CONCURRENCY" heading, and "RECORDING FORMAT" covers only the format-related options (output format, hardware acceleration, delete original, and ComSkip settings). The options themselves are unchanged; only the grouping is clearer.
+
+**What changed:** The Settings > Post-Processing page now has two distinct section headings: "CONCURRENCY" above the concurrent jobs control, and "RECORDING FORMAT" above the format controls. No behavior was changed.
+
+---
+
+### Improved: Long show titles in Downloads > Upcoming no longer get cut off on phones
+
+**What you would notice:** On phone screens, long show titles on the Downloads > Upcoming tab were still being cut off with "..." after an earlier fix covered the Scheduled page and the Downloads list view. The Upcoming tab now wraps titles to a second line so the full show name is always readable.
+
+**What changed:** Program titles on the Downloads > Upcoming tab now wrap instead of truncating on narrow screens. No visual change on desktop screens.
+
+---
+
 ### Improved: Show titles no longer get cut off on phones
 
 **What you would notice:** On phone screens, if a show title was long and shared a row with a wide badge (like "PAUSED (LOW SPACE)"), the title was cut off with "..." making it impossible to read the full name. The title now wraps to a second line so the full show name is always visible.
