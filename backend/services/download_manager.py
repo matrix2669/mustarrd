@@ -465,7 +465,13 @@ class DownloadManager:
 
                     download.status = DownloadStatus.PENDING.value
                     download.progress = 0.0
-                    download.downloaded_bytes = 0
+                    if download.file_size == 0 and input_file.is_file():
+                        try:
+                            download.downloaded_bytes = input_file.stat().st_size
+                        except Exception:
+                            download.downloaded_bytes = 0
+                    else:
+                        download.downloaded_bytes = 0
                     download.file_size = 0
                     download.error_message = None
                     recovered_download_ids.append(download.id)
@@ -573,6 +579,9 @@ class DownloadManager:
                 output_dir = os.path.dirname(download.output_path)
                 os.makedirs(output_dir, exist_ok=True)
 
+                # Preserve any recovered partial-file offset for Range resume attempt.
+                recovery_offset = download.downloaded_bytes or 0
+
                 # Update status to downloading
                 download.status = DownloadStatus.DOWNLOADING.value
                 download.progress = 0.0
@@ -592,7 +601,8 @@ class DownloadManager:
                     download.source_url,
                     download.output_path,
                     download_id,
-                    session
+                    session,
+                    offset=recovery_offset,
                 )
                 if downloaded_bytes == 0:
                     raise Exception(
@@ -983,23 +993,54 @@ class DownloadManager:
         url: str,
         output_path: str,
         download_id: int,
-        session: AsyncSession
+        session: AsyncSession,
+        offset: int = 0,
     ):
-        """Stream download a file with progress tracking."""
+        """Stream download a file with progress tracking.
+
+        If *offset* is non-zero a ``Range: bytes=<offset>-`` header is sent.
+        A 206 response means the server honours the range; the existing partial
+        file is appended to and *downloaded* starts at *offset* so the reported
+        byte count is cumulative.  A 200 response means the server ignored the
+        range; the file is truncated and the download starts from scratch.
+        """
         timeout = aiohttp.ClientTimeout(total=None, sock_read=60)
 
+        request_headers: dict = {}
+        if offset > 0:
+            request_headers["Range"] = f"bytes={offset}-"
+
         async with aiohttp.ClientSession(timeout=timeout) as http_session:
-            async with http_session.get(url) as response:
+            async with http_session.get(url, headers=request_headers) as response:
                 if response.status not in (200, 206):
                     raise Exception(f"HTTP {response.status}: {response.reason}")
 
                 total_size = response.content_length or 0
+                range_start = None
                 if response.status == 206:
                     content_range = response.headers.get("Content-Range")
-                    if content_range and "/" in content_range:
-                        total_part = content_range.split("/")[-1].strip()
-                        if total_part.isdigit():
-                            total_size = int(total_part)
+                    if content_range:
+                        # Parse start byte from "bytes <start>-<end>/<total>"
+                        try:
+                            byte_range = content_range.split("/")[0].strip()
+                            if byte_range.lower().startswith("bytes "):
+                                byte_range = byte_range[6:]
+                            start_str = byte_range.split("-")[0].strip()
+                            if start_str.isdigit():
+                                range_start = int(start_str)
+                        except Exception:
+                            pass
+                        if "/" in content_range:
+                            total_part = content_range.split("/")[-1].strip()
+                            if total_part.isdigit():
+                                total_size = int(total_part)
+
+                # Only resume if server confirmed it started at the requested offset.
+                # If Content-Range is present but starts elsewhere, the provider silently
+                # returned data from a different position; appending would corrupt the file.
+                range_mismatch = range_start is not None and range_start != offset
+                resuming = response.status == 206 and offset > 0 and not range_mismatch
+
                 if total_size > 0:
                     await self._broadcast_log(
                         download_id,
@@ -1010,10 +1051,33 @@ class DownloadManager:
                         download_id,
                         f"HTTP {response.status}. Size unknown; streaming download."
                     )
-                downloaded = 0
+
+                if resuming:
+                    downloaded = offset
+                    file_mode = "ab"
+                    await self._broadcast_log(
+                        download_id,
+                        f"Resuming from byte {offset:,}."
+                    )
+                else:
+                    downloaded = 0
+                    file_mode = "wb"
+                    if offset > 0:
+                        if range_mismatch:
+                            await self._broadcast_log(
+                                download_id,
+                                f"Provider returned Content-Range start {range_start:,} "
+                                f"instead of requested {offset:,}; re-downloading from start."
+                            )
+                        else:
+                            await self._broadcast_log(
+                                download_id,
+                                "Provider did not honour Range request; re-downloading from start."
+                            )
+
                 last_progress_update = 0
 
-                async with aiofiles.open(output_path, 'wb') as f:
+                async with aiofiles.open(output_path, file_mode) as f:
                     async for chunk in response.content.iter_chunked(1024 * 1024):  # 1MB chunks
                         # Check for cancellation
                         if download_id in self._cancelled:
