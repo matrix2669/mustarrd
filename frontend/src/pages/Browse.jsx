@@ -43,7 +43,7 @@ import {
   getNowUtc,
 } from '../utils/channelTime'
 
-function ChannelList({ channels, selectedChannel, onSelectChannel, isLoading }) {
+function ChannelList({ channels, selectedChannel, onSelectChannel, isLoading, isError, isAdmin }) {
   const [search, setSearch] = useState('')
 
   const filteredChannels = useMemo(() => {
@@ -57,6 +57,30 @@ function ChannelList({ channels, selectedChannel, onSelectChannel, isLoading }) 
     return (
       <Stack align="center" justify="center" h={200}>
         <Loader />
+      </Stack>
+    )
+  }
+
+  if (isError) {
+    return (
+      <Stack align="center" justify="center" h={200} gap="xs" px="sm">
+        <IconAlertCircle size={28} color="var(--mantine-color-red-5)" />
+        <Text size="sm" c="dimmed" ta="center">
+          Could not reach your provider.
+        </Text>
+        <Text size="xs" c="dimmed" ta="center">
+          {isAdmin ? (
+            <>
+              Check your account status in{' '}
+              <Link to="/settings?section=accounts" style={{ color: 'var(--mantine-color-orange-5)' }}>
+                Settings → Accounts
+              </Link>
+              .
+            </>
+          ) : (
+            'Contact your administrator to check the account connection.'
+          )}
+        </Text>
       </Stack>
     )
   }
@@ -362,6 +386,11 @@ export default function Browse() {
   const [mobileMoviesView, setMobileMoviesView] = useState('categories')
   const [mobileSeriesView, setMobileSeriesView] = useState('categories')
 
+  const { data: authStatus } = useQuery({
+    queryKey: ['auth', 'status'],
+    queryFn: authApi.status,
+  })
+
   // Fetch accounts
   const { data: accounts, isLoading: accountsLoading } = useQuery({
     queryKey: ['accounts', 'public'],
@@ -369,7 +398,11 @@ export default function Browse() {
   })
 
   // Fetch channels
-  const { data: channels, isLoading: channelsLoading } = useQuery({
+  const {
+    data: channels,
+    isLoading: channelsLoading,
+    isError: channelsIsError,
+  } = useQuery({
     queryKey: ['channels', selectedAccountId],
     queryFn: () => channelsApi.getChannels(selectedAccountId, null, true),
     enabled: !!selectedAccountId,
@@ -913,6 +946,8 @@ export default function Browse() {
                     selectedChannel={selectedChannel}
                     onSelectChannel={handleSelectChannel}
                     isLoading={channelsLoading}
+                    isError={channelsIsError}
+                    isAdmin={authStatus?.is_admin}
                   />
                 </Stack>
               </Card>
@@ -944,6 +979,8 @@ export default function Browse() {
                     selectedChannel={selectedChannel}
                     onSelectChannel={handleSelectChannel}
                     isLoading={channelsLoading}
+                    isError={channelsIsError}
+                    isAdmin={authStatus?.is_admin}
                   />
                 </Stack>
               </Card>
