@@ -3,7 +3,7 @@ from fastapi import HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from typing import Optional
+from typing import Literal, Optional
 import os
 
 from auth import require_admin, require_authenticated, AuthContext
@@ -42,14 +42,14 @@ class SettingsUpdate(BaseModel):
     default_template: Optional[str] = None
     max_concurrent_downloads: Optional[int] = Field(default=None, ge=1)
     max_concurrent_post_processing: Optional[int] = None
-    min_free_space_gb: Optional[int] = None
+    min_free_space_gb: Optional[int] = Field(default=None, ge=1)
     default_pre_padding_minutes: Optional[int] = None
     default_post_padding_minutes: Optional[int] = None
     default_account_id: Optional[int] = None
     # Post-processing
     transcode_enabled: Optional[bool] = None
-    transcode_format: Optional[str] = None
-    hw_accel: Optional[str] = None
+    transcode_format: Optional[Literal["ts", "mp4", "mkv"]] = None
+    hw_accel: Optional[Literal["cpu", "videotoolbox", "nvenc", "amf", "vaapi"]] = None
     delete_original_after_transcode: Optional[bool] = None
     remux_only: Optional[bool] = None
     comskip_enabled: Optional[bool] = None
@@ -156,7 +156,7 @@ async def get_settings(
         await session.commit()
         await session.refresh(settings)
 
-    if settings.min_free_space_gb is None:
+    if settings.min_free_space_gb is None or settings.min_free_space_gb < 1:
         settings.min_free_space_gb = 25
         session.add(settings)
         await session.commit()
