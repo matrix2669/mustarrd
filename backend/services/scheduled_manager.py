@@ -1,12 +1,13 @@
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 from database import async_session_maker
 from models import ScheduledRecording, ScheduledStatus, AppSettings
 from services.download_builder import build_download_from_program
 from services.download_manager import download_manager
+from services.epg_service import epg_service
 from config import settings as app_settings
 import os
 import shutil
@@ -62,6 +63,19 @@ class ScheduledManager:
                 if not available_at:
                     continue
                 if available_at <= now_utc:
+                    archive_days = await self._get_catchup_window_days(session, schedule)
+                    catchup_expiry = now_utc - timedelta(days=archive_days)
+                    if available_at <= catchup_expiry:
+                        age = now_utc - available_at
+                        total_hours = int(age.total_seconds() / 3600)
+                        age_str = f"about {age.days} days" if age.days >= 2 else f"about {total_hours} hours"
+                        schedule.status = ScheduledStatus.FAILED.value
+                        schedule.status_message = (
+                            f"Program is no longer available for catchup. "
+                            f"It aired {age_str} ago, past the {archive_days}-day catchup window."
+                        )
+                        schedule.updated_at = datetime.utcnow()
+                        continue
                     ready.append(schedule)
 
             if not ready:
@@ -118,6 +132,15 @@ class ScheduledManager:
                     schedule.updated_at = datetime.utcnow()
 
             await session.commit()
+
+    async def _get_catchup_window_days(self, session, schedule) -> int:
+        try:
+            days = await epg_service.get_channel_archive_days(
+                session, schedule.account_id, schedule.channel_id
+            )
+            return max(1, days) if days > 0 else 30
+        except Exception:
+            return 30
 
     def _get_free_space_gb(self, path: str) -> float:
         if not os.path.exists(path):
