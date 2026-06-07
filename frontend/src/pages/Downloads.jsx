@@ -8,6 +8,7 @@ import {
   Badge,
   ActionIcon,
   Menu,
+  Modal,
   Tabs,
   Loader,
   Alert,
@@ -338,6 +339,7 @@ export default function Downloads() {
   const queryClient = useQueryClient()
   const [localProgress, setLocalProgress] = useState({})
   const [localLogs, setLocalLogs] = useState({})
+  const [clearConfirmOpen, setClearConfirmOpen] = useState(false)
   const desktopApi = typeof window !== 'undefined' ? window.mustarrdDesktop : null
   const isDesktop = Boolean(desktopApi?.openFileLocation && desktopApi?.playFile)
 
@@ -445,6 +447,23 @@ export default function Downloads() {
         message: 'The download has been removed from history',
         color: 'green',
       })
+    },
+  })
+
+  const clearFinishedMutation = useMutation({
+    mutationFn: downloadsApi.clearFinished,
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['downloads'] })
+      notifications.show({
+        title: 'History Cleared',
+        message: data.deleted === 0
+          ? 'Nothing to clear'
+          : `Removed ${data.deleted} finished download${data.deleted === 1 ? '' : 's'}`,
+        color: 'green',
+      })
+    },
+    onError: (error) => {
+      notifications.show({ title: 'Error', message: error.message, color: 'red' })
     },
   })
 
@@ -598,6 +617,18 @@ export default function Downloads() {
             </Card>
           ) : (
             <Stack gap="md">
+              <Group justify="flex-end">
+                <Button
+                  size="xs"
+                  variant="subtle"
+                  color="red"
+                  leftSection={<IconTrash size={14} />}
+                  onClick={() => setClearConfirmOpen(true)}
+                  loading={clearFinishedMutation.isPending}
+                >
+                  Clear finished
+                </Button>
+              </Group>
               {historyDownloads.map((download) => (
                 <DownloadCard
                   key={download.id}
@@ -616,6 +647,32 @@ export default function Downloads() {
           )}
         </Tabs.Panel>
       </Tabs>
+
+      <Modal
+        opened={clearConfirmOpen}
+        onClose={() => setClearConfirmOpen(false)}
+        title="Clear finished downloads?"
+        size="sm"
+      >
+        <Text size="sm">
+          This removes all completed and failed entries from history. Cancelled downloads stay so you can retry them.
+        </Text>
+        <Group justify="flex-end" mt="md">
+          <Button variant="default" onClick={() => setClearConfirmOpen(false)}>
+            Cancel
+          </Button>
+          <Button
+            color="red"
+            loading={clearFinishedMutation.isPending}
+            onClick={() => {
+              setClearConfirmOpen(false)
+              clearFinishedMutation.mutate()
+            }}
+          >
+            Clear finished
+          </Button>
+        </Group>
+      </Modal>
     </Stack>
   )
 }
