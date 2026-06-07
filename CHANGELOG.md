@@ -6,6 +6,70 @@ All notable changes to Mustarrd are listed here. Most recent changes are at the 
 
 ## 2026-06-07
 
+### Fixed: A disabled user can no longer reactivate their account using an old setup link
+
+**What you would notice:** If an admin disabled a user account, that user could still visit the original setup link, which was valid for 24 hours, and reactivate their account without the admin knowing. Mustarrd now blocks that path and shows an error immediately.
+
+**What changed:** When someone visits a setup link, Mustarrd now checks whether the account is disabled before doing anything else. Disabled accounts receive a clear error instead of being silently re-enabled. Generating a new setup link for a disabled account is also blocked.
+
+---
+
+### Fixed: Deleting a user no longer permanently locks out their linked Plex account
+
+**What you would notice:** After an admin deleted a Plex-linked user and then invited that same person again, the person's Plex login returned a server error on every attempt. The only way to fix it was to contact the admin and have them intervene manually. Mustarrd now cleans up completely when a user is deleted, so the same person can be re-invited without any problems.
+
+**What changed:** When a user is deleted, Mustarrd now also removes the linked Plex identity record and any outstanding setup tokens belonging to that user. Nothing is left behind that could block a future re-invite.
+
+---
+
+### Improved: Account cards no longer show a green "Enabled" badge alongside error messages
+
+**What you would notice:** Every account card in Settings > Accounts showed a green "ENABLED" badge regardless of whether anything was wrong. When an account was unreachable or had a connection error, the green badge appeared next to the red error indicator, sending contradictory signals. Active accounts no longer show the badge. Only disabled accounts show a gray "Disabled" badge.
+
+**What changed:** The green "Enabled" badge was removed from healthy account cards. No account logic was changed.
+
+---
+
+### Improved: Air time and duration stay on the same line in Downloads > Upcoming
+
+**What you would notice:** On narrow screens or in a narrow browser window, the air time and recording duration on Downloads > Upcoming cards could wrap onto separate lines. The duration then appeared as an unlabeled, disconnected field. They now always stay together on one line.
+
+**What changed:** The air time and duration in each upcoming recording card are treated as a single unit of text so they always wrap together. No recording logic was changed.
+
+---
+
+### Fixed: Downloads no longer save an unplayable file when your provider returns an error page instead of video
+
+**What you would notice:** Some providers return a web page instead of the actual video content when a program is unavailable, for example when the catchup window has expired or you have hit a session limit. Before this fix, Mustarrd treated that web page as if it were a real recording, wrote it to disk, and marked the download as Completed. The "completed" file was garbage and could not be played. Mustarrd now detects this situation and marks the download as Failed with a clear message explaining what happened.
+
+**What changed:** After connecting to your provider, Mustarrd now checks whether the response is a video stream before writing any data. If the provider sends an HTML or plain-text response instead of a video, the download is stopped immediately and marked Failed with the message "Provider returned an error page (Content-Type: text/html). The catchup window may have expired or be unavailable." Providers that correctly omit the Content-Type header are not affected.
+
+---
+
+### Improved: Downloads > Upcoming now labels the air time as "Airs:"
+
+**What you would notice:** On the Downloads > Upcoming tab, each recording card showed a date and time below the channel name with no explanation of what that time meant. You could not tell at a glance whether it was when the show airs, when the download would start, or something else. Each card now shows "Airs:" before the date and time, making it immediately clear. The Scheduled Recordings page already used this label; the Downloads page now matches it.
+
+**What changed:** The "Airs:" prefix was added to the time display on the Downloads > Upcoming tab. No recording logic was changed.
+
+---
+
+### Fixed: EPG guide data now goes to the correct channel when two channels have the same name
+
+**What you would notice:** If your provider had two channels with very similar names, for example "BBC One" and "bbc one" or "CNN" and "cnn," only one of them showed program guide data in Browse EPG. The other appeared completely empty until the slower automatic refresh ran. Mustarrd now consistently gives guide data to the first matching channel in your provider's list.
+
+**What changed:** When building the channel name map during EPG import, Mustarrd now uses a first-write-wins rule for duplicate normalized names. The first channel in your provider's list keeps the name-based guide mapping, and later duplicates are skipped. The slower API-based backfill that previously papered over the problem continues to run as before.
+
+---
+
+### Fixed: Interrupted downloads no longer produce a corrupted file when the provider does not confirm the resume position
+
+**What you would notice:** If a download was interrupted (for example by a container restart) and Mustarrd sent a request to your provider asking to continue from where it left off, some providers acknowledged the request with the right status code but did not include the information Mustarrd needed to verify they were actually sending from the right position. Mustarrd was trusting the provider and appending bytes regardless, which produced a corrupted recording roughly twice the expected size. Mustarrd now falls back to a clean re-download whenever the provider does not confirm the resume position, and logs a message explaining the fallback.
+
+**What changed:** When resuming an interrupted download, Mustarrd now checks that the provider explicitly confirms the byte position before appending. If the confirmation is missing, the download starts over from byte zero. The log will say "Provider returned 206 without Content-Range; re-requesting from start." (If the provider confirms a resume but starts from the wrong position, the log will say "Provider returned Content-Range start N instead of requested M; re-requesting from start.") No change to downloads that are not interrupted.
+
+---
+
 ### Improved: Whole-hour durations now show as "1h" instead of "1h 0m"
 
 **What you would notice:** Any recording that is exactly one hour, two hours, and so on used to display its duration as "1h 0m" on the Scheduled and Downloads pages. The trailing "0m" added no useful information. Those durations now show as "1h", "2h", and so on. Recordings with a partial hour, like "1h 30m" or "45m", are not affected.
