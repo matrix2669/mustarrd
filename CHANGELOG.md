@@ -6,6 +6,46 @@ All notable changes to Mustarrd are listed here. Most recent changes are at the 
 
 ## 2026-06-07
 
+### Fixed: Deleting an account now cancels its scheduled recordings and stops active downloads
+
+**What you would notice:** Before this fix, deleting an account from Mustarrd left its scheduled recordings in a broken state. On the next scheduler check, those recordings would fail with a confusing "Account not found" error rather than a clear reason. Any download that was actively running when you deleted the account would keep running in the background with nowhere to save to. Now, deleting an account immediately cancels all its pending and active scheduled recordings with a clear "Account deleted" note, and any download that was in progress is stopped cleanly.
+
+**What changed:** The account deletion step now marks all non-finished scheduled recordings as cancelled before removing the account row, and passes any actively running downloads to the cancellation handler so they stop immediately.
+
+---
+
+### Improved: Account cards no longer show default badges that have no meaning for most setups
+
+**What you would notice:** Account cards on the Accounts page used to show "Catchup: none reported" and "Guide offset: 0h" on every card by default, even when those were simply the default values with no meaning for most setups. These two badges are now hidden unless they carry a value worth paying attention to. The Catchup badge appears only when your provider reports how many days of archive it supports. The Guide Offset badge appears only when it is set to a non-zero value. Account cards now show less clutter and only surface information that is relevant to your setup.
+
+**What changed:** Two badges on the Accounts page are hidden when they hold default or empty values. This is a display-only change with no effect on recording behavior.
+
+---
+
+### Improved: Unreachable account badge now shows a plain-English reason for the failure
+
+**What you would notice:** When Mustarrd cannot connect to one of your IPTV accounts, the Accounts page showed a red "Unreachable" dot with no further explanation. You had to check your provider, credentials, and network manually to figure out what went wrong. The Accounts page now shows a short plain-English reason under the red dot, for example: "Invalid credentials. Check your username and password." or "Connection timed out. Check your network and try again."
+
+**What changed:** Mustarrd now translates the underlying connection error into a short readable message and stores it alongside the account status. The Accounts page displays this message under the Unreachable badge. Messages are capped at 200 characters so a long technical error cannot fill the card.
+
+---
+
+### Fixed: Queuing a download that is already active now gives a clear error
+
+**What you would notice:** If a recording of a program was already in the queue (pending, downloading, or being processed) and you clicked Download for the same program again, Mustarrd would silently start a second recording writing to the same file. The two recordings would overwrite each other, leaving a corrupt or incomplete file. Now Mustarrd immediately rejects the second request with the message "A download for this program is already active."
+
+**What changed:** Before starting a new download, Mustarrd checks whether an active entry for the same program already exists. If one is found in the pending, downloading, or processing state, the request is rejected and no duplicate entry is created. Re-downloading a program that previously failed or was cancelled still works normally, because only active (in-progress) entries trigger the check.
+
+---
+
+### Fixed: Failed transcode no longer leaves a partial file on disk
+
+**What you would notice:** If a download required conversion (transcoding) and FFmpeg failed partway through, a partial file ending in .mkv or .mp4 was left in your download folder and never cleaned up. These incomplete files accumulated over time and could not be played. Now Mustarrd deletes them automatically when transcoding fails, so only successfully converted recordings are kept.
+
+**What changed:** The cleanup step that runs after a failed download now includes .mkv and .mp4 partial outputs alongside the existing types it already removed. Successful recordings are not affected: the output file is moved to your completed folder before cleanup runs, so it is never deleted.
+
+---
+
 ### Fixed: Movies and Series page no longer blank on some providers
 
 **What you would notice:** On certain IPTV providers, opening the Movies or Series page showed nothing at all. There was no error message. The page was simply empty, even though your provider had content available. This is now fixed.
