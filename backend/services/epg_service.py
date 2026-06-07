@@ -137,7 +137,7 @@ class EPGService:
             try:
                 epg_data = await client.get_epg(channel_id)
                 processed = [
-                    self._process_epg_entry(entry, account, fallback_channel_id=channel_id)
+                    self._process_epg_entry(entry, account, fallback_channel_id=channel_id, has_archive_fallback=True)
                     for entry in epg_data
                 ]
                 filtered = self._filter_programs_by_cutoff(processed, cutoff)
@@ -191,7 +191,8 @@ class EPGService:
         self,
         entry: dict,
         account: Optional[XtreamAccount] = None,
-        fallback_channel_id: Optional[str] = None
+        fallback_channel_id: Optional[str] = None,
+        has_archive_fallback: bool = False,
     ) -> dict:
         """Process and normalize an EPG entry."""
         # Decode base64 title and description if present
@@ -229,6 +230,8 @@ class EPGService:
         if channel_id and start_timestamp and stop_timestamp:
             epg_id = f"{channel_id}:{start_timestamp}:{stop_timestamp}"
 
+        raw_has_archive = entry.get("has_archive")
+
         return {
             "id": entry.get("id"),
             "epg_id": epg_id,
@@ -241,7 +244,7 @@ class EPGService:
             "provider_start": str(provider_start).strip() if provider_start is not None else None,
             "provider_stop": str(provider_stop).strip() if provider_stop is not None else None,
             "duration_minutes": duration_minutes,
-            "has_archive": int(entry.get("has_archive", 0) or 0) == 1,
+            "has_archive": has_archive_fallback if raw_has_archive is None else (int(raw_has_archive or 0) == 1),
             "channel_id": channel_id or None,
         }
 
