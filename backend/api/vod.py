@@ -9,6 +9,7 @@ from auth import require_admin_or_download_user, AuthContext
 from database import get_session
 from models import XtreamAccount
 from services.account_credentials import resolve_account_password_with_migration
+from services.disk_space import check_disk_space
 from services.xtream_client import XtreamClient
 from services.vod_service import build_movie_download, build_episode_download
 from services.download_manager import download_manager
@@ -145,6 +146,7 @@ async def download_movie(
             raise HTTPException(status_code=404, detail="Account not found")
         raise HTTPException(status_code=400, detail="Unable to queue movie download")
 
+    await check_disk_space(session)
     download = await download_manager.queue_download(download)
     return download.to_dict()
 
@@ -242,6 +244,7 @@ async def download_series(
                 raise HTTPException(status_code=404, detail="Account not found")
             raise HTTPException(status_code=400, detail="Unable to queue series download")
 
+        await check_disk_space(session)
         download = await download_manager.queue_download(download)
         downloads.append(download.to_dict())
 
