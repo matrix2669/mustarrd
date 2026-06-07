@@ -43,8 +43,8 @@ class SettingsUpdate(BaseModel):
     max_concurrent_downloads: Optional[int] = Field(default=None, ge=1)
     max_concurrent_post_processing: Optional[int] = None
     min_free_space_gb: Optional[int] = Field(default=None, ge=1)
-    default_pre_padding_minutes: Optional[int] = None
-    default_post_padding_minutes: Optional[int] = None
+    default_pre_padding_minutes: Optional[int] = Field(default=None, ge=0)
+    default_post_padding_minutes: Optional[int] = Field(default=None, ge=0)
     default_account_id: Optional[int] = None
     # Post-processing
     transcode_enabled: Optional[bool] = None
@@ -150,7 +150,7 @@ async def get_settings(
         await session.commit()
         await session.refresh(settings)
 
-    if settings.default_pre_padding_minutes is None:
+    if settings.default_pre_padding_minutes is None or settings.default_pre_padding_minutes < 0:
         settings.default_pre_padding_minutes = 1
         session.add(settings)
         await session.commit()
@@ -162,7 +162,7 @@ async def get_settings(
         await session.commit()
         await session.refresh(settings)
 
-    if settings.default_post_padding_minutes is None:
+    if settings.default_post_padding_minutes is None or settings.default_post_padding_minutes < 0:
         settings.default_post_padding_minutes = 5
         session.add(settings)
         await session.commit()
@@ -348,7 +348,7 @@ async def get_public_settings(
 
     return {
         "show_future_programs": show_future,
-        "default_pre_padding_minutes": settings.default_pre_padding_minutes or 1,
-        "default_post_padding_minutes": settings.default_post_padding_minutes or 5,
+        "default_pre_padding_minutes": max(0, settings.default_pre_padding_minutes) if settings.default_pre_padding_minutes is not None else 1,
+        "default_post_padding_minutes": max(0, settings.default_post_padding_minutes) if settings.default_post_padding_minutes is not None else 5,
         "default_account_id": settings.default_account_id,
     }
