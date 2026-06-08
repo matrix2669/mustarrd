@@ -92,6 +92,7 @@ Then open **http://localhost:4177** in your browser.
 - The **Upcoming** tab lists everything scheduled to record automatically, sorted by air date, with show name, channel, time, and duration. A count badge on the tab heading shows how many recordings are queued at a glance. Recordings paused for low disk space show a yellow "PAUSED (LOW SPACE)" badge with an alert icon
 - A red badge on the **Downloads** menu item shows how many recordings have permanently failed since you last visited. Opening Downloads clears it
 - A badge at the top shows how much free space is left on your recording drive. It turns red when space is low. If your recording drive is not found (for example after an array restart), the badge shows "Recording drive not found" in orange
+- When any scheduled recording is paused for low disk space, or when free space drops below the configured minimum, an orange banner appears at the top of every page, not just Downloads, so you are alerted no matter where you are in the app
 - The **History** tab shows past downloads. Use the status filter dropdown at the top to show only Completed, Failed, or Cancelled entries
 - Failed downloads can be retried from the same page
 - Use the **Clear finished** button to remove all completed and failed entries from history at once (a confirmation prompt prevents accidents; cancelled entries stay so you can retry them)
@@ -147,7 +148,7 @@ Most users never need to touch these. Set them in `docker-compose.yml` or a `bac
 | `CATCHUP_MAX_CONCURRENT_DOWNLOADS` | Max simultaneous downloads | `2` |
 | `CATCHUP_SESSION_SECRET` | Session signing key, auto-generated and persisted to `./config/session_secret` on first run. Only set this manually to rotate or share across instances | *(auto)* |
 | `CATCHUP_CORS_ORIGINS` | Comma-separated allowed frontend origins; only needed when the UI is accessed from a non-localhost address | `http://localhost:4178,...` |
-| `CATCHUP_SESSION_HTTPS_ONLY` | Require HTTPS for session cookies | `true` |
+| `CATCHUP_SESSION_COOKIE_SECURE_MODE` | When to mark session cookies as HTTPS-only: `auto` (default, detects HTTPS including reverse-proxy setups), `always`, or `never` | `auto` |
 | `CATCHUP_ALLOW_REMOTE_SETUP` | Allow password setup from non-local IPs | `false` |
 | `CATCHUP_FFMPEG_PATH` | Path to ffmpeg binary | *(auto-detected)* |
 | `CATCHUP_COMSKIP_PATH` | Path to comskip binary | *(auto-detected)* |
