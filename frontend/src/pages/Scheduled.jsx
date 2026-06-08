@@ -83,6 +83,9 @@ function ScheduleCard({
   const activeStatuses = ['scheduled', 'queued', 'downloading', 'processing', 'paused_low_space']
   const isActive = activeStatuses.includes(schedule.status)
   const canDelete = !isActive
+  const startHasPassed = schedule.start_timestamp
+    ? schedule.start_timestamp < Date.now() / 1000
+    : false
 
   const startTime = formatChannelDateTime(schedule, 'start', guideOffsetHours, 'MMM D, YYYY h:mm A')
   const endTime = formatChannelDateTime(schedule, 'end', guideOffsetHours, 'h:mm A')
@@ -139,12 +142,14 @@ function ScheduleCard({
         </Group>
 
         <Text size="xs" c="dimmed">
-          Airs: {startTime || 'Unknown'} - {endTime || 'Unknown'} ({formatDuration(schedule.duration_minutes || 0)})
+          {(!isActive && startHasPassed) ? 'Aired' : 'Airs'}: {startTime || 'Unknown'} - {endTime || 'Unknown'} ({formatDuration(schedule.duration_minutes || 0)})
         </Text>
 
-        <Text size="xs" c="dimmed">
-          Download starts: {availableAt || 'Unknown'} ({formatDuration(totalDuration)} recording)
-        </Text>
+        {(isActive || schedule.status === 'completed') && (
+          <Text size="xs" c="dimmed">
+            Download starts: {availableAt || 'Unknown'} ({formatDuration(totalDuration)} recording)
+          </Text>
+        )}
 
         {schedule.status_message && (
           <Alert color="yellow" variant="light" p="xs">
