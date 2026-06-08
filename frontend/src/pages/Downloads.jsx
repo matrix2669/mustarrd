@@ -284,6 +284,11 @@ function DownloadCard({
             </Text>
           </Tooltip>
         )}
+        {download.status === 'completed' && download.file_size > 0 && (
+          <Text size="xs" c="dimmed">
+            Download size: {formatBytes(download.file_size)}
+          </Text>
+        )}
         {download.status === 'completed' && (
           <Group gap="xs">
             {isDesktop ? (
