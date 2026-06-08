@@ -8,7 +8,7 @@ from sqlalchemy import select, or_, func
 
 from auth import require_admin_or_download_user, AuthContext
 from database import get_session
-from models import XtreamAccount, EPGProgram
+from models import XtreamAccount, EPGProgram, AppSettings
 from services.epg_service import epg_service
 from services.epg_ingest_manager import epg_ingest_manager
 
@@ -53,7 +53,10 @@ async def search_epg(
     pattern = _build_like_pattern(q.lower())
     now_utc = datetime.now(timezone.utc)
     offset_hours = int(account.guide_offset_hours or 0)
-    threshold = now_utc - timedelta(hours=offset_hours)
+    settings_result = await session.execute(select(AppSettings))
+    db_settings = settings_result.scalar_one_or_none()
+    global_offset_minutes = int(getattr(db_settings, "epg_offset_minutes", 0) or 0)
+    threshold = now_utc - timedelta(hours=offset_hours) - timedelta(minutes=global_offset_minutes)
     result = await session.execute(
         select(EPGProgram)
         .where(
@@ -72,7 +75,7 @@ async def search_epg(
         .offset(offset)
     )
     programs = result.scalars().all()
-    return [epg_service.serialize_program(row, account) for row in programs]
+    return [epg_service.serialize_program(row, account, global_offset_minutes) for row in programs]
 
 
 @router.get("/epg/status")
