@@ -52,9 +52,10 @@ def series_episode_output_path(
     base_name = f"S{season_num:02d}E{episode_num:02d} - {safe_show}"
     if safe_title:
         base_name = f"{base_name} - {safe_title}"
-    elif season_num == 0 and episode_num == 0 and episode_id:
-        # No usable metadata: append the provider episode ID so multiple
-        # zero-metadata episodes of the same show get distinct output paths.
+    elif episode_num <= 0 and episode_id:
+        # No usable title and no real episode number: append the provider
+        # episode ID so multiple untitled zero-episode entries get distinct
+        # output paths. Leave normal numbered episodes (S02E05, etc.) clean.
         base_name = f"{base_name} - {_sanitize_component(str(episode_id))}"
 
     filename = f"{base_name}.{_safe_extension(extension)}"
