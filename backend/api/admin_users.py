@@ -9,7 +9,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth import require_admin, hash_password, AuthContext
 from database import get_session
-from models import User, UserIdentity, UserSetupToken
+from models import (
+    Download, DownloadStatus,
+    ScheduledRecording, ScheduledStatus,
+    User, UserIdentity, UserSetupToken,
+)
 from services.download_manager import download_manager
 
 
@@ -140,8 +144,44 @@ async def delete_user(
 
     await session.execute(delete(UserIdentity).where(UserIdentity.user_id == user.id))
     await session.execute(delete(UserSetupToken).where(UserSetupToken.user_id == user.id))
+
+    non_terminal_statuses = [
+        ScheduledStatus.SCHEDULED.value,
+        ScheduledStatus.QUEUED.value,
+        ScheduledStatus.DOWNLOADING.value,
+        ScheduledStatus.PROCESSING.value,
+        ScheduledStatus.PAUSED_LOW_SPACE.value,
+    ]
+    sched_result = await session.execute(
+        select(ScheduledRecording).where(
+            ScheduledRecording.requested_by_user_id == user.id,
+            ScheduledRecording.status.in_(non_terminal_statuses),
+        )
+    )
+    for sched in sched_result.scalars().all():
+        sched.status = ScheduledStatus.CANCELLED.value
+        sched.status_message = "User deleted"
+
+    active_dl_statuses = [
+        DownloadStatus.PENDING.value,
+        DownloadStatus.DOWNLOADING.value,
+        DownloadStatus.PROCESSING.value,
+    ]
+    dl_result = await session.execute(
+        select(Download).where(
+            Download.requested_by_user_id == user.id,
+            Download.status.in_(active_dl_statuses),
+        )
+    )
+    active_dl_ids = [d.id for d in dl_result.scalars().all()]
+
     await session.delete(user)
     await session.commit()
+
+    for dl_id in active_dl_ids:
+        await download_manager.cancel_download(dl_id)
+
+    await download_manager.disconnect_user_websockets(user.id)
     return {"status": "deleted"}
 
 
