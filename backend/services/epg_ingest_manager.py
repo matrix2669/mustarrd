@@ -47,6 +47,8 @@ class EPGIngestManager:
     def __init__(self):
         self._running = False
         self._refresh_lock = asyncio.Lock()
+        self._task_pending = False
+        self._pending_task: Optional["asyncio.Task"] = None
         self._interval = max(1, int(app_settings.epg_refresh_interval_hours)) * 3600
         self._backfill_cooldown_seconds = max(self._interval, 6 * 3600)
         self._status = {
@@ -121,8 +123,39 @@ class EPGIngestManager:
                 })
                 await self._log("Account-specific EPG refresh finished.", account=account)
 
+    def try_claim_refresh(self) -> bool:
+        """Claim a pending manual refresh slot.
+
+        Returns True and marks a refresh as pending if no refresh is currently
+        running or already pending. Returns False otherwise. Called synchronously
+        from the API endpoint before creating the asyncio task, so two rapid
+        requests cannot both slip through the running-flag check.
+        """
+        if self._status.get("running") or self._task_pending:
+            return False
+        self._task_pending = True
+        return True
+
+    def release_pending(self, task: "asyncio.Task") -> None:
+        """Done-callback registered on the manual-refresh asyncio task.
+
+        Guarantees _task_pending is cleared when the task finishes for any
+        reason. Normally _refresh_all_accounts clears it after setting
+        running=True. If the task fails before that point (e.g. SQLite locked
+        on the initial DB query), this callback ensures the flag does not stay
+        True permanently and brick the refresh button with 409 forever.
+
+        Ownership check: only clears the flag if this task is still the one
+        that set it. A late callback from a completed task cannot clear the
+        pending slot claimed by a newer task.
+        """
+        if task is self._pending_task and self._task_pending:
+            self._task_pending = False
+
     def get_status(self) -> dict:
         status = dict(self._status)
+        if self._task_pending:
+            status["running"] = True
         for key in ("started_at", "last_completed_at"):
             if status.get(key):
                 status[key] = status[key].isoformat()
@@ -145,6 +178,7 @@ class EPGIngestManager:
             "started_at": datetime.now(timezone.utc),
             "last_error": None,
         })
+        self._task_pending = False
 
         if not accounts:
             await self._log("No active accounts found for EPG refresh.")
