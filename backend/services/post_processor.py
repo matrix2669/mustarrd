@@ -913,6 +913,8 @@ class PostProcessor:
                     env=ffmpeg_env,
                 )
                 if returncode == 0:
+                    if remove_original and output_path.exists():
+                        os.remove(input_path)
                     return str(output_path)
 
             log_path = self._write_ffmpeg_log(str(input_path), "transcode", stderr)
