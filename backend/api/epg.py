@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_, func
 
-from auth import require_admin_or_download_user, AuthContext
+from auth import require_admin, require_admin_or_download_user, AuthContext
 from database import get_session
 from models import XtreamAccount, EPGProgram, AppSettings
 from services.epg_service import epg_service
@@ -86,7 +86,7 @@ async def epg_status(_admin: None = Depends(require_admin_or_download_user)):
 @router.post("/epg/refresh")
 async def trigger_epg_refresh(
     request: EPGRefreshRequest,
-    _admin: None = Depends(require_admin_or_download_user),
+    _admin: None = Depends(require_admin),
 ):
     status = epg_ingest_manager.get_status()
     if status.get("running"):
