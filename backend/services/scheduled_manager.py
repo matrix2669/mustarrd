@@ -125,14 +125,27 @@ class ScheduledManager:
                     )
 
                     download = await download_manager.queue_download(download)
+
+                    # Re-read status: user may have cancelled while we were
+                    # awaiting build_download_from_program or queue_download.
+                    await session.refresh(schedule)
+                    if schedule.status not in (
+                        ScheduledStatus.SCHEDULED.value,
+                        ScheduledStatus.PAUSED_LOW_SPACE.value,
+                    ):
+                        await download_manager.cancel_download(download.id)
+                        continue
+
                     schedule.download_id = download.id
                     schedule.status = ScheduledStatus.QUEUED.value
                     schedule.status_message = None
                     schedule.updated_at = datetime.utcnow()
+                    await session.commit()
                 except Exception as exc:
                     schedule.status = ScheduledStatus.FAILED.value
                     schedule.status_message = str(exc)
                     schedule.updated_at = datetime.utcnow()
+                    await session.commit()
 
             await session.commit()
 
