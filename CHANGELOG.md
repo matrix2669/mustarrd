@@ -6,11 +6,51 @@ All notable changes to Mustarrd are listed here. Most recent changes are at the 
 
 ## 2026-06-09
 
+### Improved: ComSkip configuration fields now appear in Settings whenever ComSkip is installed
+
+**What you would notice:** On a fresh Docker install with ComSkip available, the binary path and INI path fields in Settings > Post-Processing were invisible unless you had already switched to a ComSkip recording format. This was a catch-22: you could not see or adjust the ComSkip paths without first picking a format that required them. After this fix, those fields appear whenever Mustarrd detects the ComSkip binary, regardless of which format you have selected.
+
+A second issue was also fixed: the Recording Format dropdown could appear fully grayed out for a moment when you first opened Settings while the app was still checking whether ffmpeg was installed. All format options are now accessible immediately on page load, with individual options disabled only when the relevant tool is confirmed absent.
+
+**What changed:** Two small display fixes were made to Settings > Post-Processing. No settings values, recordings, or configuration files were changed.
+
+---
+
+### Improved: Failed and cancelled recordings now consistently show "Aired:" in history
+
+**What you would notice:** Failed and cancelled recordings in the Scheduled Recordings history showed "Airs: Yesterday at 7:30 PM" (present tense), as if the recording was still upcoming, while completed recordings already showed "Aired:" correctly. After this fix all terminal recording cards, whether completed, failed, or cancelled, show "Aired:" consistently.
+
+**What changed:** A small display fix was made to the Scheduled Recordings history cards. No recording or scheduling logic was changed.
+
+---
+
+### Fixed: Canceling a download during or just after conversion no longer leaves orphaned files or wrong status
+
+**What you would notice:** Two separate cancellation bugs were fixed in this release.
+
+First: if you canceled a download right after it finished converting, the converted file would land in your completed folder but the Downloads page would show the recording as CANCELLED or make it disappear entirely. There was no way to find the file through the app, and it sat on your drive without Mustarrd knowing about it.
+
+Second: if you canceled a download that had finished downloading but had not started converting yet, the original .ts file was silently left in your download folder. The app showed CANCELLED as expected, but the file stayed on your drive consuming disk space. On Unraid with limited storage this could quietly fill your drive over time.
+
+After this fix, both cases are handled correctly. A recording canceled after conversion is properly marked completed. A recording canceled before conversion cleans up the source file automatically.
+
+**What changed:** Two gaps in the cancellation logic in the download manager were closed. No user-visible settings or configuration were changed.
+
+---
+
 ### Improved: Downloads history now shows how long ago a recording aired
 
 **What you would notice:** Download cards in the History, Active, and Upcoming tabs used to show air dates as fixed dates like "Jun 8, 2026 7:30 PM." They now show relative dates the same way the Scheduled Recordings page already did: "Yesterday at 7:30 PM" for recent items, and a short weekday form like "Tue, Nov 14, 2023 at 10:13 PM" for older ones. This matches what you already see on the Scheduled Recordings page and makes it easier to see at a glance how recent a recording is.
 
 **What changed:** A one-line display adjustment was made to Download cards. No download, scheduling, or storage logic was changed.
+
+---
+
+### Fixed: Scheduled recordings now download the correct content for providers in India, Newfoundland, Iran, and Myanmar
+
+**What you would notice:** If your IPTV provider uses a half-hour time zone offset, such as India (+5:30), Newfoundland (-3:30), Iran (+3:30), or Myanmar (+6:30), your scheduled recordings may have been downloading content from the wrong time slot, roughly three to six hours earlier than the program you actually scheduled. The guide showed the correct program time and the recording started on schedule, but when you played the file back, the content was from a different program entirely. This fix was a companion to the guide-time fix released earlier today: the guide was corrected first, and this update applies the same correction to the download itself.
+
+**What changed:** The part of Mustarrd that builds the download URL for scheduled recordings now applies the same time zone normalization that was added to the guide parser earlier. Short time zone offsets like `+5:30` and `+530` are zero-padded before being used to calculate the correct playback position on the provider's server. Previously, those offsets were silently ignored and UTC was used instead. No user-visible setting or configuration was changed.
 
 ---
 
