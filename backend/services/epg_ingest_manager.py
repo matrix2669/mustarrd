@@ -33,6 +33,18 @@ def _program_insert_stmt():
             "title": stmt.excluded.title,
             "description": stmt.excluded.description,
             "category": stmt.excluded.category,
+            # Repair rows missing the provider-local start/stop (e.g. created by
+            # API backfill entries without a "start" field, or rows predating the
+            # provider_start column). Without provider_start the timeshift URL
+            # builder falls back to UTC wall-clock time and downloads the wrong
+            # window. COALESCE keeps the existing value when the incoming row
+            # has none, so a sparse backfill cannot erase a good XMLTV value.
+            "provider_start": func.coalesce(
+                stmt.excluded.provider_start, EPGProgram.provider_start
+            ),
+            "provider_stop": func.coalesce(
+                stmt.excluded.provider_stop, EPGProgram.provider_stop
+            ),
         },
     )
 
@@ -310,13 +322,32 @@ class EPGIngestManager:
             else:
                 await self._log("XMLTV response was empty.", level="warning", account=account)
 
+            # Pre-scan <channel> elements so programmes are matched regardless
+            # of element order, and learn whether the document parses cleanly
+            # before doing anything destructive to the existing guide rows.
+            xmltv_to_stream: Dict[str, list] = {}
+            xmltv_parse_ok = True
+            if xmltv_bytes:
+                xmltv_to_stream, xmltv_parse_ok = self._scan_channel_map(xmltv_bytes, channel_maps)
+
             now_utc = datetime.now(timezone.utc)
             earliest_start_by_channel: dict[str, datetime] = {}
 
             async with async_session_maker() as session:
                 async with session.begin():
                     if force:
-                        if total_programs:
+                        if total_programs and not xmltv_parse_ok:
+                            # The document is truncated or malformed: only part
+                            # of it (possibly nothing) would be re-imported.
+                            # Deleting first would lose guide data that cannot
+                            # be restored until the provider serves a good file.
+                            await self._log(
+                                "Force mode requested but XMLTV is truncated or malformed: "
+                                "existing guide rows preserved; parsable entries will be merged.",
+                                level="warning",
+                                account=account,
+                            )
+                        elif total_programs:
                             await self._log(
                                 "Force mode enabled: clearing existing guide rows before reload.",
                                 account=account,
@@ -383,6 +414,7 @@ class EPGIngestManager:
                         xmltv_bytes,
                         channel_maps,
                         now_utc,
+                        xmltv_to_stream=xmltv_to_stream,
                     )
 
                     batch: list[dict] = []
@@ -433,7 +465,7 @@ class EPGIngestManager:
                     f"Starting API backfill for {len(backfill_targets):,} channels.",
                     account=account
                 )
-                processed, inserted = await self._backfill_from_api(
+                processed, inserted, backfill_all_failed = await self._backfill_from_api(
                     client=client,
                     channel_targets=backfill_targets,
                     now_utc=now_utc,
@@ -442,7 +474,18 @@ class EPGIngestManager:
                     account_id=account.id,
                     insert_stmt=insert_stmt,
                 )
-                await self._mark_backfill_attempt(account.id, now_utc)
+                if backfill_all_failed:
+                    # Total provider API failure: do not start the cooldown,
+                    # otherwise the EPG gaps stay unfilled until the next
+                    # cooldown window (6+ hours) even though the provider may
+                    # recover within minutes.
+                    await self._log(
+                        "API backfill failed for every channel; backfill will be retried on the next refresh.",
+                        level="warning",
+                        account=account,
+                    )
+                else:
+                    await self._mark_backfill_attempt(account.id, now_utc)
             elif backfill_targets:
                 await self._log(
                     "Skipping API backfill (cooldown active).",
@@ -486,7 +529,11 @@ class EPGIngestManager:
             logger.exception("Failed to update connection status for account %s", account_id)
 
     def _build_channel_maps(self, channels: list[dict]) -> dict:
-        stream_by_xmltv_id: Dict[str, str] = {}
+        # Maps an XMLTV id to the list of stream ids that claim it. Two provider
+        # channels sharing one epg_channel_id (e.g. an HD/SD pair) both receive
+        # the programme data; a last-write-wins dict would silently leave one
+        # channel with zero EPG entries.
+        stream_by_xmltv_id: Dict[str, list] = {}
         stream_info: Dict[str, dict] = {}
 
         # Separate channels into two buckets so that name-only channels
@@ -508,7 +555,16 @@ class EPGIngestManager:
 
             xmltv_id = self._extract_xmltv_id(ch)
             if xmltv_id:
-                stream_by_xmltv_id[str(xmltv_id)] = stream_id
+                mapped = stream_by_xmltv_id.setdefault(str(xmltv_id), [])
+                if stream_id not in mapped:
+                    mapped.append(stream_id)
+                    if len(mapped) > 1:
+                        logger.warning(
+                            "Multiple channels share EPG channel id %r (stream ids: %s); "
+                            "programme data will be applied to all of them.",
+                            str(xmltv_id),
+                            ", ".join(mapped),
+                        )
                 if name:
                     has_id_names.append((self._normalize_name(name), stream_id))
             else:
@@ -529,16 +585,84 @@ class EPGIngestManager:
             "stream_info": stream_info,
         }
 
+    @staticmethod
+    def _as_stream_ids(value) -> list:
+        """Normalize a stream_by_xmltv_id value to a list of stream-id strings.
+
+        Values are lists since duplicate epg_channel_id support, but plain
+        strings are still accepted for older callers and fixtures.
+        """
+        if value is None:
+            return []
+        if isinstance(value, (list, tuple, set)):
+            return [str(v) for v in value]
+        return [str(value)]
+
+    def _scan_channel_map(self, xmltv_bytes: bytes, channel_maps: dict) -> tuple[Dict[str, list], bool]:
+        """First pass over the XMLTV document.
+
+        Builds the complete xmltv-id -> stream-ids mapping from <channel>
+        elements before any <programme> is processed, so programmes are
+        matched regardless of element order (the XMLTV format does not
+        guarantee that channel definitions precede programmes).
+
+        Also reports whether the document parsed to the end without error,
+        so callers can avoid destructive operations (force-delete) on a
+        guide that would only be partially re-imported.
+        """
+        stream_by_name = channel_maps["stream_by_name"]
+        stream_info = channel_maps["stream_info"]
+        xmltv_to_stream: Dict[str, list] = {
+            key: self._as_stream_ids(value)
+            for key, value in channel_maps["stream_by_xmltv_id"].items()
+        }
+        parse_ok = True
+        try:
+            sanitized = io.BytesIO(_sanitize_html_entities(xmltv_bytes))
+            for _, elem in ET.iterparse(sanitized, events=("end",)):
+                local_tag = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
+                if local_tag == "channel":
+                    xmltv_id = elem.get("id")
+                    display_name = self._extract_text(elem, "display-name")
+                    if xmltv_id and xmltv_id not in xmltv_to_stream:
+                        if xmltv_id in stream_info:
+                            xmltv_to_stream[xmltv_id] = [xmltv_id]
+                        elif display_name:
+                            name_key = self._normalize_name(display_name)
+                            stream_id = stream_by_name.get(name_key)
+                            if stream_id:
+                                xmltv_to_stream[xmltv_id] = [stream_id]
+                # Only clear top-level elements: clearing every end event would
+                # wipe child text (e.g. <display-name>) before its parent
+                # <channel> element is processed.
+                if local_tag in ("channel", "programme"):
+                    elem.clear()
+        except ET.ParseError as exc:
+            parse_ok = False
+            logger.warning(
+                "XMLTV channel scan stopped early; document is truncated or malformed. (%s)",
+                exc,
+            )
+        return xmltv_to_stream, parse_ok
+
     def _iter_programs(
         self,
         xmltv_bytes: bytes,
         channel_maps: dict,
         now_utc: datetime,
+        xmltv_to_stream: Optional[Dict[str, list]] = None,
     ) -> Iterable[dict]:
-        stream_by_xmltv_id = channel_maps["stream_by_xmltv_id"]
         stream_by_name = channel_maps["stream_by_name"]
         stream_info = channel_maps["stream_info"]
-        xmltv_to_stream: Dict[str, str] = dict(stream_by_xmltv_id)
+        if xmltv_to_stream is None:
+            # No prebuilt mapping: pre-scan the document so programmes that
+            # appear before their <channel> element are still matched.
+            xmltv_to_stream, _parse_ok = self._scan_channel_map(xmltv_bytes, channel_maps)
+        else:
+            xmltv_to_stream = {
+                key: self._as_stream_ids(value)
+                for key, value in xmltv_to_stream.items()
+            }
 
         xmltv_bytes = _sanitize_html_entities(xmltv_bytes)
 
@@ -550,12 +674,12 @@ class EPGIngestManager:
                     display_name = self._extract_text(elem, "display-name")
                     if xmltv_id and xmltv_id not in xmltv_to_stream:
                         if xmltv_id in stream_info:
-                            xmltv_to_stream[xmltv_id] = xmltv_id
+                            xmltv_to_stream[xmltv_id] = [xmltv_id]
                         elif display_name:
                             name_key = self._normalize_name(display_name)
                             stream_id = stream_by_name.get(name_key)
                             if stream_id:
-                                xmltv_to_stream[xmltv_id] = stream_id
+                                xmltv_to_stream[xmltv_id] = [stream_id]
                     elem.clear()
                     continue
 
@@ -567,8 +691,11 @@ class EPGIngestManager:
                     elem.clear()
                     continue
 
-                stream_id = xmltv_to_stream.get(xmltv_id)
-                if not stream_id or stream_id not in stream_info:
+                stream_ids = [
+                    sid for sid in self._as_stream_ids(xmltv_to_stream.get(xmltv_id))
+                    if sid in stream_info
+                ]
+                if not stream_ids:
                     elem.clear()
                     continue
 
@@ -582,12 +709,6 @@ class EPGIngestManager:
 
                 start_utc = start_dt.astimezone(timezone.utc)
                 end_utc = end_dt.astimezone(timezone.utc)
-                archive_days = int(stream_info[stream_id].get("archive_days") or 0)
-                if archive_days > 0:
-                    channel_cutoff = now_utc - timedelta(days=archive_days)
-                    if end_utc < channel_cutoff:
-                        elem.clear()
-                        continue
 
                 duration_minutes = int((end_utc - start_utc).total_seconds() / 60)
                 if duration_minutes <= 0:
@@ -600,26 +721,32 @@ class EPGIngestManager:
 
                 start_ts = int(start_utc.timestamp())
                 stop_ts = int(end_utc.timestamp())
-                epg_id = f"{stream_id}:{start_ts}:{stop_ts}"
 
-                info = stream_info[stream_id]
-                yield {
-                    "channel_id": stream_id,
-                    "channel_name": info["name"],
-                    "xmltv_id": xmltv_id,
-                    "epg_id": epg_id,
-                    "title": title,
-                    "description": description,
-                    "category": category,
-                    "start_time": start_utc,
-                    "end_time": end_utc,
-                    "start_timestamp": start_ts,
-                    "stop_timestamp": stop_ts,
-                    "provider_start": start_raw,
-                    "provider_stop": stop_raw,
-                    "duration_minutes": duration_minutes,
-                    "has_archive": info["has_archive"],
-                }
+                for stream_id in stream_ids:
+                    info = stream_info[stream_id]
+                    archive_days = int(info.get("archive_days") or 0)
+                    if archive_days > 0:
+                        channel_cutoff = now_utc - timedelta(days=archive_days)
+                        if end_utc < channel_cutoff:
+                            continue
+
+                    yield {
+                        "channel_id": stream_id,
+                        "channel_name": info["name"],
+                        "xmltv_id": xmltv_id,
+                        "epg_id": f"{stream_id}:{start_ts}:{stop_ts}",
+                        "title": title,
+                        "description": description,
+                        "category": category,
+                        "start_time": start_utc,
+                        "end_time": end_utc,
+                        "start_timestamp": start_ts,
+                        "stop_timestamp": stop_ts,
+                        "provider_start": start_raw,
+                        "provider_stop": stop_raw,
+                        "duration_minutes": duration_minutes,
+                        "has_archive": info["has_archive"],
+                    }
 
                 elem.clear()
         except ET.ParseError as exc:
@@ -898,7 +1025,15 @@ class EPGIngestManager:
         inserted: int,
         account_id: int,
         insert_stmt,
-    ) -> tuple[int, int]:
+    ) -> tuple[int, int, bool]:
+        """Backfill EPG rows from the provider's per-channel API.
+
+        Returns (processed, inserted, all_failed) where all_failed is True
+        when every attempted get_epg call raised — a total provider API
+        failure that must not be recorded as a completed backfill.
+        """
+        fetch_attempts = 0
+        fetch_failures = 0
         async with async_session_maker() as session:
             batch: list[dict] = []
 
@@ -930,9 +1065,11 @@ class EPGIngestManager:
                 backfill_end = self._ensure_aware(backfill_end) or datetime.now(timezone.utc)
                 channel_cutoff = now_utc - timedelta(days=archive_days)
 
+                fetch_attempts += 1
                 try:
                     epg_entries = await client.get_epg(stream_id)
                 except Exception as exc:
+                    fetch_failures += 1
                     await self._log(
                         f"Backfill failed for channel {stream_id}: {exc}",
                         level="warning",
@@ -995,6 +1132,13 @@ class EPGIngestManager:
                     if len(batch) >= 1000:
                         await flush_batch()
 
+                # Commit each channel's rows as soon as the channel is done so
+                # progress survives an interrupt (restart/cancel). Channels
+                # whose rows are persisted drop out of the backfill targets on
+                # the next run, so a restart resumes instead of redoing the
+                # whole backfill.
+                await flush_batch()
+
                 if index % 100 == 0:
                     await self._log(
                         f"Backfill checked {index:,}/{len(channel_targets):,} channels."
@@ -1002,7 +1146,8 @@ class EPGIngestManager:
 
             await flush_batch()
 
-        return processed, inserted
+        all_failed = fetch_attempts > 0 and fetch_failures == fetch_attempts
+        return processed, inserted, all_failed
 
 
 epg_ingest_manager = EPGIngestManager()
