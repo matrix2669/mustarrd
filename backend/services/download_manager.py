@@ -22,6 +22,37 @@ from services.plex_service import plex_service
 
 logger = logging.getLogger(__name__)
 
+# Bounded retry for transient network errors mid-download. A single provider
+# hiccup (connection reset, read timeout) should not permanently fail the
+# download; each retry resumes from the bytes already on disk via HTTP Range.
+TRANSIENT_RETRY_LIMIT = 3  # retries after the initial attempt
+TRANSIENT_RETRY_BACKOFF_SECONDS = 5.0  # base delay, multiplied by attempt number
+
+# Default minimum free space to preserve when the AppSettings row has no value;
+# matches the default used by services.disk_space.check_disk_space.
+MIN_FREE_SPACE_FALLBACK_GB = 25
+
+# For chunked transfers (no Content-Length) percent progress is unknown, so
+# progress is persisted and broadcast every this-many bytes instead.
+CHUNKED_PROGRESS_INTERVAL_BYTES = 8 * 1024 * 1024
+
+
+def _is_transient_network_error(e: BaseException) -> bool:
+    """True for network-level errors worth retrying (disconnects, timeouts).
+
+    HTTP status errors are raised by _download_file_once as plain
+    ``Exception("HTTP ...")`` and disk errors (e.g. ENOSPC) are plain
+    ``OSError``, so neither matches here: they fail fast.
+    """
+    if isinstance(e, asyncio.TimeoutError):
+        return True
+    if isinstance(e, aiohttp.ClientResponseError):
+        # HTTP-level error (4xx/5xx); not a transient transport failure.
+        return False
+    if isinstance(e, aiohttp.ClientError):
+        return True
+    return False
+
 
 def _friendly_error(e: Exception) -> str:
     """Translate a download exception into a short, user-readable string."""
@@ -470,10 +501,15 @@ class DownloadManager:
                             and download.file_size == 0
                             and download.downloaded_bytes > 0
                         ):
-                            # Chunked stream (no Content-Length). The DB records
-                            # downloaded_bytes as written; if on-disk size matches, the
-                            # download finished cleanly before the crash.
-                            is_complete = input_file.stat().st_size == download.downloaded_bytes
+                            # Chunked stream (no Content-Length). The final
+                            # post-stream commit records downloaded_bytes with
+                            # progress=100; periodic mid-stream commits keep
+                            # progress at 0, so a crash right after one of them
+                            # is not mistaken for a finished download.
+                            is_complete = (
+                                input_file.stat().st_size == download.downloaded_bytes
+                                and bool(download.progress)
+                            )
                         else:
                             is_complete = False
                     except Exception:
@@ -1323,6 +1359,56 @@ class DownloadManager:
         except Exception:
             pass
 
+    async def _preflight_disk_space(
+        self,
+        session: AsyncSession,
+        output_path: str,
+        total_size: int,
+        already_have: int,
+        download_id: int,
+    ) -> None:
+        """Fail fast when the remaining bytes (per Content-Length) cannot fit.
+
+        Only runs when the provider reported a Content-Length. The remaining
+        bytes must fit in the free space of the download folder while keeping
+        the configured minimum free space (AppSettings.min_free_space_gb).
+        """
+        if total_size <= 0:
+            return
+        remaining = total_size - already_have
+        if remaining <= 0:
+            return
+        folder = os.path.dirname(output_path) or "."
+        try:
+            free_bytes = shutil.disk_usage(folder).free
+        except OSError:
+            # Cannot stat the folder; let the download proceed and fail
+            # naturally (e.g. ENOSPC) if space truly runs out.
+            return
+        min_free_bytes = 0
+        try:
+            result = await session.execute(select(AppSettings))
+            row = result.scalar_one_or_none()
+            if row is None:
+                # No settings row yet: same default as services.disk_space.
+                min_free_bytes = int(MIN_FREE_SPACE_FALLBACK_GB * (1024 ** 3))
+            elif isinstance(row, AppSettings):
+                value = row.min_free_space_gb
+                min_free_gb = MIN_FREE_SPACE_FALLBACK_GB if value is None else value
+                min_free_bytes = int(float(min_free_gb) * (1024 ** 3))
+            # Anything else (e.g. a test double that is not an AppSettings row)
+            # keeps min_free_bytes at 0: the Content-Length check still applies.
+        except Exception:
+            min_free_bytes = 0
+        if free_bytes < remaining + min_free_bytes:
+            raise Exception(
+                f"Not enough disk space for this recording: "
+                f"{remaining / (1024 ** 3):.2f} GB still to download, "
+                f"only {free_bytes / (1024 ** 3):.2f} GB free "
+                f"({min_free_bytes / (1024 ** 3):.0f} GB minimum free space must be kept). "
+                f"Free up space and retry."
+            )
+
     async def _stream_response_to_file(
         self,
         response,
@@ -1349,8 +1435,13 @@ class DownloadManager:
                 f"HTTP {response.status}. Size unknown; streaming download."
             )
 
+        await self._preflight_disk_space(
+            session, output_path, total_size, downloaded_start, download_id
+        )
+
         downloaded = downloaded_start
         last_progress_update = 0
+        last_bytes_update = downloaded_start
 
         async with aiofiles.open(output_path, file_mode) as f:
             async for chunk in response.content.iter_chunked(1024 * 1024):  # 1MB chunks
@@ -1362,11 +1453,23 @@ class DownloadManager:
 
                 if total_size > 0:
                     progress = (downloaded / total_size) * 100
+                    should_update = (
+                        progress - last_progress_update >= 1
+                        or downloaded == total_size
+                    )
                 else:
+                    # Chunked transfer: no Content-Length, so percent progress
+                    # is unknown. Emit on a byte cadence instead so the DB and
+                    # UI still see the transfer advancing.
                     progress = 0
+                    should_update = (
+                        downloaded - last_bytes_update
+                        >= CHUNKED_PROGRESS_INTERVAL_BYTES
+                    )
 
-                if progress - last_progress_update >= 1 or downloaded == total_size:
+                if should_update:
                     last_progress_update = progress
+                    last_bytes_update = downloaded
 
                     await session.execute(
                         update(Download)
@@ -1379,23 +1482,26 @@ class DownloadManager:
                     )
                     await session.commit()
 
+                    extra = {"indeterminate": True} if total_size == 0 else {}
                     await self._broadcast_progress(
                         download_id,
                         progress,
                         DownloadStatus.DOWNLOADING.value,
                         downloaded_bytes=downloaded,
                         file_size=total_size,
-                        download_progress=progress
+                        download_progress=progress,
+                        **extra
                     )
 
-        # For chunked streams (total_size == 0) the progress-based commit inside
-        # the loop never fires, so downloaded_bytes stays 0 in the DB. Commit the
-        # final byte count here so recovery after a crash can detect a complete file.
+        # For chunked streams (total_size == 0), commit the final byte count with
+        # progress=100 so recovery after a crash can detect a complete file.
+        # Periodic mid-stream commits above keep progress at 0, so only this
+        # final commit marks the stream as fully transferred.
         if total_size == 0:
             await session.execute(
                 update(Download)
                 .where(Download.id == download_id)
-                .values(downloaded_bytes=downloaded)
+                .values(downloaded_bytes=downloaded, progress=100.0)
             )
             await session.commit()
 
@@ -1406,6 +1512,48 @@ class DownloadManager:
         return downloaded
 
     async def _download_file(
+        self,
+        url: str,
+        output_path: str,
+        download_id: int,
+        session: AsyncSession,
+        offset: int = 0,
+    ):
+        """Download with bounded retries on transient network errors.
+
+        A connection reset or read timeout mid-transfer used to fail the
+        download permanently. Each retry recomputes the resume offset from the
+        bytes already on disk; _download_file_once then resumes via HTTP Range
+        when the provider supports it, or restarts from byte 0 otherwise.
+        Non-network errors (HTTP status errors, disk errors) propagate
+        immediately.
+        """
+        attempt = 0
+        current_offset = offset
+        while True:
+            try:
+                return await self._download_file_once(
+                    url, output_path, download_id, session, offset=current_offset
+                )
+            except Exception as e:
+                if not _is_transient_network_error(e) or attempt >= TRANSIENT_RETRY_LIMIT:
+                    raise
+                attempt += 1
+                try:
+                    current_offset = os.path.getsize(output_path)
+                except OSError:
+                    current_offset = 0
+                delay = TRANSIENT_RETRY_BACKOFF_SECONDS * attempt
+                await self._broadcast_log(
+                    download_id,
+                    f"Network error during download: {type(e).__name__}: {e}. "
+                    f"Retrying in {delay:.0f}s from byte {current_offset:,} "
+                    f"(attempt {attempt}/{TRANSIENT_RETRY_LIMIT}).",
+                    level="warning",
+                )
+                await asyncio.sleep(delay)
+
+    async def _download_file_once(
         self,
         url: str,
         output_path: str,
@@ -1533,6 +1681,24 @@ class DownloadManager:
                         )
                     else:
                         if offset > 0:
+                            # Provider ignored the Range request and returned the
+                            # full resource. If its Content-Length shows the file
+                            # we already have on disk is complete, keep it instead
+                            # of re-downloading the whole stream.
+                            if total_size > 0:
+                                try:
+                                    disk_size = os.path.getsize(output_path)
+                                except OSError:
+                                    disk_size = -1
+                                if disk_size >= total_size:
+                                    await self._broadcast_log(
+                                        download_id,
+                                        f"Provider ignored Range request; file on disk "
+                                        f"({disk_size:,} B) already covers the full "
+                                        f"content length ({total_size:,} B). "
+                                        f"Keeping existing file.",
+                                    )
+                                    return disk_size
                             await self._broadcast_log(
                                 download_id,
                                 "Provider did not honour Range request; re-downloading from start."
