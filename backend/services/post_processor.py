@@ -59,6 +59,8 @@ class PostProcessor:
 
     VAAPI_RENDER_DEVICE = Path("/dev/dri/renderD128")
     VAAPI_SYSFS_DRM_CLASS = Path("/sys/class/drm")
+    # Corrupt input can make ffprobe hang forever; cap how long we wait for it.
+    FFPROBE_TIMEOUT_SECONDS = 60.0
     VAAPI_DEFAULT_DRIVERS_PATH = (
         "/usr/local/lib/x86_64-linux-gnu/dri:/usr/local/lib/aarch64-linux-gnu/dri:"
         "/usr/lib/x86_64-linux-gnu/dri:/usr/lib/aarch64-linux-gnu/dri"
@@ -628,6 +630,14 @@ class PostProcessor:
             env_cmd.append(f"LIBVA_DRIVER_NAME={details['driver']}")
         return [*env_cmd, *cmd]
 
+    def _remove_partial_output(self, output_path: Path) -> None:
+        """Remove a partially-written ffmpeg output file, ignoring errors."""
+        try:
+            if output_path.exists():
+                output_path.unlink()
+        except Exception:
+            pass
+
     def _escape_concat_path(self, path: Path) -> str:
         text = str(path)
         text = text.replace("\\", "\\\\")
@@ -696,7 +706,21 @@ class PostProcessor:
         except FileNotFoundError:
             return self._primary_av_map_args()
 
-        stdout, stderr = await process.communicate()
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(), timeout=self.FFPROBE_TIMEOUT_SECONDS
+            )
+        except asyncio.TimeoutError:
+            await self._terminate_process(process)
+            await self._notify_log(
+                log_callback,
+                f"ffprobe stream probe timed out after {self.FFPROBE_TIMEOUT_SECONDS:.0f}s; "
+                "falling back to primary streams."
+            )
+            return self._primary_av_map_args()
+        except asyncio.CancelledError:
+            await self._terminate_process(process)
+            raise
         if process.returncode != 0:
             stderr_text = (stderr or b"").decode(errors="ignore").strip()
             if stderr_text:
@@ -860,67 +884,74 @@ class PostProcessor:
 
         # Run ffmpeg with progress
         duration = await self._get_duration(input_path, log_callback=log_callback)
-        returncode, stderr = await self._run_ffmpeg_with_progress(
-            cmd,
-            duration,
-            progress_callback,
-            env=ffmpeg_env,
-        )
-        if returncode != 0:
-            if remux_only and output_format in [OutputFormat.MP4, OutputFormat.MKV]:
-                await self._notify_log(
-                    log_callback,
-                    "ffmpeg remux failed; retrying with full transcode (video+audio)."
-                )
-                if output_path.exists():
-                    try:
-                        output_path.unlink()
-                    except Exception:
-                        pass
-                retry_cmd = [self._ffmpeg_path]
-                if hw_accel == HardwareAccel.VAAPI:
-                    retry_cmd.extend(["-vaapi_device", "/dev/dri/renderD128"])
-                retry_cmd.extend([
-                    "-i", str(input_path),
-                    "-y",
-                ])
-                retry_cmd = self._with_error_tolerant_flags(retry_cmd)
-                if input_file.suffix.lower() == ".ts":
-                    retry_cmd.extend(selected_map_args)
-                else:
-                    retry_cmd.extend(["-map", "0"])
-                retry_cmd.extend(self._get_encoder_args(
-                    hw_accel,
-                    self._preferred_video_codec(hw_accel),
-                    quality
-                ))
-                retry_cmd.extend(["-c:a", "aac", "-avoid_negative_ts", "make_zero"])
-                retry_cmd.extend([
-                    "-progress", "pipe:1",
-                    "-nostats",
-                    str(output_path)
-                ])
-                await self._notify_log(
-                    log_callback,
-                    f"ffmpeg retry cmd: {' '.join(shlex.quote(str(c)) for c in retry_cmd)}"
-                )
-                if hw_accel == HardwareAccel.VAAPI:
-                    retry_cmd = self._prepend_vaapi_env(retry_cmd)
-                returncode, stderr = await self._run_ffmpeg_with_progress(
-                    retry_cmd,
-                    duration,
-                    progress_callback,
-                    env=ffmpeg_env,
-                )
-                if returncode == 0:
-                    if remove_original and output_path.exists():
-                        os.remove(input_path)
-                    return str(output_path)
+        try:
+            returncode, stderr = await self._run_ffmpeg_with_progress(
+                cmd,
+                duration,
+                progress_callback,
+                env=ffmpeg_env,
+            )
+            if returncode != 0:
+                if remux_only and output_format in [OutputFormat.MP4, OutputFormat.MKV]:
+                    await self._notify_log(
+                        log_callback,
+                        "ffmpeg remux failed; retrying with full transcode (video+audio)."
+                    )
+                    if output_path.exists():
+                        try:
+                            output_path.unlink()
+                        except Exception:
+                            pass
+                    retry_cmd = [self._ffmpeg_path]
+                    if hw_accel == HardwareAccel.VAAPI:
+                        retry_cmd.extend(["-vaapi_device", "/dev/dri/renderD128"])
+                    retry_cmd.extend([
+                        "-i", str(input_path),
+                        "-y",
+                    ])
+                    retry_cmd = self._with_error_tolerant_flags(retry_cmd)
+                    if input_file.suffix.lower() == ".ts":
+                        retry_cmd.extend(selected_map_args)
+                    else:
+                        retry_cmd.extend(["-map", "0"])
+                    retry_cmd.extend(self._get_encoder_args(
+                        hw_accel,
+                        self._preferred_video_codec(hw_accel),
+                        quality
+                    ))
+                    retry_cmd.extend(["-c:a", "aac", "-avoid_negative_ts", "make_zero"])
+                    retry_cmd.extend([
+                        "-progress", "pipe:1",
+                        "-nostats",
+                        str(output_path)
+                    ])
+                    await self._notify_log(
+                        log_callback,
+                        f"ffmpeg retry cmd: {' '.join(shlex.quote(str(c)) for c in retry_cmd)}"
+                    )
+                    if hw_accel == HardwareAccel.VAAPI:
+                        retry_cmd = self._prepend_vaapi_env(retry_cmd)
+                    returncode, stderr = await self._run_ffmpeg_with_progress(
+                        retry_cmd,
+                        duration,
+                        progress_callback,
+                        env=ffmpeg_env,
+                    )
+                    if returncode == 0:
+                        if remove_original and output_path.exists():
+                            os.remove(input_path)
+                        return str(output_path)
 
-            log_path = self._write_ffmpeg_log(str(input_path), "transcode", stderr)
-            if log_path:
-                await self._notify_log(log_callback, f"ffmpeg log saved: {log_path}")
-            raise Exception(f"ffmpeg failed: {stderr.decode(errors='ignore')}")
+                log_path = self._write_ffmpeg_log(str(input_path), "transcode", stderr)
+                if log_path:
+                    await self._notify_log(log_callback, f"ffmpeg log saved: {log_path}")
+                self._remove_partial_output(output_path)
+                raise Exception(f"ffmpeg failed: {stderr.decode(errors='ignore')}")
+        except asyncio.CancelledError:
+            # The ffmpeg process was already terminated by _run_ffmpeg_with_progress;
+            # remove whatever partial output it left behind.
+            self._remove_partial_output(output_path)
+            raise
 
         # Remove original if requested
         if remove_original and output_path.exists():
@@ -1033,80 +1064,85 @@ class PostProcessor:
                 return f"...{value[-max_len:]}"
             return value
 
+        async def run_prep_ffmpeg(cmd: List[str]) -> tuple[int, bytes]:
+            """Run a Comskip prep ffmpeg command, killing it if the task is cancelled."""
+            prep_process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            try:
+                _, prep_stderr = await prep_process.communicate()
+            except asyncio.CancelledError:
+                await self._terminate_process(prep_process)
+                raise
+            prep_returncode = prep_process.returncode if prep_process.returncode is not None else -1
+            return prep_returncode, prep_stderr or b""
+
         returncode, combined_output = await run_comskip_once(input_path)
         active_input_file = input_file
         temp_probe_file: Optional[Path] = None
 
-        if returncode != 0 and input_file.suffix.lower() == ".ts" and self.ffmpeg_available:
-            failed_excerpt = excerpt(combined_output, 600)
-            if failed_excerpt:
-                await self._notify_log(log_callback, f"Comskip failed (exit {returncode}): {failed_excerpt}")
-            await self._notify_log(
-                log_callback,
-                "Comskip failed on TS input; retrying on normalized intermediate file."
-            )
-            selected_map_args = await self._select_best_av_map_args(input_path, log_callback)
-            video_map = selected_map_args[1] if len(selected_map_args) >= 2 else "0:v:0"
-            temp_probe_file = input_file.with_stem(f"{input_file.stem}_comskip_input").with_suffix(".mkv")
-
-            prep_cmd = [self._ffmpeg_path, "-i", str(input_file), "-y"]
-            prep_cmd = self._with_error_tolerant_flags(prep_cmd)
-            prep_cmd.extend(selected_map_args)
-            prep_cmd.extend([
-                "-c:v", "copy",
-                "-c:a", "aac",
-                "-af", "aresample=async=1:first_pts=0",
-                "-avoid_negative_ts", "make_zero",
-                str(temp_probe_file)
-            ])
-            await self._notify_log(
-                log_callback,
-                f"Comskip prep cmd: {' '.join(shlex.quote(str(c)) for c in prep_cmd)}"
-            )
-            prep_process = await asyncio.create_subprocess_exec(
-                *prep_cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            _, prep_stderr = await prep_process.communicate()
-
-            if prep_process.returncode != 0:
+        try:
+            if returncode != 0 and input_file.suffix.lower() == ".ts" and self.ffmpeg_available:
+                failed_excerpt = excerpt(combined_output, 600)
+                if failed_excerpt:
+                    await self._notify_log(log_callback, f"Comskip failed (exit {returncode}): {failed_excerpt}")
                 await self._notify_log(
                     log_callback,
-                    "Comskip prep with audio failed; retrying prep with video-only stream."
+                    "Comskip failed on TS input; retrying on normalized intermediate file."
                 )
-                video_only_cmd = [self._ffmpeg_path, "-i", str(input_file), "-y"]
-                video_only_cmd = self._with_error_tolerant_flags(video_only_cmd)
-                video_only_cmd.extend([
-                    "-map", video_map,
-                    "-an",
+                selected_map_args = await self._select_best_av_map_args(input_path, log_callback)
+                video_map = selected_map_args[1] if len(selected_map_args) >= 2 else "0:v:0"
+                temp_probe_file = input_file.with_stem(f"{input_file.stem}_comskip_input").with_suffix(".mkv")
+
+                prep_cmd = [self._ffmpeg_path, "-i", str(input_file), "-y"]
+                prep_cmd = self._with_error_tolerant_flags(prep_cmd)
+                prep_cmd.extend(selected_map_args)
+                prep_cmd.extend([
                     "-c:v", "copy",
+                    "-c:a", "aac",
+                    "-af", "aresample=async=1:first_pts=0",
                     "-avoid_negative_ts", "make_zero",
                     str(temp_probe_file)
                 ])
                 await self._notify_log(
                     log_callback,
-                    f"Comskip prep cmd (video-only): {' '.join(shlex.quote(str(c)) for c in video_only_cmd)}"
+                    f"Comskip prep cmd: {' '.join(shlex.quote(str(c)) for c in prep_cmd)}"
                 )
-                prep_process = await asyncio.create_subprocess_exec(
-                    *video_only_cmd,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
-                _, prep_stderr = await prep_process.communicate()
+                prep_returncode, prep_stderr = await run_prep_ffmpeg(prep_cmd)
 
-            if prep_process.returncode == 0:
-                active_input_file = temp_probe_file
-                returncode, combined_output = await run_comskip_once(
-                    str(temp_probe_file),
-                    progress_prefix="Comskip retry"
-                )
-            else:
-                prep_excerpt = excerpt((prep_stderr or b"").decode(errors="ignore"), 400)
-                if prep_excerpt:
-                    await self._notify_log(log_callback, f"Comskip prep failed: {prep_excerpt}")
+                if prep_returncode != 0:
+                    await self._notify_log(
+                        log_callback,
+                        "Comskip prep with audio failed; retrying prep with video-only stream."
+                    )
+                    video_only_cmd = [self._ffmpeg_path, "-i", str(input_file), "-y"]
+                    video_only_cmd = self._with_error_tolerant_flags(video_only_cmd)
+                    video_only_cmd.extend([
+                        "-map", video_map,
+                        "-an",
+                        "-c:v", "copy",
+                        "-avoid_negative_ts", "make_zero",
+                        str(temp_probe_file)
+                    ])
+                    await self._notify_log(
+                        log_callback,
+                        f"Comskip prep cmd (video-only): {' '.join(shlex.quote(str(c)) for c in video_only_cmd)}"
+                    )
+                    prep_returncode, prep_stderr = await run_prep_ffmpeg(video_only_cmd)
 
-        try:
+                if prep_returncode == 0:
+                    active_input_file = temp_probe_file
+                    returncode, combined_output = await run_comskip_once(
+                        str(temp_probe_file),
+                        progress_prefix="Comskip retry"
+                    )
+                else:
+                    prep_excerpt = excerpt((prep_stderr or b"").decode(errors="ignore"), 400)
+                    if prep_excerpt:
+                        await self._notify_log(log_callback, f"Comskip prep failed: {prep_excerpt}")
+
             if returncode != 0:
                 failed_excerpt = excerpt(combined_output, 600)
                 if failed_excerpt:
@@ -1132,11 +1168,22 @@ class PostProcessor:
                 await self._notify_log(log_callback, "Comskip finished without EDL output.")
             return None
         finally:
-            if temp_probe_file and temp_probe_file.exists():
-                try:
-                    os.remove(temp_probe_file)
-                except Exception:
-                    pass
+            if temp_probe_file:
+                # Remove the intermediate probe file plus any Comskip sidecar
+                # outputs generated for it (.edl excluded: it may be the result
+                # returned to the caller). The "_comskip_input" stem is generated
+                # by this run, so these are never user files.
+                cleanup_candidates = [temp_probe_file]
+                cleanup_candidates.extend(
+                    temp_probe_file.with_suffix(suffix)
+                    for suffix in (".txt", ".log", ".logo", ".csv", ".vdr", ".xml")
+                )
+                for candidate in cleanup_candidates:
+                    if candidate.exists():
+                        try:
+                            os.remove(candidate)
+                        except Exception:
+                            pass
 
     async def remove_commercials(
         self,
@@ -1273,7 +1320,11 @@ class PostProcessor:
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE
                 )
-                _, seg_stderr = await process.communicate()
+                try:
+                    _, seg_stderr = await process.communicate()
+                except asyncio.CancelledError:
+                    await self._terminate_process(process)
+                    raise
                 if process.returncode != 0:
                     log_path = self._write_ffmpeg_log(str(input_path), f"seg{i}", seg_stderr or b"")
                     if log_path:
@@ -1396,8 +1447,10 @@ class PostProcessor:
                     os.remove(temp_path)
             if concat_file.exists():
                 os.remove(concat_file)
-            if same_path_output and not concat_succeeded and work_output_path.exists():
-                work_output_path.unlink()
+            # Remove the partially-written output on any failed or cancelled run.
+            # When concat succeeded, work_output_path is the finished recording.
+            if not concat_succeeded:
+                self._remove_partial_output(work_output_path)
 
         self._cleanup_comskip_outputs(input_path, edl_path)
 
@@ -1527,7 +1580,21 @@ class PostProcessor:
             )
             return 0
 
-        stdout, stderr = await process.communicate()
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(), timeout=self.FFPROBE_TIMEOUT_SECONDS
+            )
+        except asyncio.TimeoutError:
+            await self._terminate_process(process)
+            await self._notify_log(
+                log_callback,
+                f"ffprobe timed out after {self.FFPROBE_TIMEOUT_SECONDS:.0f}s; "
+                "duration unavailable."
+            )
+            return 0
+        except asyncio.CancelledError:
+            await self._terminate_process(process)
+            raise
         if process.returncode != 0:
             stderr_text = stderr.decode(errors="ignore").strip()
             if stderr_text:
