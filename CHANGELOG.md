@@ -6,6 +6,30 @@ All notable changes to Mustarrd are listed here. Most recent changes are at the 
 
 ## 2026-06-09
 
+### Improved: Security settings now requires you to confirm your new password before saving
+
+**What you would notice:** Settings > Security used to have two password fields: Current Admin Password and New Admin Password. If you mistyped the new password there was no warning, and you could lock yourself out of Mustarrd with a password you never intended to set. Now there is a third field, Confirm New Admin Password. If the two new password fields do not match, a red "Passwords do not match" message appears as you type so you can correct the typo before saving.
+
+**What changed:** A confirm password field was added to the Security section of Settings. The section description was also updated to clarify that the password controls access to the whole app, not just Settings. Frontend only, no backend changes.
+
+---
+
+### Improved: Variable chips on the File Naming settings page now click to insert
+
+**What you would notice:** On Settings > File Naming, the small chips showing available variables (like `{show}`, `{season}`, `{date}`) used to be display-only. You could hover over them to read a tooltip, but clicking did nothing. Now clicking any chip inserts it directly into the template field at your cursor position, so you can build a template without typing the variable names by hand. A "Variables:" label has also been added so the chips are easier to find at a glance.
+
+**What changed:** The variable chips in the File Naming section of Settings now respond to clicks. Focus and cursor position are restored after each insertion so you can click multiple chips in a row without extra steps. Frontend only, no backend changes.
+
+---
+
+### Fixed: Program guide now loads correctly for providers that return guide data in a simpler format
+
+**What you would notice:** Some IPTV providers send their program guide (EPG) data as a plain list instead of the standard wrapped format. When that happened, Mustarrd would silently show no programs in Browse EPG for those channels. There was no error message, just an empty guide. After this fix, Mustarrd accepts both formats and the guide loads normally.
+
+**What changed:** The guide-fetching code was updated to recognize and handle the bare-list response format in addition to the standard wrapped format. This is the same fix that was applied to other parts of the guide in a prior update. Backend only, no user settings or configuration were changed.
+
+---
+
 ### Fixed: Your recording is kept safe when your completed folder runs out of space during the file move
 
 **What you would notice:** On Unraid or NAS setups where your downloads folder and your completed folder are on separate drives or shares, a full completed-folder drive could cause Mustarrd to delete the original recording after it failed to copy it across. You would end up with no file and no explanation. After this fix, if the completed folder is full, Mustarrd leaves your recording in the downloads folder untouched and marks the download Failed with the message "Not enough space in the completed recordings folder. Your recording is safe in the downloads folder."
