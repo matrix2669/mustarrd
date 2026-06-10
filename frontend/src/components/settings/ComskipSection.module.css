@@ -3,6 +3,18 @@
   pointer-events: none;
 }
 
+.monoInput {
+  font-family: var(--mantine-font-family-monospace);
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 820px) {
+  .monoInput {
+    font-size: 14px;
+  }
+}
+
 /* Illustrative "what a recording looks like" timeline */
 .timeline {
   display: flex;

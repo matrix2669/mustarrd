@@ -106,6 +106,19 @@
   cursor: pointer;
 }
 
+/* Mono inputs (paths, templates) */
+.monoInput {
+  font-family: var(--mantine-font-family-monospace);
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 820px) {
+  .monoInput {
+    font-size: 14px;
+  }
+}
+
 /* File-naming live preview */
 .templatePreview {
   background: var(--mantine-color-body);
@@ -178,5 +191,12 @@
 
   .grid2 {
     gap: 12px;
+  }
+
+  /* Fat-finger sizing: text-like inputs grow to 44px with 16px font
+     (prevents iOS zoom; the app already forces 16px below 768px). */
+  .page :global(.mantine-Input-input) {
+    min-height: 44px;
+    font-size: 16px;
   }
 }

@@ -235,7 +235,7 @@ export default function ComskipSection({ formData, onChange, onResetDefaults, on
             disabled={!enabled}
             value={formData?.comskip_custom_ini_path || ''}
             onChange={(e) => onChange('comskip_custom_ini_path', e.target.value || null)}
-            styles={{ input: { fontFamily: 'var(--mantine-font-family-monospace)', fontSize: 12.5 } }}
+            classNames={{ input: classes.monoInput }}
           />
           <Group>
             <Button variant="default" size="xs" disabled={!enabled} onClick={onResetDefaults}>

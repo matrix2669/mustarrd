@@ -165,7 +165,7 @@ function TemplateBlock({ label, template, variables, sample, ext, onChange }) {
         aria-label={`${label} template`}
         value={template}
         onChange={(e) => onChange(e.target.value)}
-        styles={{ input: { fontFamily: 'var(--mantine-font-family-monospace)', fontSize: 12.5 } }}
+        classNames={{ input: classes.monoInput }}
       />
       <Group gap={6} wrap="wrap" align="center">
         <Text size="xs" c="dimmed">Insert:</Text>
@@ -832,7 +832,7 @@ export default function Settings() {
           value={formData.download_folder}
           onChange={(e) => handleChange('download_folder', e.target.value)}
           leftSection={<IconFolder size={16} />}
-          styles={{ input: { fontFamily: 'var(--mantine-font-family-monospace)', fontSize: 12.5, textOverflow: 'ellipsis' } }}
+          classNames={{ input: classes.monoInput }}
           title={formData.download_folder}
         />
         <TextInput
@@ -846,7 +846,7 @@ export default function Settings() {
           value={formData.completed_folder}
           onChange={(e) => handleChange('completed_folder', e.target.value)}
           leftSection={<IconFolder size={16} />}
-          styles={{ input: { fontFamily: 'var(--mantine-font-family-monospace)', fontSize: 12.5, textOverflow: 'ellipsis' } }}
+          classNames={{ input: classes.monoInput }}
           title={formData.completed_folder}
         />
         {diskSpace?.available && diskSpace.disk_free_gb != null && (
@@ -1090,7 +1090,7 @@ export default function Settings() {
               placeholder="/usr/local/bin/comskip"
               value={formData.comskip_path || ''}
               onChange={(e) => handleChange('comskip_path', e.target.value || null)}
-              styles={{ input: { fontFamily: 'var(--mantine-font-family-monospace)', fontSize: 12.5 } }}
+              classNames={{ input: classes.monoInput }}
             />
           )}
         </SubGroup>
@@ -1658,7 +1658,7 @@ export default function Settings() {
   )
 
   return (
-    <Stack>
+    <Stack className={classes.page}>
       <Modal
         opened={leaveModalOpen}
         onClose={handleStay}
