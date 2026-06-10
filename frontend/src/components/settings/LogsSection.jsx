@@ -1,38 +1,33 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Title,
-  Card,
   Stack,
   Group,
   Text,
-  Badge,
   Button,
-  ScrollArea,
   SegmentedControl,
-  TextInput,
-  Switch,
   Alert,
   Loader,
 } from '@mantine/core'
 import { useQuery } from '@tanstack/react-query'
-import { IconAlertCircle, IconSearch, IconRefresh, IconTrash } from '@tabler/icons-react'
+import { IconAlertCircle, IconDownload } from '@tabler/icons-react'
 import dayjs from 'dayjs'
 
 import { logsApi, createLogsWebSocket } from '../../api'
+import classes from './LogsSection.module.css'
 
-
-function sourceColor(source) {
-  if (source === 'epg') return 'blue'
-  if (source === 'download') return 'teal'
-  if (source === 'server') return 'grape'
-  return 'gray'
+const LEVEL_LABELS = {
+  info: 'INFO',
+  warning: 'WARN',
+  error: 'ERROR',
+  debug: 'DEBUG',
 }
 
-function levelColor(level) {
-  if (level === 'error') return 'red'
-  if (level === 'warning') return 'yellow'
-  if (level === 'debug') return 'grape'
-  return 'gray'
+const LEVEL_CLASSES = {
+  info: classes.levelInfo,
+  warning: classes.levelWarn,
+  error: classes.levelError,
+  debug: classes.levelDebug,
 }
 
 function mergeLogs(existing, incoming) {
@@ -48,32 +43,28 @@ function mergeLogs(existing, incoming) {
     .slice(-3000)
 }
 
-function entryMatchesView(entry, view) {
+function entryMatchesFilter(entry, filter) {
   const source = String(entry?.source || '').toLowerCase()
   const level = String(entry?.level || 'info').toLowerCase()
-
-  if (view === 'detailed') {
-    return ['debug', 'info', 'warning', 'error'].includes(level)
-  }
-  if (view === 'minimal') {
-    return ['warning', 'error'].includes(level)
-  }
+  if (filter === 'warnings') return level === 'warning'
+  if (filter === 'errors') return level === 'error'
+  // "All" keeps the existing basic view: app activity without raw server logs.
   return source !== 'server' && ['info', 'warning', 'error'].includes(level)
 }
 
 export default function LogsSection({ showTitle = true }) {
   const [entries, setEntries] = useState([])
-  const [viewPreset, setViewPreset] = useState('basic')
-  const [sourceFilter, setSourceFilter] = useState('all')
-  const [search, setSearch] = useState('')
-  const [autoScroll, setAutoScroll] = useState(true)
+  const [filter, setFilter] = useState('all')
   const viewportRef = useRef(null)
+
+  // Warnings/Errors map onto the backend's "minimal" view (warning+error);
+  // All keeps "basic". Exact level filtering happens client-side below.
+  const viewPreset = filter === 'all' ? 'basic' : 'minimal'
 
   const {
     data: recentLogs,
     isLoading,
     error,
-    refetch,
   } = useQuery({
     queryKey: ['logs', 'recent', viewPreset],
     queryFn: () => logsApi.list(600, null, null, viewPreset),
@@ -87,32 +78,38 @@ export default function LogsSection({ showTitle = true }) {
 
   useEffect(() => {
     const ws = createLogsWebSocket((data) => {
-      if (data.type === 'backend_log' && data.entry && entryMatchesView(data.entry, viewPreset)) {
+      if (data.type === 'backend_log' && data.entry) {
         setEntries((prev) => mergeLogs(prev, [data.entry]))
       }
     })
     return () => ws.close()
-  }, [viewPreset])
+  }, [])
+
+  const filteredEntries = useMemo(
+    () => entries.filter((entry) => entryMatchesFilter(entry, filter)),
+    [entries, filter]
+  )
 
   useEffect(() => {
-    if (!autoScroll || !viewportRef.current) return
+    if (!viewportRef.current) return
     viewportRef.current.scrollTop = viewportRef.current.scrollHeight
-  }, [entries, autoScroll])
+  }, [filteredEntries])
 
-  const filteredEntries = useMemo(() => {
-    const needle = search.trim().toLowerCase()
-    return entries.filter((entry) => {
-      if (!entryMatchesView(entry, viewPreset)) {
-        return false
-      }
-      if (sourceFilter !== 'all' && entry.source !== sourceFilter) {
-        return false
-      }
-      if (!needle) return true
-      const message = `${entry.message || ''} ${entry.account_name || ''}`.toLowerCase()
-      return message.includes(needle)
+  const handleDownload = () => {
+    const lines = filteredEntries.map((entry) => {
+      const ts = entry.timestamp ? dayjs(entry.timestamp).format('YYYY-MM-DD HH:mm:ss') : ''
+      const level = LEVEL_LABELS[String(entry.level || 'info').toLowerCase()] || 'INFO'
+      const source = entry.source ? `[${entry.source}]` : ''
+      return [ts, level, source, entry.message || ''].filter(Boolean).join(' ')
     })
-  }, [entries, sourceFilter, search, viewPreset])
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `mustarrd-logs-${dayjs().format('YYYYMMDD-HHmmss')}.txt`
+    link.click()
+    URL.revokeObjectURL(url)
+  }
 
   if (isLoading) {
     return (
@@ -131,96 +128,62 @@ export default function LogsSection({ showTitle = true }) {
   }
 
   return (
-    <Stack>
-      <Group justify="space-between">
-        {showTitle ? <Title order={2}>Backend Logs</Title> : <Title order={4}>Logs</Title>}
-        <Group gap="xs">
-          <Switch
-            label="Auto-scroll"
-            checked={autoScroll}
-            onChange={(event) => setAutoScroll(event.currentTarget.checked)}
+    <Stack gap="lg">
+      <div className={classes.header}>
+        <Stack gap={2}>
+          {showTitle ? (
+            <Title order={2}>Logs</Title>
+          ) : (
+            <Text fw={700} size="lg">Logs</Text>
+          )}
+          <Text size="sm" c="dimmed">Recent application activity</Text>
+        </Stack>
+        <Group gap="xs" ml="auto" wrap="nowrap">
+          <SegmentedControl
+            value={filter}
+            onChange={setFilter}
+            data={[
+              { label: 'All', value: 'all' },
+              { label: 'Warnings', value: 'warnings' },
+              { label: 'Errors', value: 'errors' },
+            ]}
           />
-          <Button variant="light" leftSection={<IconRefresh size={14} />} onClick={() => refetch()}>
-            Refresh
-          </Button>
           <Button
-            variant="subtle"
-            color="red"
-            leftSection={<IconTrash size={14} />}
-            onClick={() => setEntries([])}
+            size="xs"
+            variant="default"
+            leftSection={<IconDownload size={14} />}
+            onClick={handleDownload}
+            disabled={filteredEntries.length === 0}
           >
-            Clear View
+            Download
           </Button>
         </Group>
-      </Group>
+      </div>
 
-      <Group gap="sm">
-        <SegmentedControl
-          value={viewPreset}
-          onChange={setViewPreset}
-          data={[
-            { label: 'Detailed', value: 'detailed' },
-            { label: 'Basic', value: 'basic' },
-            { label: 'Minimal', value: 'minimal' },
-          ]}
-        />
-        <SegmentedControl
-          value={sourceFilter}
-          onChange={setSourceFilter}
-          data={[
-            { label: 'All', value: 'all' },
-            { label: 'EPG', value: 'epg' },
-            { label: 'Downloads', value: 'download' },
-            { label: 'Server', value: 'server' },
-          ]}
-        />
-        <TextInput
-          placeholder="Search logs..."
-          leftSection={<IconSearch size={14} />}
-          value={search}
-          onChange={(event) => setSearch(event.currentTarget.value)}
-          style={{ flex: 1, minWidth: 220 }}
-        />
-      </Group>
-
-      <Card shadow="sm" padding="md" radius="md" withBorder style={{ height: 'calc(100vh - 280px)' }}>
-        <ScrollArea style={{ height: '100%' }} viewportRef={viewportRef}>
-          <Stack gap={6}>
-            {filteredEntries.length === 0 ? (
-              <Text c="dimmed" ta="center" py="xl">
-                No log entries match the current filters.
-              </Text>
-            ) : (
-              filteredEntries.map((entry) => (
-                <Group key={entry.id ?? `${entry.timestamp}-${entry.source}-${entry.message}`} gap="xs" align="flex-start" wrap="nowrap">
-                  <Text size="xs" c="dimmed" ff="monospace" style={{ width: 88, flexShrink: 0 }}>
-                    {dayjs(entry.timestamp).format('HH:mm:ss')}
-                  </Text>
-                  <Badge size="xs" variant="light" color={sourceColor(entry.source)} style={{ flexShrink: 0 }}>
-                    {(entry.source || 'system').toUpperCase()}
-                  </Badge>
-                  <Badge size="xs" variant="outline" color={levelColor(entry.level)} style={{ flexShrink: 0 }}>
-                    {(entry.level || 'info').toUpperCase()}
-                  </Badge>
-                  {entry.download_id && (
-                    <Badge size="xs" variant="outline" color="gray" style={{ flexShrink: 0 }}>
-                      DL #{entry.download_id}
-                    </Badge>
-                  )}
-                  {entry.account_name && viewPreset === 'detailed' && (
-                    <Badge size="xs" variant="outline" color="gray" style={{ flexShrink: 0 }}>
-                      {entry.account_name}
-                    </Badge>
-                  )}
-                  <Text size="xs" ff="monospace" style={{ wordBreak: 'break-word' }}>
-                    {entry.message}
-                  </Text>
-                </Group>
-              ))
-            )}
-          </Stack>
-        </ScrollArea>
-      </Card>
+      <div className={classes.viewer} ref={viewportRef}>
+        {filteredEntries.length === 0 ? (
+          <Text c="dimmed" ta="center" py="xl" size="sm">
+            No log entries match the current filter.
+          </Text>
+        ) : (
+          filteredEntries.map((entry) => {
+            const level = String(entry.level || 'info').toLowerCase()
+            return (
+              <div key={entry.id ?? `${entry.timestamp}-${entry.source}-${entry.message}`} className={classes.line}>
+                <span className={classes.ts}>{dayjs(entry.timestamp).format('HH:mm:ss')}</span>
+                <span className={`${classes.level} ${LEVEL_CLASSES[level] || classes.levelInfo}`}>
+                  {LEVEL_LABELS[level] || 'INFO'}
+                </span>
+                <span className={classes.message}>
+                  {entry.account_name ? `${entry.account_name}: ` : ''}
+                  {entry.download_id ? `[DL #${entry.download_id}] ` : ''}
+                  {entry.message}
+                </span>
+              </div>
+            )
+          })
+        )}
+      </div>
     </Stack>
   )
 }

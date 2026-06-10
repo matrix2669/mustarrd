@@ -1,0 +1,61 @@
+.viewer {
+  font-family: var(--mantine-font-family-monospace);
+  font-size: 11.5px;
+  line-height: 1.7;
+  background: var(--mantine-color-dark-8);
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  max-height: 380px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+}
+
+:global([data-mantine-color-scheme='light']) .viewer {
+  background: var(--mantine-color-gray-0);
+}
+
+.line {
+  display: flex;
+  gap: 10px;
+}
+
+.ts {
+  color: var(--mantine-color-dimmed);
+  flex-shrink: 0;
+}
+
+.level {
+  width: 52px;
+  flex-shrink: 0;
+  font-weight: 500;
+}
+
+.levelInfo {
+  color: var(--mantine-color-blue-4);
+}
+
+.levelWarn {
+  color: var(--mantine-color-yellow-7);
+}
+
+.levelError {
+  color: var(--mantine-color-red-5);
+}
+
+.levelDebug {
+  color: var(--mantine-color-grape-4);
+}
+
+.message {
+  word-break: break-word;
+  white-space: pre-wrap;
+  min-width: 0;
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+}
