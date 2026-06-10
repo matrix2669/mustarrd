@@ -141,7 +141,7 @@ function AccountForm({ account, onSubmit, onCancel, isLoading }) {
   )
 }
 
-function AccountCard({ account, isDefault, onSetDefault, onEdit, onDelete, onTest, defaultPending }) {
+function AccountCard({ account, isDefault, onSetDefault, onEdit, onDelete, onTest, defaultPending, testPending }) {
   const isExpired = account.expiration_date && dayjs(account.expiration_date).isBefore(dayjs())
   const daysUntilExpiry = account.expiration_date
     ? dayjs(account.expiration_date).diff(dayjs(), 'day')
@@ -149,10 +149,10 @@ function AccountCard({ account, isDefault, onSetDefault, onEdit, onDelete, onTes
   const isExpiringSoon = Boolean(account.expiration_date) && !isExpired && daysUntilExpiry <= 7
 
   return (
-    <Card shadow="sm" padding="lg" radius="md" withBorder>
-      <Group justify="space-between" mb="xs">
-        <Text fw={500}>{account.name}</Text>
-        <Group gap="xs">
+    <Card shadow="sm" padding="md" radius="md" withBorder>
+      <Group justify="space-between" wrap="nowrap" mb={2}>
+        <Group gap={8} wrap="nowrap" style={{ minWidth: 0 }}>
+          <Text fw={600} size="sm" truncate>{account.name}</Text>
           {isDefault && (
             <Badge color="yellow" variant="light">
               Default
@@ -163,43 +163,43 @@ function AccountCard({ account, isDefault, onSetDefault, onEdit, onDelete, onTes
               Disabled
             </Badge>
           )}
-          <Menu shadow="md" width={150}>
-            <Menu.Target>
-              <ActionIcon variant="subtle">
-                <IconDotsVertical size={16} />
-              </ActionIcon>
-            </Menu.Target>
-            <Menu.Dropdown>
-              <Menu.Item
-                leftSection={<IconStar size={14} />}
-                onClick={() => onSetDefault(account)}
-                disabled={isDefault || defaultPending}
-              >
-                {isDefault ? 'Default Account' : 'Set as Default'}
-              </Menu.Item>
-              <Menu.Item leftSection={<IconPlugConnected size={14} />} onClick={() => onTest(account)}>
-                Test Connection
-              </Menu.Item>
-              <Menu.Item leftSection={<IconEdit size={14} />} onClick={() => onEdit(account)}>
-                Edit
-              </Menu.Item>
-              <Menu.Divider />
-              <Menu.Item color="red" leftSection={<IconTrash size={14} />} onClick={() => onDelete(account)}>
-                Delete
-              </Menu.Item>
-            </Menu.Dropdown>
-          </Menu>
         </Group>
+        <Menu shadow="md" width={150}>
+          <Menu.Target>
+            <ActionIcon variant="subtle" aria-label="Account actions">
+              <IconDotsVertical size={16} />
+            </ActionIcon>
+          </Menu.Target>
+          <Menu.Dropdown>
+            <Menu.Item
+              leftSection={<IconStar size={14} />}
+              onClick={() => onSetDefault(account)}
+              disabled={isDefault || defaultPending}
+            >
+              {isDefault ? 'Default Account' : 'Set as Default'}
+            </Menu.Item>
+            <Menu.Item leftSection={<IconPlugConnected size={14} />} onClick={() => onTest(account)}>
+              Test Connection
+            </Menu.Item>
+            <Menu.Item leftSection={<IconEdit size={14} />} onClick={() => onEdit(account)}>
+              Edit
+            </Menu.Item>
+            <Menu.Divider />
+            <Menu.Item color="red" leftSection={<IconTrash size={14} />} onClick={() => onDelete(account)}>
+              Delete
+            </Menu.Item>
+          </Menu.Dropdown>
+        </Menu>
       </Group>
 
-      <Text size="sm" c="dimmed" mb="xs">
+      <Text size="xs" c="dimmed" ff="monospace" truncate title={account.server_url}>
         {account.server_url}
       </Text>
-      <Text size="sm" c="dimmed">
+      <Text size="xs" c="dimmed" mt={2}>
         User: {account.username}
       </Text>
 
-      <Group mt="md" gap="xs">
+      <Group mt="md" gap={6}>
         {account.catchup_channel_count != null && (
           <Badge variant="outline" size="sm" color="blue">
             {getCatchupLabel(account)}
@@ -238,8 +238,8 @@ function AccountCard({ account, isDefault, onSetDefault, onEdit, onDelete, onTes
         )}
       </Group>
 
-      <Stack mt="xs" gap={2}>
-        <Group gap={6} align="center">
+      <Stack mt="sm" gap={2}>
+        <Group gap={7} align="center" wrap="nowrap">
           <Box
             style={{
               width: 8,
@@ -256,6 +256,8 @@ function AccountCard({ account, isDefault, onSetDefault, onEdit, onDelete, onTes
           />
           <Text
             size="xs"
+            truncate
+            style={{ minWidth: 0 }}
             c={
               account.last_connection_ok === true
                 ? 'green'
@@ -275,6 +277,27 @@ function AccountCard({ account, isDefault, onSetDefault, onEdit, onDelete, onTes
               ? ` · ${timeAgo(account.last_connection_checked_at)}`
               : ''}
           </Text>
+          <Group gap={4} wrap="nowrap" ml="auto">
+            <Button
+              size="compact-xs"
+              variant="subtle"
+              color="gray"
+              leftSection={<IconPlugConnected size={13} />}
+              onClick={() => onTest(account)}
+              loading={testPending}
+            >
+              Test
+            </Button>
+            <Button
+              size="compact-xs"
+              variant="subtle"
+              color="gray"
+              leftSection={<IconEdit size={13} />}
+              onClick={() => onEdit(account)}
+            >
+              Edit
+            </Button>
+          </Group>
         </Group>
         {account.last_connection_ok === false && (
           <Text size="xs" c="dimmed" ml={14}>
@@ -282,18 +305,6 @@ function AccountCard({ account, isDefault, onSetDefault, onEdit, onDelete, onTes
               ? 'Subscription has expired. Renew with your IPTV provider to continue.'
               : account.last_connection_error || 'Cannot reach provider.'}
           </Text>
-        )}
-        {account.last_connection_ok === false && (
-          <Group gap="xs" mt={4}>
-            <Button
-              size="xs"
-              variant="light"
-              leftSection={<IconEdit size={14} />}
-              onClick={() => onEdit(account)}
-            >
-              Edit Account
-            </Button>
-          </Group>
         )}
       </Stack>
     </Card>
@@ -520,23 +531,28 @@ export default function AccountsSection({ showTitle = true }) {
         gap="xs"
       >
         <Stack gap={2}>
-          {showTitle ? <Title order={2}>Accounts</Title> : <Title order={4}>Accounts</Title>}
-          <Text size="sm" c="dimmed">Connect your IPTV providers. Mustarrd reads your channel list and program guide from these accounts.</Text>
+          {showTitle ? (
+            <Title order={2}>Provider Accounts</Title>
+          ) : (
+            <Text fw={700} size="lg">Provider Accounts</Text>
+          )}
+          <Text size="sm" c="dimmed">Mustarrd reads your channel list and program guide from these IPTV accounts.</Text>
         </Stack>
         {accounts?.length > 0 && (
           <Group gap="xs" style={{ flexShrink: 0 }}>
             <Button
+              size="xs"
               variant="light"
               color="orange"
-              leftSection={<IconRefresh size={16} />}
+              leftSection={<IconRefresh size={14} />}
               onClick={handleForceRefresh}
               loading={forceRefreshMutation.isPending}
               disabled={Boolean(epgStatus?.running)}
             >
               Force EPG Refresh
             </Button>
-            <Button leftSection={<IconPlus size={16} />} onClick={handleAddClick}>
-              Add Another Account
+            <Button size="xs" leftSection={<IconPlus size={14} />} onClick={handleAddClick}>
+              Add Account
             </Button>
           </Group>
         )}
@@ -553,7 +569,7 @@ export default function AccountsSection({ showTitle = true }) {
           </Stack>
         </Card>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))', gap: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(330px, 100%), 1fr))', gap: 14 }}>
           {accounts?.map((account) => (
             <AccountCard
               key={account.id}
@@ -564,6 +580,7 @@ export default function AccountsSection({ showTitle = true }) {
               onDelete={handleDelete}
               onTest={handleTest}
               defaultPending={setDefaultAccountMutation.isPending}
+              testPending={testMutation.isPending && testMutation.variables === account.id}
             />
           ))}
         </div>
