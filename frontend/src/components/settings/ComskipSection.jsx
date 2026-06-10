@@ -1,16 +1,18 @@
 import {
   Alert,
+  Anchor,
   Button,
   Checkbox,
-  Divider,
   Group,
-  NumberInput,
   Stack,
   Text,
   TextInput,
-  Tooltip,
 } from '@mantine/core'
 import { IconInfoCircle } from '@tabler/icons-react'
+
+import NumberStepper from './NumberStepper'
+import { LabelWithTooltip, SectionHeader, SettingRow, StepperField, SubGroup } from './SettingsPrimitives'
+import classes from './ComskipSection.module.css'
 
 export const COMSKIP_DEFAULTS = {
   comskip_detect_method: 107,
@@ -48,18 +50,37 @@ export function getComskipErrors(formData) {
   return errors
 }
 
-function LabelWithTooltip({ label, tooltip }) {
+function RecordingTimeline() {
   return (
-    <Group component="span" gap={4} wrap="nowrap" display="inline-flex">
-      <span>{label}</span>
-      <Tooltip label={tooltip} multiline w={300} withArrow events={{ hover: true, focus: true, touch: true }}>
-        <IconInfoCircle size={14} style={{ opacity: 0.6, flexShrink: 0 }} aria-label={`About ${label}`} />
-      </Tooltip>
-    </Group>
+    <div>
+      <div className={classes.timeline} aria-hidden="true">
+        <div className={classes.segKeep} style={{ width: '4%' }} />
+        <div className={classes.segShow} />
+        <div className={classes.segAd} style={{ width: '12%' }} />
+        <div className={classes.segShow} />
+        <div className={classes.segAd} style={{ width: '9%' }} />
+        <div className={classes.segShow} />
+        <div className={classes.segKeep} style={{ width: '7%' }} />
+      </div>
+      <div className={classes.legend}>
+        <span className={classes.legendKey}>
+          <span className={classes.swatch} style={{ background: 'rgba(64,192,87,0.45)' }} />
+          Kept show content
+        </span>
+        <span className={classes.legendKey}>
+          <span className={classes.swatch} style={{ background: 'rgba(250,82,82,0.5)' }} />
+          Detected commercials (cut)
+        </span>
+        <span className={classes.legendKey}>
+          <span className={classes.swatch} style={{ background: 'rgba(245,159,0,0.55)' }} />
+          Protected (never cut)
+        </span>
+      </div>
+    </div>
   )
 }
 
-export default function ComskipSection({ formData, onChange, onResetDefaults }) {
+export default function ComskipSection({ formData, onChange, onResetDefaults, onNavigateToProcessing }) {
   const enabled = Boolean(formData?.comskip_enabled)
   const errors = getComskipErrors(formData)
 
@@ -76,146 +97,152 @@ export default function ComskipSection({ formData, onChange, onResetDefaults }) 
     onChange('comskip_detect_method', known + unknown)
   }
 
-  const numberField = (field, label, tooltip, props = {}) => (
-    <NumberInput
-      label={<LabelWithTooltip label={label} tooltip={tooltip} />}
-      min={0}
+  const stepperField = (field, label, tooltip, props = {}) => (
+    <StepperField
+      label={label}
+      tooltip={tooltip}
       disabled={!enabled}
-      allowDecimal={false}
       value={formData?.[field] ?? COMSKIP_DEFAULTS[field]}
       onChange={(val) => onChange(field, typeof val === 'number' ? val : COMSKIP_DEFAULTS[field])}
       {...props}
     />
   )
 
+  const dimClass = enabled ? undefined : classes.dimmed
+
   return (
-    <Stack gap="lg">
-      <Stack gap={2}>
-        <Text fw={600} size="lg">Comskip</Text>
-        <Text size="sm" c="dimmed">Tune how Comskip detects and removes commercials</Text>
-      </Stack>
+    <Stack gap="xl">
+      <SectionHeader title="Commercial Skip" description="Tune how Comskip detects and removes ad breaks" />
 
       {!enabled && (
         <Alert color="blue" variant="light" icon={<IconInfoCircle size={16} />}>
           <Text size="sm">
-            Comskip is not enabled. Turn it on in Post-Processing to configure these settings.
+            Comskip is not enabled. Turn it on in{' '}
+            <Anchor onClick={onNavigateToProcessing}>Post-Processing</Anchor>{' '}
+            to configure these settings.
           </Text>
         </Alert>
       )}
 
-      <Stack gap="md">
-        <Text size="xs" fw={600} c="dimmed" tt="uppercase" style={{ letterSpacing: '0.06em' }}>Commercial Detection</Text>
-        <Checkbox.Group
-          label={
-            <LabelWithTooltip
-              label="Detection methods"
-              tooltip="Which signals Comskip looks for when finding commercial boundaries. The default enables black frames, logo presence, resolution change, aspect ratio changes, and silence detection. Adding more signals rarely helps and slows processing."
-            />
-          }
-          value={checkedBits}
-          onChange={handleDetectChange}
-        >
-          <Stack gap="xs" mt="xs">
-            {DETECT_METHOD_OPTIONS.map((option) => (
-              <Checkbox
-                key={option.bit}
-                value={String(option.bit)}
-                label={option.label}
+      <Stack gap="xl" className={dimClass}>
+        <SubGroup label="What a recording looks like">
+          <RecordingTimeline />
+        </SubGroup>
+
+        <SubGroup label="Detection signals">
+          <Text size="xs" c="dimmed" maw="60ch">
+            Which signals Comskip looks for when finding commercial boundaries. The defaults work for most
+            providers — adding more signals rarely helps and slows processing.
+          </Text>
+          <Checkbox.Group value={checkedBits} onChange={handleDetectChange}>
+            <div className={classes.checkGrid}>
+              {DETECT_METHOD_OPTIONS.map((option) => (
+                <Checkbox
+                  key={option.bit}
+                  value={String(option.bit)}
+                  label={option.label}
+                  disabled={!enabled}
+                />
+              ))}
+            </div>
+          </Checkbox.Group>
+        </SubGroup>
+
+        <SubGroup label="Break timing">
+          <div className={classes.grid2}>
+            {stepperField(
+              'comskip_min_commercialbreak',
+              'Min commercial break',
+              'Shortest stretch Comskip will call a commercial break. Lower values may cause false positives on short scene transitions. Recommended: 25.',
+              { unit: 'sec', max: 3600, error: errors.commercialbreak },
+            )}
+            {stepperField(
+              'comskip_max_commercialbreak',
+              'Max commercial break',
+              'Longest stretch of continuous commercials Comskip will mark as a single break. Increase if your provider runs long ad blocks. Recommended: 600.',
+              { unit: 'sec', max: 3600 },
+            )}
+            {stepperField(
+              'comskip_min_commercial_size',
+              'Min single commercial',
+              'Shortest a single commercial can be. Raise this to avoid false cuts on brief logo bumpers. Recommended: 4.',
+              { unit: 'sec', max: 600, error: errors.commercial_size },
+            )}
+            {stepperField(
+              'comskip_max_commercial_size',
+              'Max single commercial',
+              'Longest a single commercial can be. Spots longer than this are treated as show content. Recommended: 125.',
+              { unit: 'sec', max: 600 },
+            )}
+          </div>
+        </SubGroup>
+
+        <SubGroup label="Show protection">
+          <div className={classes.grid2}>
+            {stepperField(
+              'comskip_always_keep_first_seconds',
+              'Always keep first',
+              'Never mark this many seconds at the start of the recording as commercial, regardless of what Comskip detects. Useful for providers that play a logo intro before the show.',
+              { unit: 'sec', max: 3600 },
+            )}
+            {stepperField(
+              'comskip_always_keep_last_seconds',
+              'Always keep last',
+              'Never mark this many seconds at the end of the recording as commercial. Prevents accidental cutting of end credits or a post-credits scene.',
+              { unit: 'sec', max: 3600 },
+            )}
+            {stepperField(
+              'comskip_remove_before',
+              'Trim before each break',
+              'Extra seconds of show content to cut immediately before each detected commercial block. Use with caution: removes show content.',
+              { unit: 'sec', max: 120 },
+            )}
+            {stepperField(
+              'comskip_remove_after',
+              'Trim after each break',
+              'Extra seconds of show content to cut immediately after each detected commercial block.',
+              { unit: 'sec', max: 120 },
+            )}
+          </div>
+        </SubGroup>
+
+        <SubGroup label="Advanced">
+          <Stack gap={0}>
+            <SettingRow
+              label="Processing threads"
+              description="More threads finish faster but load the CPU during recording"
+              tooltip="Number of CPU threads Comskip uses. More threads = faster processing but more CPU load during recording. Maximum: 16."
+            >
+              <NumberStepper
+                aria-label="Processing threads"
+                min={1}
+                max={16}
                 disabled={!enabled}
+                value={formData?.comskip_thread_count ?? COMSKIP_DEFAULTS.comskip_thread_count}
+                onChange={(val) => onChange('comskip_thread_count', typeof val === 'number' ? val : COMSKIP_DEFAULTS.comskip_thread_count)}
               />
-            ))}
+            </SettingRow>
           </Stack>
-        </Checkbox.Group>
-      </Stack>
-
-      <Divider variant="dashed" />
-
-      <Stack gap="md">
-        <Text size="xs" fw={600} c="dimmed" tt="uppercase" style={{ letterSpacing: '0.06em' }}>Commercial Timing</Text>
-        <Group grow align="flex-start">
-          {numberField(
-            'comskip_min_commercialbreak',
-            'Min commercial break (seconds)',
-            'Shortest stretch Comskip will call a commercial break. Lower values may cause false positives on short scene transitions. Recommended: 25.',
-            { error: errors.commercialbreak },
-          )}
-          {numberField(
-            'comskip_max_commercialbreak',
-            'Max commercial break (seconds)',
-            'Longest stretch of continuous commercials Comskip will mark as a single break. Increase if your provider runs long ad blocks. Recommended: 600.',
-          )}
-        </Group>
-        <Group grow align="flex-start">
-          {numberField(
-            'comskip_min_commercial_size',
-            'Min single commercial (seconds)',
-            'Shortest a single commercial can be. Raise this to avoid false cuts on brief logo bumpers. Recommended: 4.',
-            { error: errors.commercial_size },
-          )}
-          {numberField(
-            'comskip_max_commercial_size',
-            'Max single commercial (seconds)',
-            'Longest a single commercial can be. Spots longer than this are treated as show content. Recommended: 125.',
-          )}
-        </Group>
-      </Stack>
-
-      <Divider variant="dashed" />
-
-      <Stack gap="md">
-        <Text size="xs" fw={600} c="dimmed" tt="uppercase" style={{ letterSpacing: '0.06em' }}>Show Protection</Text>
-        <Group grow align="flex-start">
-          {numberField(
-            'comskip_always_keep_first_seconds',
-            'Always keep first N seconds',
-            'Never mark this many seconds at the start of the recording as commercial, regardless of what Comskip detects. Useful for providers that play a logo intro before the show.',
-          )}
-          {numberField(
-            'comskip_always_keep_last_seconds',
-            'Always keep last N seconds',
-            'Never mark this many seconds at the end of the recording as commercial. Prevents accidental cutting of end credits or a post-credits scene.',
-          )}
-        </Group>
-        <Group grow align="flex-start">
-          {numberField(
-            'comskip_remove_before',
-            'Remove N seconds before each break',
-            'Extra seconds of show content to cut immediately before each detected commercial block. Use with caution: removes show content.',
-          )}
-          {numberField(
-            'comskip_remove_after',
-            'Remove N seconds after each break',
-            'Extra seconds of show content to cut immediately after each detected commercial block.',
-          )}
-        </Group>
-        {numberField(
-          'comskip_thread_count',
-          'Processing threads',
-          'Number of CPU threads Comskip uses. More threads = faster processing but more CPU load during recording. Maximum: 16.',
-          { min: 1, max: 16 },
-        )}
-      </Stack>
-
-      <Divider variant="dashed" />
-
-      <Stack gap="md">
-        <TextInput
-          label={
-            <LabelWithTooltip
-              label="Custom Comskip INI path (optional)"
-              tooltip="If set, this file overrides the generated settings above. Leave blank to use the settings on this page."
-            />
-          }
-          placeholder="/path/to/comskip.ini"
-          disabled={!enabled}
-          value={formData?.comskip_custom_ini_path || ''}
-          onChange={(e) => onChange('comskip_custom_ini_path', e.target.value || null)}
-        />
-        <Group>
-          <Button variant="default" disabled={!enabled} onClick={onResetDefaults}>
-            Reset to Defaults
-          </Button>
-        </Group>
+          <TextInput
+            label={
+              <LabelWithTooltip
+                label="Custom Comskip INI path"
+                tooltip="If set, this file overrides the generated settings above. Leave blank to use the settings on this page."
+              />
+            }
+            description="Optional — overrides all settings above"
+            placeholder="/path/to/comskip.ini"
+            disabled={!enabled}
+            value={formData?.comskip_custom_ini_path || ''}
+            onChange={(e) => onChange('comskip_custom_ini_path', e.target.value || null)}
+            styles={{ input: { fontFamily: 'var(--mantine-font-family-monospace)', fontSize: 12.5 } }}
+          />
+          <Group>
+            <Button variant="default" size="xs" disabled={!enabled} onClick={onResetDefaults}>
+              Reset to Defaults
+            </Button>
+          </Group>
+        </SubGroup>
       </Stack>
     </Stack>
   )

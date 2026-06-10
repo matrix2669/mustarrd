@@ -27,9 +27,8 @@ describe('ComskipSection', () => {
   it('shows the disabled banner and greys out controls when comskip is off', () => {
     renderSection({ comskip_enabled: false })
 
-    expect(
-      screen.getByText(/Comskip is not enabled\. Turn it on in Post-Processing/)
-    ).toBeInTheDocument()
+    expect(screen.getByText(/Comskip is not enabled\. Turn it on in/)).toBeInTheDocument()
+    expect(screen.getByText('Post-Processing')).toBeInTheDocument()
     expect(screen.getByRole('checkbox', { name: 'Black frames' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Reset to Defaults' })).toBeDisabled()
   })
