@@ -1,0 +1,63 @@
+.wrap {
+  position: relative;
+}
+
+.results {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: -60px;
+  z-index: 60;
+  background: var(--mantine-color-default);
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: 8px;
+  padding: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.result {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  background: none;
+  border: none;
+  width: 100%;
+  text-align: left;
+}
+
+.result:hover {
+  background: var(--mantine-color-default-hover);
+}
+
+.resultLabel {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--mantine-color-text);
+}
+
+.resultPath {
+  font-size: 11px;
+  color: var(--mantine-color-dimmed);
+}
+
+.resultPath b {
+  color: var(--mantine-color-yellow-7);
+  font-weight: 600;
+}
+
+.empty {
+  padding: 12px 10px;
+  font-size: 12.5px;
+  color: var(--mantine-color-dimmed);
+}
+
+@media (max-width: 820px) {
+  .results {
+    right: 0;
+  }
+}
