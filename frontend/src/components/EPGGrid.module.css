@@ -1,0 +1,276 @@
+/* Guide program rows + sticky day headers.
+   Shared by EPGGrid (guide) and Browse (Search All TV result rows). */
+
+.scope {
+  --pg-faint: var(--mantine-color-dark-3);
+}
+
+:global([data-mantine-color-scheme='light']) .scope {
+  --pg-faint: var(--mantine-color-gray-5);
+}
+
+/* day header (sticky within the panel scroll) */
+.dayHead {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 8px 6px;
+  background: var(--mantine-color-default);
+}
+
+.dayToday {
+  font-family: 'Bebas Neue', cursive;
+  font-size: 17px;
+  letter-spacing: 0.08em;
+  color: var(--mantine-color-yellow-7);
+  line-height: 1;
+}
+
+.dayDate {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--mantine-color-dimmed);
+}
+
+.dayRule {
+  flex: 1;
+  border-top: 1px solid var(--mantine-color-default-border);
+}
+
+.dayCount {
+  font-size: 11px;
+  color: var(--pg-faint);
+}
+
+/* program row */
+.row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 9px 12px;
+  border-radius: 7px;
+  margin: 0 4px 5px;
+  border-left: 3px solid transparent;
+  background: var(--mantine-color-body);
+  cursor: default;
+  position: relative;
+}
+
+.downloadable {
+  border-left-color: var(--mantine-color-yellow-7);
+  cursor: pointer;
+}
+
+.downloadable:hover {
+  background: rgba(245, 159, 0, 0.07);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
+}
+
+.live {
+  background: var(--mantine-color-default-hover);
+  cursor: pointer;
+}
+
+.live:hover {
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
+}
+
+.future {
+  border-left-color: var(--mantine-color-teal-5);
+  cursor: pointer;
+}
+
+.future:hover {
+  background: rgba(32, 201, 151, 0.06);
+}
+
+.expired {
+  opacity: 0.45;
+}
+
+.time {
+  width: 86px;
+  flex-shrink: 0;
+}
+
+.timeStart {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--mantine-color-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.timeEnd {
+  font-size: 11px;
+  color: var(--pg-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.main {
+  flex: 1;
+  min-width: 0;
+}
+
+.title {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--mantine-color-text);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.titleText {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.desc {
+  font-size: 11.5px;
+  color: var(--mantine-color-dimmed);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 1px;
+}
+
+.side {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-shrink: 0;
+}
+
+.dur {
+  font-size: 11px;
+  color: var(--pg-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* row action buttons */
+.act {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  background: none;
+}
+
+.actDownload {
+  background: rgba(245, 159, 0, 0.12);
+  color: var(--mantine-color-yellow-7);
+}
+
+.actDownload:hover {
+  background: rgba(245, 159, 0, 0.2);
+}
+
+.actSchedule {
+  background: rgba(32, 201, 151, 0.1);
+  color: var(--mantine-color-teal-5);
+}
+
+.actSchedule:hover {
+  background: rgba(32, 201, 151, 0.18);
+}
+
+.actGhost {
+  color: var(--mantine-color-dimmed);
+}
+
+.actGhost:hover {
+  background: var(--mantine-color-default-hover);
+  color: var(--mantine-color-text);
+}
+
+.actLabel {
+  white-space: nowrap;
+}
+
+/* search-result channel line */
+.chLine {
+  font-size: 11px;
+  color: var(--mantine-color-dimmed);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 1px;
+}
+
+.chMini {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  font-size: 8px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--mantine-color-default-hover);
+  color: var(--mantine-color-dimmed);
+  flex-shrink: 0;
+}
+
+/* mid widths: compress the row */
+@media (max-width: 1180px) and (min-width: 821px) {
+  .time {
+    width: 62px;
+  }
+
+  .timeEnd {
+    display: none;
+  }
+
+  .act {
+    padding: 0 8px;
+  }
+
+  .actLabel {
+    display: none;
+  }
+
+  .dur {
+    display: none;
+  }
+}
+
+/* mobile */
+@media (max-width: 820px) {
+  .time {
+    width: 70px;
+  }
+
+  .timeEnd {
+    display: none;
+  }
+
+  .desc {
+    display: none;
+  }
+
+  .dur {
+    display: none;
+  }
+
+  .act {
+    height: 34px;
+    padding: 0 10px;
+  }
+
+  .actLabel {
+    display: none;
+  }
+}

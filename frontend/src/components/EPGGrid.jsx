@@ -1,6 +1,5 @@
 import { useMemo, useRef, useEffect } from 'react'
-import { Stack, Text, Group, Badge, Button, ScrollArea, Box, Divider, Tooltip } from '@mantine/core'
-import { useMediaQuery } from '@mantine/hooks'
+import { Stack, Text, Badge, ScrollArea, Box, Tooltip } from '@mantine/core'
 import { IconClock, IconDownload, IconCalendar, IconPlayerPlay } from '@tabler/icons-react'
 import {
   getChannelDisplayTime,
@@ -8,6 +7,7 @@ import {
   getNowUtc,
   getProgramInstant,
 } from '../utils/channelTime'
+import classes from './EPGGrid.module.css'
 
 const previousDownloadStatusMeta = {
   pending: { label: 'Queued', color: 'yellow' },
@@ -18,10 +18,20 @@ const previousDownloadStatusMeta = {
   cancelled: { label: 'Cancelled', color: 'gray' },
 }
 
-function ProgramBlock({
+function formatRowDuration(minutes) {
+  const parsed = Number(minutes)
+  if (!Number.isFinite(parsed) || parsed <= 0) return null
+  const hours = Math.floor(parsed / 60)
+  const mins = Math.round(parsed % 60)
+  if (hours > 0) {
+    return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`
+  }
+  return `${mins}m`
+}
+
+function ProgramRow({
   program,
   onClick,
-  isPast,
   isCurrent,
   isDownloadable,
   isSchedulable,
@@ -32,125 +42,117 @@ function ProgramBlock({
 }) {
   const startTime = getChannelDisplayTime(program, 'start', guideOffsetHours)
   const endTime = getChannelDisplayTime(program, 'end', guideOffsetHours)
-  const isMobile = useMediaQuery('(max-width: 48em)')
   const previousStatus = previousDownload?.status
   const previousMeta = (previousStatus && previousDownloadStatusMeta[previousStatus]) || null
+  const duration = formatRowDuration(program.duration_minutes)
 
-  const backgroundColor = isCurrent
-    ? 'var(--mantine-color-green-light)'
-    : isPast && program.has_archive && !isExpired
-    ? 'rgba(245, 159, 0, 0.1)'
-    : isPast
-    ? 'var(--mantine-color-dark-5)'
-    : 'var(--mantine-color-dark-6)'
+  const stateClass = isCurrent
+    ? classes.live
+    : isDownloadable
+    ? classes.downloadable
+    : isSchedulable
+    ? classes.future
+    : classes.expired
 
-  const isClickable = isDownloadable || isSchedulable
-  const actionIcon = isDownloadable ? IconDownload : isSchedulable ? IconCalendar : null
-  const ActionIcon = actionIcon
-  // Live preview: currently airing programs stream live, past programs still
-  // inside the catchup window stream via timeshift.
-  const canPreview = isCurrent || isDownloadable
+  const handleRowClick = () => {
+    if (isDownloadable) {
+      onClick(program, { action: 'download' })
+    } else if (isCurrent) {
+      onClick(program, { action: 'preview', mode: 'live' })
+    } else if (isSchedulable) {
+      onClick(program, { action: 'schedule' })
+    }
+  }
 
   return (
-    <Box
-      id={elementId}
-      style={{
-        padding: '8px 12px',
-        borderRadius: 6,
-        backgroundColor,
-        cursor: isClickable ? 'pointer' : 'default',
-        borderTop: '1px solid transparent',
-        borderRight: '1px solid transparent',
-        borderBottom: '1px solid transparent',
-        borderLeft: isDownloadable
-          ? '3px solid #f59f00'
-          : isSchedulable
-          ? '3px solid var(--mantine-color-teal-6)'
-          : '3px solid transparent',
-        opacity: isPast && (!program.has_archive || isExpired) ? 0.5 : 1,
-        transition: 'box-shadow 0.15s, background-color 0.15s',
-      }}
-      onClick={() => isClickable && onClick(program, { action: isDownloadable ? 'download' : 'schedule' })}
-      onMouseEnter={(e) => {
-        if (isClickable) {
-          e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.35)'
-        }
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.boxShadow = 'none'
-      }}
-    >
-      <Stack gap={4}>
-        <Group justify="space-between" wrap="nowrap">
-          <Group gap={6} wrap="nowrap" style={{ flex: 1, minWidth: 0 }}>
-            {isCurrent && (
-              <Box
-                style={{
-                  width: 7,
-                  height: 7,
-                  borderRadius: '50%',
-                  background: '#fa5252',
-                  flexShrink: 0,
-                  animation: 'mustarrd-rec-pulse 1.5s ease-in-out infinite',
-                }}
-              />
-            )}
-            <Text
-              size={isMobile ? 'xs' : 'sm'}
-              fw={500}
-              lineClamp={isMobile ? 2 : 1}
-              style={{ minWidth: 0, lineHeight: isMobile ? 1.25 : undefined }}
-            >
-              {program.title}
-            </Text>
-          </Group>
-          {ActionIcon && (
-            <ActionIcon size={14} style={{ flexShrink: 0 }} opacity={0.7} />
-          )}
-        </Group>
-
-        <Group gap="xs">
-          <Text size="xs" c="dimmed">
-            {startTime?.format('h:mm A') || 'Unknown'} – {endTime?.format('h:mm A') || 'Unknown'}
-          </Text>
-          <Badge size="xs" variant="light" color={isCurrent ? 'green' : isPast ? 'gray' : 'yellow'}>
-            {program.duration_minutes}m
-          </Badge>
-          {canPreview && (
-            <Button
-              size="compact-xs"
-              variant="light"
-              color="gray"
-              leftSection={<IconPlayerPlay size={12} />}
-              onClick={(e) => {
-                e.stopPropagation()
-                onClick(program, { action: 'preview', mode: isCurrent ? 'live' : 'catchup' })
-              }}
-            >
-              Preview
-            </Button>
+    <div id={elementId} className={`${classes.row} ${stateClass}`} onClick={handleRowClick}>
+      <div className={classes.time}>
+        <div className={classes.timeStart}>{startTime?.format('h:mm A') || 'Unknown'}</div>
+        <div className={classes.timeEnd}>{endTime?.format('h:mm A') || ''}</div>
+      </div>
+      <div className={classes.main}>
+        <div className={classes.title}>
+          <span className={classes.titleText}>{program.title}</span>
+          {isCurrent && (
+            <Badge size="xs" variant="outline" color="gray" style={{ flexShrink: 0 }}>
+              In progress
+            </Badge>
           )}
           {isExpired && (
             <Tooltip label="No longer available — outside this channel's catchup window" withArrow>
-              <Badge size="xs" variant="light" color="gray">
+              <Badge size="xs" variant="outline" color="gray" style={{ flexShrink: 0 }}>
                 Expired
               </Badge>
             </Tooltip>
           )}
           {previousMeta && (
-            <Badge size="xs" variant="light" color={previousMeta.color}>
+            <Badge size="xs" variant="light" color={previousMeta.color} style={{ flexShrink: 0 }}>
               {previousMeta.label}
             </Badge>
           )}
-        </Group>
-
-        {program.description && (
-          <Text size="xs" c="dimmed" lineClamp={2}>
-            {program.description}
-          </Text>
+        </div>
+        {program.description && <div className={classes.desc}>{program.description}</div>}
+      </div>
+      <div className={classes.side}>
+        {duration && <span className={classes.dur}>{duration}</span>}
+        {isCurrent && (
+          <button
+            type="button"
+            className={`${classes.act} ${classes.actGhost}`}
+            title="Preview"
+            onClick={(e) => {
+              e.stopPropagation()
+              onClick(program, { action: 'preview', mode: 'live' })
+            }}
+          >
+            <IconPlayerPlay size={13} />
+            <span className={classes.actLabel}>Preview</span>
+          </button>
         )}
-      </Stack>
-    </Box>
+        {isDownloadable && (
+          <>
+            <button
+              type="button"
+              className={`${classes.act} ${classes.actGhost}`}
+              title="Preview"
+              onClick={(e) => {
+                e.stopPropagation()
+                onClick(program, { action: 'preview', mode: 'catchup' })
+              }}
+            >
+              <IconPlayerPlay size={13} />
+              <span className={classes.actLabel}>Preview</span>
+            </button>
+            <button
+              type="button"
+              className={`${classes.act} ${classes.actDownload}`}
+              title="Download"
+              onClick={(e) => {
+                e.stopPropagation()
+                onClick(program, { action: 'download' })
+              }}
+            >
+              <IconDownload size={13} />
+              <span className={classes.actLabel}>Download</span>
+            </button>
+          </>
+        )}
+        {!isCurrent && isSchedulable && (
+          <button
+            type="button"
+            className={`${classes.act} ${classes.actSchedule}`}
+            title="Schedule"
+            onClick={(e) => {
+              e.stopPropagation()
+              onClick(program, { action: 'schedule' })
+            }}
+          >
+            <IconCalendar size={13} />
+            <span className={classes.actLabel}>Schedule</span>
+          </button>
+        )}
+      </div>
+    </div>
   )
 }
 
@@ -166,63 +168,48 @@ function DaySection({ date, programs, onProgramClick, getProgramPreviousDownload
   }, [programs])
 
   return (
-    <Stack gap="xs">
-      <Group gap="xs" align="center">
-        <Text
-          fw={700}
-          size="sm"
-          style={isToday ? {
-            color: '#f59f00',
-            fontFamily: "'Bebas Neue', cursive",
-            fontSize: 16,
-            letterSpacing: '0.08em',
-          } : {
-            color: 'var(--mantine-color-dimmed)',
-            textTransform: 'uppercase',
-            fontSize: 11,
-            letterSpacing: '0.08em',
-          }}
-        >
-          {isToday ? 'Today' : date.format('ddd, MMM D')}
-        </Text>
-        <Divider style={{ flex: 1 }} />
-        <Text size="xs" c="dimmed">{sortedPrograms.length}</Text>
-      </Group>
+    <div>
+      <div className={classes.dayHead}>
+        {isToday ? (
+          <span className={classes.dayToday}>TODAY</span>
+        ) : (
+          <span className={classes.dayDate}>{date.format('ddd, MMM D')}</span>
+        )}
+        <span className={classes.dayRule} />
+        <span className={classes.dayCount}>{sortedPrograms.length}</span>
+      </div>
 
-      <Stack gap={6}>
-        {sortedPrograms.map((program, idx) => {
-          const start = getProgramInstant(program, 'start')
-          const end = getProgramInstant(program, 'end')
-          const isPast = Boolean(end?.isBefore(now))
-          const isCurrent = Boolean(start?.isBefore(now) && end?.isAfter(now))
-          const isExpired = Boolean(
-            isPast && program.has_archive && archiveCutoff && end?.isBefore(archiveCutoff)
-          )
-          const isDownloadable = isPast && program.has_archive && !isExpired
-          const isSchedulable = !isPast
-          const elementId = `epg-program-${program.epg_id || program.id || idx}`
-          const previousDownload = getProgramPreviousDownload
-            ? getProgramPreviousDownload(program)
-            : null
+      {sortedPrograms.map((program, idx) => {
+        const start = getProgramInstant(program, 'start')
+        const end = getProgramInstant(program, 'end')
+        const isPast = Boolean(end?.isBefore(now))
+        const isCurrent = Boolean(start?.isBefore(now) && end?.isAfter(now))
+        const isExpired = Boolean(
+          isPast && program.has_archive && archiveCutoff && end?.isBefore(archiveCutoff)
+        )
+        const isDownloadable = isPast && program.has_archive && !isExpired
+        const isSchedulable = !isPast
+        const elementId = `epg-program-${program.epg_id || program.id || idx}`
+        const previousDownload = getProgramPreviousDownload
+          ? getProgramPreviousDownload(program)
+          : null
 
-          return (
-            <ProgramBlock
-              key={program.id || idx}
-              program={program}
-              onClick={onProgramClick}
-              isPast={isPast}
-              isCurrent={isCurrent}
-              isDownloadable={isDownloadable}
-              isSchedulable={isSchedulable}
-              isExpired={isExpired}
-              elementId={elementId}
-              previousDownload={previousDownload}
-              guideOffsetHours={guideOffsetHours}
-            />
-          )
-        })}
-      </Stack>
-    </Stack>
+        return (
+          <ProgramRow
+            key={program.id || idx}
+            program={program}
+            onClick={onProgramClick}
+            isCurrent={isCurrent}
+            isDownloadable={isDownloadable}
+            isSchedulable={isSchedulable}
+            isExpired={isExpired}
+            elementId={elementId}
+            previousDownload={previousDownload}
+            guideOffsetHours={guideOffsetHours}
+          />
+        )
+      })}
+    </div>
   )
 }
 
@@ -334,47 +321,24 @@ export default function EPGGrid({
     )
   }
 
-  const downloadableCount = visiblePrograms.filter((p) => {
-    const end = getProgramInstant(p, 'end')
-    if (!p.has_archive || !end?.isBefore(now)) return false
-    return !(archiveCutoff && end.isBefore(archiveCutoff))
-  }).length
-  const schedulableCount = visiblePrograms.filter(
-    (p) => getProgramInstant(p, 'end')?.isAfter(now)
-  ).length
-
   return (
-    <Stack gap="md" style={{ height: '100%', minHeight: 0 }}>
-      <Group justify="space-between">
-        <Text size="sm" c="dimmed">
-          Showing {visiblePrograms.length} programs
-        </Text>
-        <Group gap="xs">
-          <Badge variant="light" color="yellow" leftSection={<IconDownload size={12} />}>
-            {downloadableCount} available
-          </Badge>
-          <Badge variant="light" color="teal" leftSection={<IconCalendar size={12} />}>
-            {schedulableCount} upcoming
-          </Badge>
-        </Group>
-      </Group>
-
-      <ScrollArea style={{ flex: 1, minHeight: 0 }} ref={scrollAreaRef}>
-        <Stack gap="lg">
-          {programsByDay.map(({ date, programs }) => (
-            <Box key={date.format('YYYY-MM-DD')} id={`epg-day-${date.format('YYYY-MM-DD')}`}>
-              <DaySection
-                date={date}
-                programs={programs}
-                onProgramClick={onProgramClick}
-                getProgramPreviousDownload={getProgramPreviousDownload}
-                guideOffsetHours={normalizedGuideOffsetHours}
-                archiveCutoff={archiveCutoff}
-              />
-            </Box>
-          ))}
-        </Stack>
-      </ScrollArea>
-    </Stack>
+    <ScrollArea
+      style={{ flex: 1, minHeight: 0, height: '100%' }}
+      ref={scrollAreaRef}
+      className={classes.scope}
+    >
+      {programsByDay.map(({ date, programs }) => (
+        <Box key={date.format('YYYY-MM-DD')} id={`epg-day-${date.format('YYYY-MM-DD')}`}>
+          <DaySection
+            date={date}
+            programs={programs}
+            onProgramClick={onProgramClick}
+            getProgramPreviousDownload={getProgramPreviousDownload}
+            guideOffsetHours={normalizedGuideOffsetHours}
+            archiveCutoff={archiveCutoff}
+          />
+        </Box>
+      ))}
+    </ScrollArea>
   )
 }
