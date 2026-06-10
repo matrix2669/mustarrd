@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Title,
   Card,
@@ -7,12 +7,11 @@ import {
   Stack,
   Badge,
   ActionIcon,
-  Menu,
   Tabs,
   Loader,
   Alert,
   Button,
-  Select,
+  SegmentedControl,
   Switch,
   Tooltip,
 } from '@mantine/core'
@@ -20,8 +19,6 @@ import { notifications } from '@mantine/notifications'
 import { useNavigate, Link, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  IconDotsVertical,
-  IconPlayerStop,
   IconTrash,
   IconAlertCircle,
   IconCheck,
@@ -32,7 +29,6 @@ import {
   IconSettings,
   IconPlayerPlay,
   IconFolderOpen,
-  IconFilter,
   IconRefresh,
   IconFileExport,
   IconFileImport,
@@ -41,7 +37,9 @@ import dayjs from 'dayjs'
 import duration from 'dayjs/plugin/duration'
 
 import { accountsApi, authApi, downloadsApi, schedulesApi, settingsApi } from '../api'
+import HistoryRow from '../components/HistoryRow'
 import { formatChannelDateTime, formatAirDateTime, getGuideOffsetHours, getChannelDisplayTime, getNowUtc } from '../utils/channelTime'
+import classes from './Scheduled.module.css'
 
 dayjs.extend(duration)
 
@@ -88,6 +86,16 @@ function formatTimeUntil(displayTime, guideOffsetHours = 0) {
   return `in ${mins}m`
 }
 
+function channelInitials(name) {
+  const words = (name || '').trim().split(/\s+/).filter(Boolean)
+  if (!words.length) return '?'
+  return words
+    .slice(0, 2)
+    .map((word) => word[0])
+    .join('')
+    .toUpperCase()
+}
+
 function getStatusBadge(status) {
   const statusConfig = {
     scheduled: { color: 'gray', icon: IconCalendar, label: 'Scheduled' },
@@ -97,7 +105,7 @@ function getStatusBadge(status) {
     completed: { color: 'green', icon: IconCheck, label: 'Completed' },
     failed: { color: 'red', icon: IconX, label: 'Failed' },
     cancelled: { color: 'orange', icon: IconX, label: 'Cancelled' },
-    paused_low_space: { color: 'yellow', icon: IconAlertCircle, label: 'Paused (Low Space)' },
+    paused_low_space: { color: 'yellow', icon: IconAlertCircle, label: 'Paused — low space' },
   }
 
   const config = statusConfig[status] || statusConfig.scheduled
@@ -110,192 +118,100 @@ function getStatusBadge(status) {
   )
 }
 
-function ScheduleCard({
-  schedule,
-  guideOffsetHours = 0,
-  isDesktop,
-  onCancel,
-  onDelete,
-  onOpenFileLocation,
-  onPlayFile,
-  onRetryDownload,
-}) {
-  const [confirmingDelete, setConfirmingDelete] = useState(false)
-  const activeStatuses = ['scheduled', 'queued', 'downloading', 'processing', 'paused_low_space']
-  const terminalStatuses = ['completed', 'failed', 'cancelled']
-  const isActive = activeStatuses.includes(schedule.status)
-  const isTerminal = terminalStatuses.includes(schedule.status)
-  const canDelete = !isActive
-  const startHasPassed = isTerminal
-    ? true
-    : (schedule.start_timestamp ? schedule.start_timestamp < Date.now() / 1000 : false)
+function AgendaRow({ schedule, guideOffsetHours = 0, onCancel, onRetryDownload }) {
+  const [confirmingCancel, setConfirmingCancel] = useState(false)
 
-  const startTime = formatAirDateTime(schedule, 'start', guideOffsetHours)
-  const endTime = formatChannelDateTime(schedule, 'end', guideOffsetHours, 'h:mm A')
+  const startTime = getChannelDisplayTime(schedule, 'start', guideOffsetHours)
+  const endTime = getChannelDisplayTime(schedule, 'end', guideOffsetHours)
   const availableAt = formatAirDateTime(schedule, 'available', guideOffsetHours)
   const downloadDisplayTime = getChannelDisplayTime(schedule, 'available', guideOffsetHours)
-  const timeUntil = isActive ? formatTimeUntil(downloadDisplayTime, guideOffsetHours) : null
+  const timeUntil = formatTimeUntil(downloadDisplayTime, guideOffsetHours)
   const totalDuration = (schedule.duration_minutes || 0)
     + (schedule.pre_padding_minutes || 0)
     + (schedule.post_padding_minutes || 0)
-  const paddingNote = totalDuration !== (schedule.duration_minutes || 0) ? `${formatDuration(totalDuration)} with padding` : null
-  const downloadNotes = [timeUntil, paddingNote].filter(Boolean)
-  const downloadHref = schedule.download_id
-    ? `/api/downloads/${schedule.download_id}/file?action=download`
+  const paddingNote = totalDuration !== (schedule.duration_minutes || 0)
+    ? `${formatDuration(totalDuration)} with padding`
     : null
-  const playHref = schedule.download_id
-    ? `/downloads/${schedule.download_id}/play`
-    : null
+
+  const subParts = [
+    schedule.channel_name,
+    formatDuration(schedule.duration_minutes || 0),
+    paddingNote,
+    `Download starts ${availableAt || 'Unknown'}${timeUntil ? ` (${timeUntil})` : ''}`,
+  ].filter(Boolean)
+
+  const downloadFailed = schedule.download_status === 'failed'
 
   return (
-    <Card shadow="sm" padding="md" radius="md" withBorder>
-      <Stack gap="xs">
-        <Group justify="space-between" wrap="nowrap" align="flex-start">
-          <Stack gap={2} style={{ flex: 1, overflow: 'hidden' }}>
-            <Text fw={500}>
-              {schedule.program_title}
-            </Text>
-            <Text size="sm" c="dimmed" truncate>
-              {schedule.channel_name}
-            </Text>
-            {getStatusBadge(schedule.status)}
-          </Stack>
-          <Menu shadow="md" width={160}>
-            <Menu.Target>
-              <ActionIcon variant="subtle">
-                <IconDotsVertical size={16} />
-              </ActionIcon>
-            </Menu.Target>
-            <Menu.Dropdown>
-              {isActive && (
-                <Menu.Item
-                  leftSection={<IconPlayerStop size={14} />}
-                  onClick={() => onCancel(schedule)}
-                >
-                  Cancel
-                </Menu.Item>
-              )}
-              {canDelete && (
-                <Menu.Item
-                  color="red"
-                  leftSection={<IconTrash size={14} />}
-                  onClick={() => setConfirmingDelete(true)}
-                >
-                  Delete
-                </Menu.Item>
-              )}
-            </Menu.Dropdown>
-          </Menu>
-        </Group>
-
-        <Text size="xs" c="dimmed">
-          {(!isActive && startHasPassed) ? 'Aired' : 'Airs'}: {startTime || 'Unknown'} - {endTime || 'Unknown'} ({formatDuration(schedule.duration_minutes || 0)})
-        </Text>
-
-        {(isActive || schedule.status === 'completed') && (
-          <Text size="xs" c="dimmed">
-            Download starts: {availableAt || 'Unknown'}{downloadNotes.length > 0 ? ` (${downloadNotes.join(', ')})` : ''}
-          </Text>
-        )}
-
+    <div className={classes.row}>
+      <div className={classes.time}>
+        <div className={classes.timeStart}>{startTime?.format('h:mm A') || 'Unknown'}</div>
+        <div className={classes.timeEnd}>{endTime ? `– ${endTime.format('h:mm A')}` : ''}</div>
+      </div>
+      <span className={classes.chip}>{channelInitials(schedule.channel_name)}</span>
+      <div className={classes.main}>
+        <div className={classes.title}>{schedule.program_title}</div>
+        <div className={classes.sub}>{subParts.join(' · ')}</div>
         {schedule.status_message && (
-          <Alert color="yellow" variant="light" p="xs">
-            <Text size="xs">{schedule.status_message}</Text>
-          </Alert>
-        )}
-
-        {!schedule.status_message && schedule.download_status === 'failed' && schedule.download_error_message && (
-          <Alert color="red" variant="light" p="xs">
-            <Text size="xs">{renderErrorMessage(schedule.download_error_message)}</Text>
-          </Alert>
-        )}
-        {schedule.download_status === 'failed' && schedule.download_id && (
-          <Group>
-            <Button
-              size="xs"
-              variant="light"
-              leftSection={<IconRefresh size={14} />}
-              onClick={() => onRetryDownload(schedule)}
-            >
-              Retry
-            </Button>
-          </Group>
-        )}
-
-        {schedule.status === 'cancelled' && !schedule.status_message && !schedule.download_id && (
-          <Text size="xs" c="dimmed">
-            Cancelled before downloading. If this program is still in your provider&apos;s catchup window, you can find it in{' '}
-            <Link to="/browse" style={{ color: 'var(--mantine-color-orange-5)' }}>Browse EPG</Link>.
+          <Text size="xs" c="yellow.5" mt={4}>
+            {schedule.status_message}
           </Text>
         )}
-
-        {schedule.download_status === 'completed' && schedule.download_id && (
-          <Group gap="xs">
-            {isDesktop ? (
-              <>
-                <Button
-                  size="xs"
-                  variant="light"
-                  leftSection={<IconFolderOpen size={14} />}
-                  onClick={() => onOpenFileLocation(schedule)}
-                >
-                  Open File Location
-                </Button>
-                <Button
-                  size="xs"
-                  variant="default"
-                  leftSection={<IconPlayerPlay size={14} />}
-                  onClick={() => onPlayFile(schedule)}
-                >
-                  Play
-                </Button>
-              </>
-            ) : (
-              <>
-                <Button
-                  component="a"
-                  href={downloadHref}
-                  size="xs"
-                  variant="light"
-                  leftSection={<IconDownload size={14} />}
-                >
-                  Download
-                </Button>
-                <Button
-                  component="a"
-                  href={playHref}
-                  size="xs"
-                  variant="default"
-                  leftSection={<IconPlayerPlay size={14} />}
-                >
-                  Play
-                </Button>
-              </>
-            )}
-          </Group>
+        {!schedule.status_message && downloadFailed && schedule.download_error_message && (
+          <Text size="xs" c="red.4" mt={4}>
+            {renderErrorMessage(schedule.download_error_message)}
+          </Text>
         )}
-
-        {confirmingDelete && (
-          <Group gap="xs" justify="flex-end" pt={4} style={{ borderTop: '1px solid var(--mantine-color-dark-4)' }}>
-            <Text size="sm" c="dimmed">Delete this schedule?</Text>
+      </div>
+      <div className={classes.side}>
+        {confirmingCancel ? (
+          <>
+            <Text size="sm" c="dimmed">Cancel this recording?</Text>
             <Button
               size="xs"
               color="red"
-              onClick={() => { onDelete(schedule); setConfirmingDelete(false) }}
+              onClick={() => {
+                onCancel(schedule)
+                setConfirmingCancel(false)
+              }}
             >
-              Yes, delete
+              Yes, cancel
             </Button>
-            <Button
-              size="xs"
+            <Button size="xs" variant="subtle" onClick={() => setConfirmingCancel(false)}>
+              Keep
+            </Button>
+          </>
+        ) : (
+          <>
+            {schedule.status !== 'scheduled' && getStatusBadge(schedule.status)}
+            {downloadFailed && schedule.download_id && (
+              <ActionIcon
+                variant="subtle"
+                color="gray"
+                size={30}
+                radius={7}
+                aria-label="Retry download"
+                title="Retry download"
+                onClick={() => onRetryDownload(schedule)}
+              >
+                <IconRefresh size={15} />
+              </ActionIcon>
+            )}
+            <ActionIcon
               variant="subtle"
-              onClick={() => setConfirmingDelete(false)}
+              color="gray"
+              size={30}
+              radius={7}
+              aria-label="Cancel recording"
+              title="Cancel recording"
+              onClick={() => setConfirmingCancel(true)}
             >
-              Cancel
-            </Button>
-          </Group>
+              <IconX size={16} />
+            </ActionIcon>
+          </>
         )}
-      </Stack>
-    </Card>
+      </div>
+    </div>
   )
 }
 
@@ -542,6 +458,118 @@ export default function Scheduled() {
     (accounts || []).map((account) => [Number(account.id), getGuideOffsetHours(account.guide_offset_hours)])
   )
 
+  // Group upcoming recordings by air date (in each channel's display time),
+  // soonest day first; the sort above keeps rows ordered inside each day.
+  const agendaDays = useMemo(() => {
+    const order = []
+    const map = {}
+    activeSchedules.forEach((schedule) => {
+      const guideOffset = accountGuideOffsets[Number(schedule.account_id)] || 0
+      const day = getChannelDisplayTime(schedule, 'start', guideOffset)?.startOf('day')
+      const key = day ? day.format('YYYY-MM-DD') : 'unknown'
+      if (!map[key]) {
+        map[key] = { key, date: day, guideOffset, items: [] }
+        order.push(key)
+      }
+      map[key].items.push(schedule)
+    })
+    return order.map((key) => map[key])
+  }, [activeSchedules, accountGuideOffsets])
+
+  const renderHistoryActions = (schedule) => {
+    const hasFile = schedule.download_status === 'completed' && schedule.download_id
+    const downloadHref = schedule.download_id
+      ? `/api/downloads/${schedule.download_id}/file?action=download`
+      : null
+    const playHref = schedule.download_id
+      ? `/downloads/${schedule.download_id}/play`
+      : null
+
+    return (
+      <>
+        {hasFile && (
+          isDesktop ? (
+            <>
+              <ActionIcon
+                variant="subtle"
+                color="gray"
+                size={30}
+                radius={7}
+                aria-label="Play"
+                title="Play"
+                onClick={() => handlePlayFile(schedule)}
+              >
+                <IconPlayerPlay size={15} />
+              </ActionIcon>
+              <ActionIcon
+                variant="subtle"
+                color="gray"
+                size={30}
+                radius={7}
+                aria-label="Open file location"
+                title="Open file location"
+                onClick={() => handleOpenFileLocation(schedule)}
+              >
+                <IconFolderOpen size={15} />
+              </ActionIcon>
+            </>
+          ) : (
+            <>
+              <ActionIcon
+                component="a"
+                href={playHref}
+                variant="subtle"
+                color="gray"
+                size={30}
+                radius={7}
+                aria-label="Play"
+                title="Play"
+              >
+                <IconPlayerPlay size={15} />
+              </ActionIcon>
+              <ActionIcon
+                component="a"
+                href={downloadHref}
+                variant="subtle"
+                color="gray"
+                size={30}
+                radius={7}
+                aria-label="Download file"
+                title="Download file"
+              >
+                <IconDownload size={15} />
+              </ActionIcon>
+            </>
+          )
+        )}
+        {schedule.download_status === 'failed' && schedule.download_id && (
+          <ActionIcon
+            variant="subtle"
+            color="gray"
+            size={30}
+            radius={7}
+            aria-label="Retry"
+            title="Retry"
+            onClick={() => retryDownloadMutation.mutate(schedule)}
+          >
+            <IconRefresh size={15} />
+          </ActionIcon>
+        )}
+        <ActionIcon
+          variant="subtle"
+          color="red"
+          size={30}
+          radius={7}
+          aria-label="Delete"
+          title="Delete"
+          onClick={() => deleteMutation.mutate(schedule)}
+        >
+          <IconTrash size={15} />
+        </ActionIcon>
+      </>
+    )
+  }
+
   if (isLoading) {
     return (
       <Stack align="center" justify="center" h={300}>
@@ -559,9 +587,9 @@ export default function Scheduled() {
   }
 
   return (
-    <Stack>
+    <Stack className={classes.page}>
       <Group justify="space-between" align="center" wrap="wrap">
-        <Title order={2}>Scheduled Recordings</Title>
+        <Title order={2}>Scheduled</Title>
         <Group gap="sm">
           {isAdmin && (
             <Tooltip
@@ -624,7 +652,7 @@ export default function Scheduled() {
           {activeSchedules.length === 0 ? (
             <Card shadow="sm" padding="xl" radius="md" withBorder>
               <Stack align="center" gap="md">
-                <IconCalendar size={48} opacity={0.3} />
+                <IconCalendar size={40} opacity={0.3} />
                 <Stack gap={4} align="center">
                   <Text c="dimmed" ta="center">
                     No scheduled recordings yet.
@@ -639,21 +667,35 @@ export default function Scheduled() {
               </Stack>
             </Card>
           ) : (
-            <Stack gap="md">
-              {activeSchedules.map((schedule) => (
-                <ScheduleCard
-                  key={schedule.id}
-                  schedule={schedule}
-                  guideOffsetHours={accountGuideOffsets[Number(schedule.account_id)] || 0}
-                  isDesktop={isDesktop}
-                  onCancel={(s) => cancelMutation.mutate(s)}
-                  onDelete={(s) => deleteMutation.mutate(s)}
-                  onOpenFileLocation={handleOpenFileLocation}
-                  onPlayFile={handlePlayFile}
-                  onRetryDownload={(s) => retryDownloadMutation.mutate(s)}
-                />
-              ))}
-            </Stack>
+            <div>
+              {agendaDays.map(({ key, date, guideOffset, items }) => {
+                const displayNow = getNowUtc().add(getGuideOffsetHours(guideOffset), 'hour')
+                const isToday = Boolean(date?.isSame(displayNow, 'day'))
+                return (
+                  <div className={classes.day} key={key}>
+                    <div className={classes.dayHead}>
+                      {isToday ? (
+                        <span className={classes.dayToday}>TONIGHT</span>
+                      ) : (
+                        <span className={classes.dayDate}>
+                          {date ? date.format('ddd, MMM D') : 'Unknown date'}
+                        </span>
+                      )}
+                      <span className={classes.dayRule} />
+                    </div>
+                    {items.map((schedule) => (
+                      <AgendaRow
+                        key={schedule.id}
+                        schedule={schedule}
+                        guideOffsetHours={accountGuideOffsets[Number(schedule.account_id)] || 0}
+                        onCancel={(s) => cancelMutation.mutate(s)}
+                        onRetryDownload={(s) => retryDownloadMutation.mutate(s)}
+                      />
+                    ))}
+                  </div>
+                )
+              })}
+            </div>
           )}
         </Tabs.Panel>
 
@@ -661,48 +703,55 @@ export default function Scheduled() {
           {historySchedules.length === 0 ? (
             <Card shadow="sm" padding="xl" radius="md" withBorder>
               <Stack align="center" gap="md">
-                <IconClock size={48} opacity={0.3} />
+                <IconClock size={40} opacity={0.3} />
                 <Text c="dimmed" ta="center">
                   No schedule history yet.
                 </Text>
-                <Text c="dimmed" ta="center" size="sm">
+                <Text c="dimmed" ta="center" size="sm" maw={380}>
                   Completed, failed, and cancelled scheduled recordings will appear here.
                 </Text>
               </Stack>
             </Card>
           ) : (
-            <Stack gap="md">
-              <Select
+            <Stack gap="xs">
+              <SegmentedControl
                 size="xs"
-                w={160}
                 value={historyFilter}
                 onChange={(v) => setHistoryFilter(v || 'all')}
-                leftSection={<IconFilter size={14} />}
-                allowDeselect={false}
                 data={[
-                  { value: 'all', label: 'All statuses' },
+                  { value: 'all', label: 'All' },
                   { value: 'completed', label: 'Completed' },
                   { value: 'failed', label: 'Failed' },
                   { value: 'cancelled', label: 'Cancelled' },
                 ]}
+                style={{ alignSelf: 'flex-start' }}
               />
               {filteredHistorySchedules.length === 0 ? (
                 <Text c="dimmed" ta="center" py="lg" size="sm">
                   No {historyFilter} scheduled recordings.
                 </Text>
-              ) : filteredHistorySchedules.map((schedule) => (
-                <ScheduleCard
-                  key={schedule.id}
-                  schedule={schedule}
-                  guideOffsetHours={accountGuideOffsets[Number(schedule.account_id)] || 0}
-                  isDesktop={isDesktop}
-                  onCancel={(s) => cancelMutation.mutate(s)}
-                  onDelete={(s) => deleteMutation.mutate(s)}
-                  onOpenFileLocation={handleOpenFileLocation}
-                  onPlayFile={handlePlayFile}
-                  onRetryDownload={(s) => retryDownloadMutation.mutate(s)}
-                />
-              ))}
+              ) : (
+                <div>
+                  {filteredHistorySchedules.map((schedule) => {
+                    const guideOffset = accountGuideOffsets[Number(schedule.account_id)] || 0
+                    const aired = formatAirDateTime(schedule, 'start', guideOffset)
+                    const errorContent = schedule.status_message
+                      || (schedule.download_status === 'failed' && schedule.download_error_message
+                        ? renderErrorMessage(schedule.download_error_message)
+                        : null)
+                    return (
+                      <HistoryRow
+                        key={schedule.id}
+                        status={schedule.status}
+                        title={schedule.program_title}
+                        subtitle={[schedule.channel_name, aired].filter(Boolean).join(' · ')}
+                        error={errorContent}
+                        actions={renderHistoryActions(schedule)}
+                      />
+                    )
+                  })}
+                </div>
+              )}
             </Stack>
           )}
         </Tabs.Panel>
