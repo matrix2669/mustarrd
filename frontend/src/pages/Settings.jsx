@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback, useContext, useRef } from 'react'
-import { UNSAFE_NavigationContext, useNavigate, useSearchParams, Link } from 'react-router-dom'
+import { useState, useEffect, useCallback, useContext, useMemo, useRef } from 'react'
+import { UNSAFE_NavigationContext, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Title,
   Card,
@@ -7,50 +7,53 @@ import {
   Text,
   Stack,
   TextInput,
-  NumberInput,
   Button,
   Code,
   Loader,
   Alert,
+  Anchor,
+  Badge,
   Switch,
   Select,
+  SegmentedControl,
+  SimpleGrid,
   MultiSelect,
   useMantineColorScheme,
   Modal,
   NavLink,
   Box,
-  Divider,
   Paper,
   PasswordInput,
+  Tooltip,
 } from '@mantine/core'
 import { useMediaQuery } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   IconFolder,
-  IconFile,
   IconAlertCircle,
-  IconWand,
+  IconAlertTriangle,
+  IconCircleCheck,
+  IconChevronLeft,
+  IconChevronRight,
   IconMoon,
-  IconDownload,
-  IconLock,
-  IconServer,
-  IconListDetails,
-  IconUsers,
   IconPlus,
   IconTrash,
   IconKey,
-  IconDeviceTv,
-  IconCalendar,
   IconRefresh,
-  IconScissors,
 } from '@tabler/icons-react'
+import dayjs from 'dayjs'
 
-import { adminPlexApi, adminUsersApi, authApi, epgApi, settingsApi } from '../api'
+import { accountsApi, adminPlexApi, adminUsersApi, authApi, downloadsApi, epgApi, settingsApi } from '../api'
 import AccountsSection from '../components/settings/AccountsSection'
 import ComskipSection, { COMSKIP_DEFAULTS, getComskipErrors } from '../components/settings/ComskipSection'
 import LogsSection from '../components/settings/LogsSection'
-import FoldersStatus from '../components/settings/FoldersStatus'
+import NumberStepper from '../components/settings/NumberStepper'
+import SaveBar from '../components/settings/SaveBar'
+import SettingsSearch from '../components/settings/SettingsSearch'
+import { SectionHeader, SettingRow, SubGroup } from '../components/settings/SettingsPrimitives'
+import { SECTION_GROUPS, ADMIN_SECTIONS, DOWNLOAD_USER_SECTIONS } from '../components/settings/sections'
+import classes from './Settings.module.css'
 
 function isPlexNotConnectedError(message) {
   return (message || '').toLowerCase().includes('plex account is not connected')
@@ -115,7 +118,26 @@ function describeHardwareAccel(vaapi) {
   }
 }
 
-function TemplateSection({ label, template, variables, example, renderedExample, onChange }) {
+// Sample values used to render the live filename previews client-side.
+// Kept in line with the API's rendered_example values.
+const TEMPLATE_SAMPLES = {
+  tv_show: { show: 'Breaking Bad', season: 1, episode: 5, title: 'Gray Matter', date: '2024-01-14' },
+  movie: { title: 'Inception', year: 2010 },
+  sports: { title: 'FA Cup Final', date: '2024-01-14', channel: 'ESPN' },
+  default: { channel: 'BBC One', title: 'Planet Earth', date: '2024-01-14' },
+}
+
+// Renders {name} and zero-padded {name:02d} placeholders; unknown
+// placeholders are left as-is so typos stay visible in the preview.
+function renderTemplateExample(template, sample) {
+  return (template || '').replace(/\{(\w+)(?::0?(\d+)d)?\}/g, (match, name, pad) => {
+    const value = sample[name]
+    if (value === undefined) return match
+    return pad ? String(value).padStart(Number(pad), '0') : String(value)
+  })
+}
+
+function TemplateBlock({ label, template, variables, sample, ext, onChange }) {
   const inputRef = useRef(null)
 
   function insertVariable(varName) {
@@ -137,16 +159,16 @@ function TemplateSection({ label, template, variables, example, renderedExample,
   }
 
   return (
-    <Stack gap="xs">
+    <SubGroup label={label}>
       <TextInput
         ref={inputRef}
-        label={label}
+        aria-label={`${label} template`}
         value={template}
         onChange={(e) => onChange(e.target.value)}
-        placeholder={example}
+        styles={{ input: { fontFamily: 'var(--mantine-font-family-monospace)', fontSize: 12.5 } }}
       />
-      <Group gap="xs" wrap="wrap" align="center">
-        <Text size="xs" c="dimmed">Variables:</Text>
+      <Group gap={6} wrap="wrap" align="center">
+        <Text size="xs" c="dimmed">Insert:</Text>
         {variables.map((v) => (
           <Code
             key={v.name}
@@ -158,23 +180,39 @@ function TemplateSection({ label, template, variables, example, renderedExample,
           </Code>
         ))}
       </Group>
-      <Text size="xs" c="dimmed">
-        Example: <Code>{renderedExample || example}</Code>
-      </Text>
-    </Stack>
+      <div className={classes.templatePreview}>
+        <span className={classes.templatePreviewArrow}>→</span>
+        <span>
+          {renderTemplateExample(template, sample)}
+          <span className={classes.templatePreviewExt}>{ext}</span>
+        </span>
+      </div>
+    </SubGroup>
   )
 }
 
-function SettingRow({ label, description, children }) {
-  return (
-    <Group justify="space-between" align="flex-start" wrap="nowrap">
-      <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
-        <Text fw={500} size="sm">{label}</Text>
-        {description && <Text size="xs" c="dimmed">{description}</Text>}
-      </Stack>
-      <Box style={{ flexShrink: 0, paddingTop: 2 }}>{children}</Box>
-    </Group>
+function FolderStatusBadge({ status }) {
+  if (!status) return null
+  const ok = status.exists && status.writable
+  const label = ok ? 'Writable' : status.exists ? 'Not writable' : 'Missing'
+  const badge = (
+    <Badge
+      size="xs"
+      color={ok ? 'green' : 'red'}
+      variant="light"
+      leftSection={ok ? <IconCircleCheck size={11} /> : <IconAlertTriangle size={11} />}
+    >
+      {label}
+    </Badge>
   )
+  if (!ok && status.error) {
+    return (
+      <Tooltip label={status.error} multiline w={280} events={{ hover: true, focus: true, touch: true }}>
+        {badge}
+      </Tooltip>
+    )
+  }
+  return badge
 }
 
 function useBlocker(blocker, when = true) {
@@ -199,32 +237,16 @@ function useBlocker(blocker, when = true) {
   }, [navigator, blocker, when])
 }
 
-const ADMIN_SECTIONS = [
-  { id: 'accounts', label: 'Accounts', icon: IconServer },
-  { id: 'users', label: 'Users', icon: IconUsers },
-  { id: 'plex', label: 'Plex Integration', icon: IconDeviceTv },
-  { id: 'recording', label: 'Recording', icon: IconDownload },
-  { id: 'processing', label: 'Post-Processing', icon: IconWand },
-  { id: 'comskip', label: 'Comskip', icon: IconScissors },
-  { id: 'naming', label: 'File Naming', icon: IconFile },
-  { id: 'guide', label: 'Guide', icon: IconCalendar },
-  { id: 'appearance', label: 'Appearance', icon: IconMoon },
-  { id: 'security', label: 'Security', icon: IconLock },
-  { id: 'logs', label: 'Logs', icon: IconListDetails },
-]
-const DOWNLOAD_USER_SECTIONS = [
-  { id: 'security', label: 'Security', icon: IconLock },
-]
-
 export default function Settings() {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const [formData, setFormData] = useState(null)
-  const [hasChanges, setHasChanges] = useState(false)
+  const [editedFields, setEditedFields] = useState(() => new Set())
   const [leaveModalOpen, setLeaveModalOpen] = useState(false)
   const [pendingNavigation, setPendingNavigation] = useState(null)
   const [isSavingAndLeaving, setIsSavingAndLeaving] = useState(false)
   const [activeSection, setActiveSection] = useState('security')
+  const [mobileView, setMobileView] = useState('home')
   const [searchParams, setSearchParams] = useSearchParams()
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
@@ -249,7 +271,7 @@ export default function Settings() {
   })
   const [plexResources, setPlexResources] = useState([])
   const [plexLibraries, setPlexLibraries] = useState([])
-  const isMobile = useMediaQuery('(max-width: 768px)')
+  const isMobile = useMediaQuery('(max-width: 820px)')
   const { colorScheme, setColorScheme } = useMantineColorScheme()
   const { data: authStatus, isLoading: authLoading } = useQuery({
     queryKey: ['auth', 'status'],
@@ -259,25 +281,18 @@ export default function Settings() {
   const isLocalDownloadUser = Boolean(!isAdmin && authStatus?.provider === 'local')
   const availableSections = isAdmin ? ADMIN_SECTIONS : DOWNLOAD_USER_SECTIONS
 
-  const blockNavigation = useCallback((tx) => {
-    if (!hasChanges) {
-      tx.retry()
-      return
-    }
-    setPendingNavigation(tx)
-    setLeaveModalOpen(true)
-  }, [hasChanges])
-  useBlocker(blockNavigation, hasChanges)
-
   useEffect(() => {
     if (authLoading) return
     const requestedSection = searchParams.get('section')
     if (!requestedSection) {
       setActiveSection(isAdmin ? 'recording' : 'security')
+      setMobileView('home')
       return
     }
     const valid = availableSections.some((section) => section.id === requestedSection)
-    setActiveSection(valid ? requestedSection : availableSections[0]?.id || 'security')
+    const resolved = valid ? requestedSection : availableSections[0]?.id || 'security'
+    setActiveSection(resolved)
+    setMobileView(resolved)
   }, [authLoading, availableSections, isAdmin, searchParams])
 
   useEffect(() => {
@@ -292,10 +307,20 @@ export default function Settings() {
     const valid = availableSections.some((section) => section.id === sectionId)
     const resolved = valid ? sectionId : availableSections[0]?.id || 'security'
     setActiveSection(resolved)
+    setMobileView(resolved)
     const next = new URLSearchParams(searchParams)
     next.set('section', resolved)
     setSearchParams(next, { replace: true })
+    window.scrollTo({ top: 0 })
   }, [availableSections, searchParams, setSearchParams])
+
+  const goMobileHome = useCallback(() => {
+    setMobileView('home')
+    const next = new URLSearchParams(searchParams)
+    next.delete('section')
+    setSearchParams(next, { replace: true })
+    window.scrollTo({ top: 0 })
+  }, [searchParams, setSearchParams])
 
   const { data: settings, isLoading, error } = useQuery({
     queryKey: ['settings'],
@@ -319,6 +344,23 @@ export default function Settings() {
     enabled: isAdmin,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
+  })
+  const { data: foldersStatus } = useQuery({
+    queryKey: ['settings', 'folders-status'],
+    queryFn: settingsApi.getFoldersStatus,
+    enabled: isAdmin,
+    refetchInterval: 60000,
+  })
+  const { data: diskSpace } = useQuery({
+    queryKey: ['downloads', 'disk-space'],
+    queryFn: downloadsApi.diskSpace,
+    enabled: isAdmin,
+    refetchInterval: 30000,
+  })
+  const { data: accountsList } = useQuery({
+    queryKey: ['accounts'],
+    queryFn: accountsApi.list,
+    enabled: isAdmin,
   })
   const { data: epgStatus } = useQuery({
     queryKey: ['epg', 'status'],
@@ -351,6 +393,15 @@ export default function Settings() {
     refetchOnReconnect: false,
   })
 
+  // Orange dot on the Accounts rail item when a provider needs attention.
+  const accountsNeedAttention = useMemo(() => {
+    return (accountsList || []).some((account) => {
+      if (account.last_connection_ok === false) return true
+      if (!account.expiration_date) return false
+      return dayjs(account.expiration_date).diff(dayjs(), 'day') <= 7
+    })
+  }, [accountsList])
+
   useEffect(() => {
     if (!plexConfig) return
     if (plexFormHydrated && plexFormDirty) return
@@ -369,17 +420,49 @@ export default function Settings() {
     setPlexFormDirty(false)
   }, [plexConfig, plexFormDirty, plexFormHydrated])
 
+  // Hydrate the form on first load; afterwards keep unedited fields in sync
+  // with the server (e.g. default account changed from the Accounts section).
   useEffect(() => {
-    if (settings && !formData) {
-      setFormData({ ...settings })
+    if (!settings) return
+    setFormData((prev) => {
+      if (!prev) return { ...settings }
+      const next = { ...settings }
+      editedFields.forEach((field) => {
+        next[field] = prev[field]
+      })
+      return next
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings])
+
+  // Dirty tracking: fields the user touched whose value differs from the
+  // last-saved snapshot. Drives the save bar count and the save payload.
+  const changedFields = useMemo(() => {
+    if (!settings || !formData) return []
+    return [...editedFields].filter(
+      (field) => JSON.stringify(formData[field] ?? null) !== JSON.stringify(settings[field] ?? null)
+    )
+  }, [settings, formData, editedFields])
+  const changedCount = changedFields.length
+  const hasChanges = changedCount > 0
+
+  const blockNavigation = useCallback((tx) => {
+    if (!hasChanges) {
+      tx.retry()
+      return
     }
-  }, [settings, formData])
+    setPendingNavigation(tx)
+    setLeaveModalOpen(true)
+  }, [hasChanges])
+  useBlocker(blockNavigation, hasChanges)
 
   const updateMutation = useMutation({
     mutationFn: settingsApi.update,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['settings'] })
-      setHasChanges(false)
+    onSuccess: (data) => {
+      queryClient.setQueryData(['settings'], data)
+      queryClient.invalidateQueries({ queryKey: ['settings', 'folders-status'] })
+      setFormData({ ...data })
+      setEditedFields(new Set())
       notifications.show({
         title: 'Settings Saved',
         message: 'Your settings have been updated',
@@ -637,88 +720,30 @@ export default function Settings() {
     changePasswordMutation.mutate({ current: currentPassword, next: newPassword })
   }
 
-  const handleChange = (field, value) => {
-    setFormData((prev) => ({ ...prev, [field]: value }))
-    setHasChanges(true)
-  }
-
-  const RECORDING_FORMATS = [
-    {
-      value: 'keep_original',
-      label: 'Keep original (.ts)',
-      description: 'No processing. The raw .ts file is kept as downloaded.',
-    },
-    {
-      value: 'remux_mkv',
-      label: 'MKV container (fast, no re-encode)',
-      description: 'Wrap the stream in an MKV file without re-encoding. Fast and lossless.',
-    },
-    {
-      value: 'remux_mp4',
-      label: 'MP4 container (fast, no re-encode)',
-      description: 'Wrap the stream in an MP4 file without re-encoding. Fast and lossless.',
-    },
-    {
-      value: 'transcode_mkv',
-      label: 'MKV (re-encode with ffmpeg)',
-      description: 'Re-encode to MKV using ffmpeg. Slower but fixes compatibility issues.',
-    },
-    {
-      value: 'transcode_mp4',
-      label: 'MP4 (re-encode with ffmpeg)',
-      description: 'Re-encode to MP4 using ffmpeg. Best compatibility with most devices and media players.',
-    },
-    {
-      value: 'remux_mkv_comskip',
-      label: 'MKV container + skip commercials (fast)',
-      description: 'Wrap the stream in MKV without re-encoding and remove commercials with ComSkip.',
-    },
-    {
-      value: 'transcode_comskip',
-      label: 'MKV + skip commercials (re-encode)',
-      description: 'Re-encode to MKV and remove commercials with ComSkip.',
-    },
-    {
-      value: 'transcode_mp4_comskip',
-      label: 'MP4 + skip commercials (re-encode)',
-      description: 'Re-encode to MP4 and remove commercials with ComSkip.',
-    },
-  ]
-
-  function getRecordingFormat(data) {
-    if (!data) return 'keep_original'
-    if (!data.transcode_enabled) return 'keep_original'
-    if (data.remux_only && data.comskip_enabled) return 'remux_mkv_comskip'
-    if (data.remux_only) return data.transcode_format === 'mp4' ? 'remux_mp4' : 'remux_mkv'
-    const isMp4 = data.transcode_format === 'mp4'
-    if (data.comskip_enabled) return isMp4 ? 'transcode_mp4_comskip' : 'transcode_comskip'
-    return isMp4 ? 'transcode_mp4' : 'transcode_mkv'
-  }
-
-  function handleFormatChange(value) {
-    const patches = {
-      keep_original: { transcode_enabled: false, remux_only: false, comskip_enabled: false },
-      remux_mkv: { transcode_enabled: true, remux_only: true, comskip_enabled: false, transcode_format: 'mkv' },
-      remux_mp4: { transcode_enabled: true, remux_only: true, comskip_enabled: false, transcode_format: 'mp4' },
-      remux_mkv_comskip: { transcode_enabled: true, remux_only: true, comskip_enabled: true, transcode_format: 'mkv' },
-      transcode_mkv: { transcode_enabled: true, remux_only: false, comskip_enabled: false, transcode_format: 'mkv' },
-      transcode_mp4: { transcode_enabled: true, remux_only: false, comskip_enabled: false, transcode_format: 'mp4' },
-      transcode_comskip: { transcode_enabled: true, remux_only: false, comskip_enabled: true, transcode_format: 'mkv' },
-      transcode_mp4_comskip: { transcode_enabled: true, remux_only: false, comskip_enabled: true, transcode_format: 'mp4' },
-    }
-    const patch = patches[value]
-    if (!patch) return
+  const applyChanges = (patch) => {
     setFormData((prev) => ({ ...prev, ...patch }))
-    setHasChanges(true)
+    setEditedFields((prev) => new Set([...prev, ...Object.keys(patch)]))
+  }
+
+  const handleChange = (field, value) => {
+    applyChanges({ [field]: value })
+  }
+
+  const buildSavePayload = () => {
+    const payload = {}
+    changedFields.forEach((field) => {
+      payload[field] = formData[field]
+    })
+    return payload
   }
 
   const handleSave = () => {
-    updateMutation.mutate(formData)
+    updateMutation.mutate(buildSavePayload())
   }
 
   const handleReset = () => {
     setFormData({ ...settings })
-    setHasChanges(false)
+    setEditedFields(new Set())
   }
 
   useEffect(() => {
@@ -747,7 +772,7 @@ export default function Settings() {
     const tx = pendingNavigation
     setLeaveModalOpen(false)
     setPendingNavigation(null)
-    setHasChanges(false)
+    handleReset()
     tx?.retry?.()
   }
 
@@ -758,7 +783,7 @@ export default function Settings() {
     }
     setIsSavingAndLeaving(true)
     try {
-      await updateMutation.mutateAsync(formData)
+      await updateMutation.mutateAsync(buildSavePayload())
       setLeaveModalOpen(false)
       setPendingNavigation(null)
       tx.retry()
@@ -788,147 +813,187 @@ export default function Settings() {
     return null
   }
 
-  const renderRecording = () => (
-    <Stack gap="lg">
-      <Stack gap={2}>
-        <Text fw={600} size="lg">Recording</Text>
-        <Text size="sm" c="dimmed">Folders, concurrency, and default timing for recordings</Text>
-      </Stack>
+  const compactButtonSize = isMobile ? 'sm' : 'xs'
+  const switchSize = isMobile ? 'lg' : undefined
 
-      <Stack gap="md">
-        <Text size="xs" fw={600} c="dimmed" tt="uppercase" style={{ letterSpacing: '0.06em' }}>Storage</Text>
+  const renderRecording = () => (
+    <Stack gap="xl">
+      <SectionHeader title="Recording" description="Folders, concurrency, and default timing for recordings" />
+
+      <SubGroup label="Storage">
         <TextInput
-          label="Download Folder"
+          label={
+            <Group component="span" gap={8} display="inline-flex" align="center">
+              <span>Download folder</span>
+              <FolderStatusBadge status={foldersStatus?.download_folder} />
+            </Group>
+          }
           description="Where files are saved while downloading"
           value={formData.download_folder}
           onChange={(e) => handleChange('download_folder', e.target.value)}
           leftSection={<IconFolder size={16} />}
-          styles={{ input: { textOverflow: 'ellipsis' } }}
+          styles={{ input: { fontFamily: 'var(--mantine-font-family-monospace)', fontSize: 12.5, textOverflow: 'ellipsis' } }}
           title={formData.download_folder}
         />
         <TextInput
-          label="Completed Folder"
+          label={
+            <Group component="span" gap={8} display="inline-flex" align="center">
+              <span>Completed folder</span>
+              <FolderStatusBadge status={foldersStatus?.completed_folder} />
+            </Group>
+          }
           description="Where finished files are moved after processing"
           value={formData.completed_folder}
           onChange={(e) => handleChange('completed_folder', e.target.value)}
           leftSection={<IconFolder size={16} />}
-          styles={{ input: { textOverflow: 'ellipsis' } }}
+          styles={{ input: { fontFamily: 'var(--mantine-font-family-monospace)', fontSize: 12.5, textOverflow: 'ellipsis' } }}
           title={formData.completed_folder}
         />
-        <FoldersStatus />
-      </Stack>
+        {diskSpace?.available && diskSpace.disk_free_gb != null && (
+          <Group>
+            <Badge variant="outline" color={diskSpace.is_low ? 'red' : 'gray'} tt="none" fw={500}>
+              {diskSpace.disk_free_gb} GB free on recording drive
+            </Badge>
+          </Group>
+        )}
+      </SubGroup>
 
-      <Divider variant="dashed" />
+      <SubGroup label="Limits">
+        <Stack gap={0}>
+          <SettingRow label="Max concurrent downloads" description="How many downloads can run simultaneously">
+            <NumberStepper
+              aria-label="Max concurrent downloads"
+              min={1}
+              max={5}
+              value={formData.max_concurrent_downloads}
+              onChange={(val) => handleChange('max_concurrent_downloads', val)}
+            />
+          </SettingRow>
+          <SettingRow label="Minimum free space" description="Pause scheduled recordings if free disk space drops below this">
+            <NumberStepper
+              aria-label="Minimum free space"
+              min={1}
+              max={10000}
+              unit="GB"
+              value={formData.min_free_space_gb}
+              onChange={(val) => handleChange('min_free_space_gb', val)}
+            />
+          </SettingRow>
+        </Stack>
+      </SubGroup>
 
-      <Stack gap="md">
-        <Text size="xs" fw={600} c="dimmed" tt="uppercase" style={{ letterSpacing: '0.06em' }}>Concurrency</Text>
-        <NumberInput
-          label="Max Concurrent Downloads"
-          description="How many downloads can run simultaneously"
-          min={1}
-          max={5}
-          value={formData.max_concurrent_downloads}
-          onChange={(val) => handleChange('max_concurrent_downloads', val)}
-        />
-        <NumberInput
-          label="Minimum Free Space (GB)"
-          description="Pause scheduled recordings if free disk space drops below this"
-          min={1}
-          max={10000}
-          value={formData.min_free_space_gb}
-          onChange={(val) => handleChange('min_free_space_gb', val)}
-        />
-      </Stack>
-
-      <Divider variant="dashed" />
-
-      <Stack gap="md">
-        <Text size="xs" fw={600} c="dimmed" tt="uppercase" style={{ letterSpacing: '0.06em' }}>Padding Defaults</Text>
-        <Group grow>
-          <NumberInput
-            label="Minutes Before Start"
-            description="Start recordings this many minutes early"
-            min={0}
-            max={120}
-            value={formData.default_pre_padding_minutes}
-            onChange={(val) => handleChange('default_pre_padding_minutes', val)}
-          />
-          <NumberInput
-            label="Minutes After End"
-            description="Keep recording this many minutes past the end"
-            min={0}
-            max={120}
-            value={formData.default_post_padding_minutes}
-            onChange={(val) => handleChange('default_post_padding_minutes', val)}
-          />
-        </Group>
-      </Stack>
+      <SubGroup label="Padding defaults">
+        <Stack gap={0}>
+          <SettingRow label="Start early" description="Begin recordings this many minutes before the scheduled start">
+            <NumberStepper
+              aria-label="Start early"
+              min={0}
+              max={120}
+              unit="min"
+              value={formData.default_pre_padding_minutes}
+              onChange={(val) => handleChange('default_pre_padding_minutes', val)}
+            />
+          </SettingRow>
+          <SettingRow label="End late" description="Keep recording this many minutes past the scheduled end">
+            <NumberStepper
+              aria-label="End late"
+              min={0}
+              max={120}
+              unit="min"
+              value={formData.default_post_padding_minutes}
+              onChange={(val) => handleChange('default_post_padding_minutes', val)}
+            />
+          </SettingRow>
+        </Stack>
+      </SubGroup>
     </Stack>
   )
 
   const renderProcessing = () => {
-    const currentFormat = getRecordingFormat(formData)
-    const isTranscoding = currentFormat !== 'keep_original'
-    const isFullTranscode = ['transcode_mkv', 'transcode_mp4', 'transcode_comskip', 'transcode_mp4_comskip'].includes(currentFormat)
-    const isComskipFormat = ['remux_mkv_comskip', 'transcode_comskip', 'transcode_mp4_comskip'].includes(currentFormat)
+    const container = !formData.transcode_enabled ? 'ts' : formData.transcode_format === 'mp4' ? 'mp4' : 'mkv'
+    const method = formData.remux_only ? 'remux' : 'encode'
+    const isTs = container === 'ts'
+    const comskipOn = Boolean(formData.comskip_enabled) && !isTs
     const ffmpegReady = toolsStatus?.ffmpeg?.available
     const comskipReady = toolsStatus?.comskip?.available
 
+    const summary = isTs
+      ? 'No processing. The raw .ts file is kept as downloaded.'
+      : method === 'remux'
+        ? `The stream is wrapped in an ${container.toUpperCase()} file without re-encoding. Fast and lossless.`
+        : container === 'mp4'
+          ? 'Re-encode to MP4 using ffmpeg. Best compatibility with most devices and media players.'
+          : 'Re-encode to MKV using ffmpeg. Slower but fixes compatibility issues.'
+
+    const handleContainerChange = (value) => {
+      if (value === 'ts') {
+        applyChanges({ transcode_enabled: false, comskip_enabled: false })
+      } else {
+        applyChanges({ transcode_enabled: true, transcode_format: value })
+      }
+    }
+
     return (
-      <Stack gap="lg">
-        <Stack gap={2}>
-          <Text fw={600} size="lg">Post-Processing</Text>
-          <Text size="sm" c="dimmed">How Mustarrd processes recordings after download</Text>
-        </Stack>
+      <Stack gap="xl">
+        <SectionHeader title="Post-Processing" description="What happens to a recording after the download finishes" />
 
-        <Stack gap="md">
-          <Text size="xs" fw={600} c="dimmed" tt="uppercase" style={{ letterSpacing: '0.06em' }}>Concurrency</Text>
+        <SubGroup label="Output format">
+          <Stack gap={0}>
+            <SettingRow label="Container" description={summary}>
+              <SegmentedControl
+                value={container}
+                onChange={handleContainerChange}
+                data={[
+                  { value: 'ts', label: 'Keep .ts' },
+                  { value: 'mkv', label: 'MKV', disabled: ffmpegReady === false },
+                  { value: 'mp4', label: 'MP4', disabled: ffmpegReady === false },
+                ]}
+              />
+            </SettingRow>
+            {!isTs && (
+              <SettingRow
+                label="Conversion method"
+                description={method === 'remux'
+                  ? 'Repackage only — fast and lossless'
+                  : 'Full re-encode with ffmpeg — slower, smaller files'}
+              >
+                <SegmentedControl
+                  value={method}
+                  onChange={(value) => handleChange('remux_only', value === 'remux')}
+                  data={[
+                    { value: 'remux', label: 'Remux (fast)' },
+                    { value: 'encode', label: 'Re-encode' },
+                  ]}
+                />
+              </SettingRow>
+            )}
+            <SettingRow
+              label="Remove commercials"
+              description={isTs
+                ? 'Requires a container conversion — choose MKV or MP4 above'
+                : 'Detect and cut ad breaks with Comskip before saving'}
+            >
+              {comskipOn && (
+                <Button variant="subtle" size="xs" onClick={() => selectSection('comskip')}>
+                  Tune detection →
+                </Button>
+              )}
+              <Switch
+                size={switchSize}
+                aria-label="Remove commercials"
+                checked={comskipOn}
+                disabled={isTs}
+                onChange={(e) => handleChange('comskip_enabled', e.currentTarget.checked)}
+              />
+            </SettingRow>
+          </Stack>
 
-          <NumberInput
-            label="Max Concurrent Post-Processing"
-            description="How many files can be processed at once (recommended: 1)"
-            min={1}
-            max={10}
-            value={formData.max_concurrent_post_processing ?? 1}
-            onChange={(val) => handleChange('max_concurrent_post_processing', val)}
-          />
-
-          {(formData.max_concurrent_post_processing ?? 1) > 1 && (
-            <Alert icon={<IconAlertCircle size={16} />} color="yellow" variant="light">
-              <Text size="sm">
-                Running multiple conversions at once can saturate your CPU/GPU and disk. Some GPUs also have limited
-                concurrent encoding sessions.
-              </Text>
-            </Alert>
-          )}
-        </Stack>
-
-        <Divider variant="dashed" />
-
-        <Stack gap="md">
-          <Text size="xs" fw={600} c="dimmed" tt="uppercase" style={{ letterSpacing: '0.06em' }}>Recording Format</Text>
-
-          <Select
-            label="Recording Format"
-            description={RECORDING_FORMATS.find(f => f.value === currentFormat)?.description}
-            data={RECORDING_FORMATS.map(f => ({
-              value: f.value,
-              label: f.label,
-              disabled:
-                ['remux_mkv', 'remux_mp4', 'remux_mkv_comskip', 'transcode_mkv', 'transcode_mp4', 'transcode_comskip', 'transcode_mp4_comskip'].includes(f.value) && ffmpegReady === false
-                  ? true
-                  : false,
-            }))}
-            value={currentFormat}
-            onChange={handleFormatChange}
-          />
-
-          {ffmpegReady === false && currentFormat !== 'keep_original' && (
+          {ffmpegReady === false && !isTs && (
             <Alert color="yellow" variant="light">
               <Text size="sm">
                 ffmpeg is unavailable. The Docker image includes ffmpeg; install or fix it manually if running locally.
-                {' '}To save recordings without converting, switch the format above to{' '}
-                <Text component="span" fw={500}>Keep original (.ts)</Text>.
+                {' '}To save recordings without converting, switch the container above to{' '}
+                <Text component="span" fw={500}>Keep .ts</Text>.
               </Text>
               {toolsStatus?.ffmpeg?.error && (
                 <Text size="xs" c="dimmed" mt={4}>{toolsStatus.ffmpeg.error}</Text>
@@ -936,7 +1001,7 @@ export default function Settings() {
             </Alert>
           )}
 
-          {comskipReady === false && isComskipFormat && (
+          {comskipReady === false && comskipOn && (
             <Alert color="yellow" variant="light">
               <Text size="sm">
                 Comskip binary not found in the default PATH. Enter the path to your comskip binary below, or see{' '}
@@ -950,143 +1015,143 @@ export default function Settings() {
               )}
             </Alert>
           )}
+        </SubGroup>
 
-          {isFullTranscode && (
-            <Select
-              label="Hardware Acceleration"
-              description="Use GPU for faster encoding"
-              data={toolsStatus?.hardware_accels?.map(hw => ({
-                value: hw.id,
-                label: hw.name,
-                disabled: !hw.available,
-              })) || [{ value: 'cpu', label: 'CPU (Software)' }]}
-              value={formData.hw_accel || 'cpu'}
-              onChange={(val) => handleChange('hw_accel', val)}
-            />
-          )}
+        {!isTs && method === 'encode' && (
+          <SubGroup label="Encoding">
+            <Stack gap={0}>
+              <SettingRow label="Hardware acceleration" description="Use the GPU for faster encoding">
+                <SegmentedControl
+                  value={formData.hw_accel || 'cpu'}
+                  onChange={(val) => handleChange('hw_accel', val)}
+                  data={toolsStatus?.hardware_accels?.map((hw) => ({
+                    value: hw.id,
+                    label: hw.name,
+                    disabled: !hw.available,
+                  })) || [{ value: 'cpu', label: 'CPU (Software)' }]}
+                />
+              </SettingRow>
+            </Stack>
+            {toolsStatus?.vaapi?.enabled && formData.hw_accel === 'vaapi' && (() => {
+              const hwStatus = describeHardwareAccel(toolsStatus.vaapi)
+              if (!hwStatus) return null
+              return (
+                <Alert color={hwStatus.color === 'gray' ? 'blue' : 'yellow'} variant="light" icon={hwStatus.icon}>
+                  <Text size="sm" fw={500}>{hwStatus.label}</Text>
+                  <Text size="xs" c="dimmed" mt={4}>{hwStatus.detail}</Text>
+                </Alert>
+              )
+            })()}
+          </SubGroup>
+        )}
 
-          {toolsStatus?.vaapi?.enabled && formData.hw_accel === 'vaapi' && isFullTranscode && (() => {
-            const hwStatus = describeHardwareAccel(toolsStatus.vaapi)
-            if (!hwStatus) return null
-            return (
-              <Alert color={hwStatus.color === 'gray' ? 'blue' : 'yellow'} variant="light" icon={hwStatus.icon}>
-                <Text size="sm" fw={500}>{hwStatus.label}</Text>
-                <Text size="xs" c="dimmed" mt={4}>{hwStatus.detail}</Text>
-              </Alert>
-            )
-          })()}
-
-          {isTranscoding && (
+        <SubGroup label="Pipeline">
+          <Stack gap={0}>
             <SettingRow
-              label="Delete original after processing"
-              description="Remove the source .ts file once processing is complete"
+              label="Max concurrent post-processing"
+              description="How many files can be processed at once — 1 is recommended"
             >
-              <Switch
-                checked={formData.delete_original_after_transcode !== false}
-                onChange={(e) => handleChange('delete_original_after_transcode', e.currentTarget.checked)}
+              <NumberStepper
+                aria-label="Max concurrent post-processing"
+                min={1}
+                max={10}
+                value={formData.max_concurrent_post_processing ?? 1}
+                onChange={(val) => handleChange('max_concurrent_post_processing', val)}
               />
             </SettingRow>
+            {!isTs && (
+              <SettingRow
+                label="Delete original after processing"
+                description="Remove the source .ts file once processing is complete"
+              >
+                <Switch
+                  size={switchSize}
+                  aria-label="Delete original after processing"
+                  checked={formData.delete_original_after_transcode !== false}
+                  onChange={(e) => handleChange('delete_original_after_transcode', e.currentTarget.checked)}
+                />
+              </SettingRow>
+            )}
+          </Stack>
+
+          {(formData.max_concurrent_post_processing ?? 1) > 1 && (
+            <Alert icon={<IconAlertCircle size={16} />} color="yellow" variant="light">
+              <Text size="sm">
+                Running multiple conversions at once can saturate your CPU/GPU and disk. Some GPUs also have limited
+                concurrent encoding sessions.
+              </Text>
+            </Alert>
           )}
 
-          {(isComskipFormat || comskipReady) && (
-            <Stack gap="xs">
-              {isComskipFormat && (
-                <Text size="xs" c="dimmed">
-                  Commercials are detected and removed, then the result is saved as {currentFormat === 'transcode_mp4_comskip' ? 'MP4' : 'MKV'}.
-                </Text>
-              )}
-              <TextInput
-                label="Comskip Binary Path (optional)"
-                description="Custom path to the comskip binary"
-                placeholder="/usr/local/bin/comskip"
-                value={formData.comskip_path || ''}
-                onChange={(e) => handleChange('comskip_path', e.target.value || null)}
-              />
-              <Text size="xs" c="dimmed">
-                Commercial detection tuning (and a custom INI override) lives in the Comskip section.
-              </Text>
-            </Stack>
+          {(comskipOn || comskipReady) && (
+            <TextInput
+              label="Comskip binary path (optional)"
+              description="Custom path to the comskip binary"
+              placeholder="/usr/local/bin/comskip"
+              value={formData.comskip_path || ''}
+              onChange={(e) => handleChange('comskip_path', e.target.value || null)}
+              styles={{ input: { fontFamily: 'var(--mantine-font-family-monospace)', fontSize: 12.5 } }}
+            />
           )}
-        </Stack>
+        </SubGroup>
       </Stack>
     )
   }
 
-  const renderNaming = () => (
-    <Stack gap="lg">
-      <Stack gap={2}>
-        <Text fw={600} size="lg">File Naming</Text>
-        <Text size="sm" c="dimmed">
-          Templates for how downloaded files are named. The file extension is added automatically based on your Recording Format, so don&apos;t include one in the template.
-        </Text>
-      </Stack>
+  const renderNaming = () => {
+    const ext = formData.transcode_enabled ? `.${formData.transcode_format || 'mkv'}` : '.ts'
+    return (
+      <Stack gap="xl">
+        <SectionHeader title="File Naming" description="How downloaded files are named for your media library" />
 
-      {templateInfo?.tv_show && (
-        <>
-          <Stack gap="xs">
-            <Text fw={500} size="sm">TV Shows</Text>
-            <TemplateSection
-              label="Template"
-              template={formData.tv_template}
-              variables={templateInfo.tv_show.variables}
-              example={templateInfo.tv_show.example}
-              renderedExample={templateInfo.tv_show.rendered_example}
-              onChange={(val) => handleChange('tv_template', val)}
-            />
-          </Stack>
-          <Divider variant="dashed" />
-        </>
-      )}
+        <Alert color="blue" variant="light" icon={<IconAlertCircle size={16} />}>
+          The file extension ({ext}, from your Post-Processing format) is added automatically — don&apos;t include
+          one in templates.
+        </Alert>
 
-      {templateInfo?.movie && (
-        <>
-          <Stack gap="xs">
-            <Text fw={500} size="sm">Movies</Text>
-            <TemplateSection
-              label="Template"
-              template={formData.movie_template}
-              variables={templateInfo.movie.variables}
-              example={templateInfo.movie.example}
-              renderedExample={templateInfo.movie.rendered_example}
-              onChange={(val) => handleChange('movie_template', val)}
-            />
-          </Stack>
-          <Divider variant="dashed" />
-        </>
-      )}
-
-      {templateInfo?.sports && (
-        <>
-          <Stack gap="xs">
-            <Text fw={500} size="sm">Sports</Text>
-            <TemplateSection
-              label="Template"
-              template={formData.sports_template}
-              variables={templateInfo.sports.variables}
-              example={templateInfo.sports.example}
-              renderedExample={templateInfo.sports.rendered_example}
-              onChange={(val) => handleChange('sports_template', val)}
-            />
-          </Stack>
-          <Divider variant="dashed" />
-        </>
-      )}
-
-      {templateInfo?.default && (
-        <Stack gap="xs">
-          <Text fw={500} size="sm">Default (Other Content)</Text>
-          <TemplateSection
-            label="Template"
+        {templateInfo?.tv_show && (
+          <TemplateBlock
+            label="TV shows"
+            template={formData.tv_template}
+            variables={templateInfo.tv_show.variables}
+            sample={TEMPLATE_SAMPLES.tv_show}
+            ext={ext}
+            onChange={(val) => handleChange('tv_template', val)}
+          />
+        )}
+        {templateInfo?.movie && (
+          <TemplateBlock
+            label="Movies"
+            template={formData.movie_template}
+            variables={templateInfo.movie.variables}
+            sample={TEMPLATE_SAMPLES.movie}
+            ext={ext}
+            onChange={(val) => handleChange('movie_template', val)}
+          />
+        )}
+        {templateInfo?.sports && (
+          <TemplateBlock
+            label="Sports"
+            template={formData.sports_template}
+            variables={templateInfo.sports.variables}
+            sample={TEMPLATE_SAMPLES.sports}
+            ext={ext}
+            onChange={(val) => handleChange('sports_template', val)}
+          />
+        )}
+        {templateInfo?.default && (
+          <TemplateBlock
+            label="Everything else"
             template={formData.default_template}
             variables={templateInfo.default.variables}
-            example={templateInfo.default.example}
-            renderedExample={templateInfo.default.rendered_example}
+            sample={TEMPLATE_SAMPLES.default}
+            ext={ext}
             onChange={(val) => handleChange('default_template', val)}
           />
-        </Stack>
-      )}
-    </Stack>
-  )
+        )}
+      </Stack>
+    )
+  }
 
   const renderGuide = () => {
     const lastSync = epgStatus?.last_completed_at
@@ -1102,71 +1167,89 @@ export default function Settings() {
         : `${d.toLocaleDateString([], { month: 'long', day: 'numeric' })} at ${timeStr}`
     }
     const isRunning = epgStatus?.running || epgRefreshMutation.isPending
+    const intervalHours = epgStatus?.interval_hours
     return (
-      <Stack gap="lg">
-        <Stack gap={2}>
-          <Text fw={600} size="lg">Guide</Text>
-          <Text size="sm" c="dimmed">Program guide sync status and manual refresh</Text>
-        </Stack>
-        <SettingRow
-          label={lastError ? 'Last sync attempt' : 'Last synced'}
-          description="When Mustarrd last updated the program guide from your provider"
-        >
-          <Text size="sm" c={lastSync ? undefined : 'dimmed'}>{lastSyncLabel}</Text>
-        </SettingRow>
-        {lastError && (
-          <Alert color="orange" variant="light" icon={<IconAlertCircle size={16} />}>
-            Guide sync failed. Check your provider connection in{' '}
-            <Link to="/settings?section=accounts" style={{ color: 'var(--mantine-color-orange-5)' }}>
-              Accounts
-            </Link>.
-          </Alert>
-        )}
-        <SettingRow
-          label="Refresh guide now"
-          description="Fetch the latest program guide data from your provider in the background"
-        >
-          <Button
-            size="xs"
-            variant="light"
-            leftSection={<IconRefresh size={14} />}
-            loading={isRunning}
-            disabled={isRunning}
-            onClick={() => epgRefreshMutation.mutate()}
-          >
-            {isRunning ? 'Refreshing...' : 'Refresh Now'}
-          </Button>
-        </SettingRow>
+      <Stack gap="xl">
+        <SectionHeader title="Program Guide" description="EPG sync status and refresh schedule" />
+
+        <SubGroup label="Sync">
+          <Stack gap={0}>
+            <SettingRow
+              label={lastError ? 'Last sync attempt' : 'Last synced'}
+              description="When Mustarrd last updated the program guide from your provider"
+            >
+              <Text size="sm" c={lastSync ? undefined : 'dimmed'}>{lastSyncLabel}</Text>
+            </SettingRow>
+            {intervalHours != null && (
+              <SettingRow
+                label="Automatic refresh"
+                description="How often the guide updates in the background — set with the CATCHUP_EPG_REFRESH_INTERVAL_HOURS environment variable"
+              >
+                <Text size="sm">Every {intervalHours} hour{Number(intervalHours) === 1 ? '' : 's'}</Text>
+              </SettingRow>
+            )}
+            <SettingRow
+              label="Refresh now"
+              description="Fetch the latest program guide data from your provider in the background"
+            >
+              <Button
+                size={compactButtonSize}
+                variant="light"
+                leftSection={<IconRefresh size={14} />}
+                loading={isRunning}
+                disabled={isRunning}
+                onClick={() => epgRefreshMutation.mutate()}
+              >
+                {isRunning ? 'Refreshing…' : 'Refresh Now'}
+              </Button>
+            </SettingRow>
+          </Stack>
+          {lastError && (
+            <Alert color="orange" variant="light" icon={<IconAlertCircle size={16} />}>
+              Guide sync failed. Check your provider connection in{' '}
+              <Anchor c="orange.5" onClick={() => selectSection('accounts')}>Accounts</Anchor>.
+            </Alert>
+          )}
+        </SubGroup>
       </Stack>
     )
   }
 
   const renderAppearance = () => (
-    <Stack gap="lg">
-      <Stack gap={2}>
-        <Text fw={600} size="lg">Appearance</Text>
-        <Text size="sm" c="dimmed">Theme and display preferences</Text>
-      </Stack>
+    <Stack gap="xl">
+      <SectionHeader title="Appearance" description="Theme and display preferences" />
 
-      <SettingRow label="Dark Mode" description="Switch between light and dark interface theme">
-        <Switch
-          checked={colorScheme === 'dark'}
-          onChange={(e) => setColorScheme(e.currentTarget.checked ? 'dark' : 'light')}
-        />
-      </SettingRow>
+      <Stack gap={0}>
+        <SettingRow label="Theme" description="Mustarrd was born for the dark, but you do you">
+          <SegmentedControl
+            value={colorScheme === 'light' ? 'light' : 'dark'}
+            onChange={(value) => setColorScheme(value)}
+            data={[
+              {
+                value: 'dark',
+                label: (
+                  <Group component="span" gap={6} wrap="nowrap" display="inline-flex" align="center">
+                    <IconMoon size={14} />
+                    Dark
+                  </Group>
+                ),
+              },
+              { value: 'light', label: 'Light' },
+            ]}
+          />
+        </SettingRow>
+      </Stack>
     </Stack>
   )
 
   const renderSecurity = () => (
-    <Stack gap="lg">
-      <Stack gap={2}>
-        <Text fw={600} size="lg">Security</Text>
-        <Text size="sm" c="dimmed">
-          {isAdmin
-            ? 'Change your admin account password'
-            : 'Change your local download user password'}
-        </Text>
-      </Stack>
+    <Stack gap="xl">
+      <SectionHeader
+        title="Security"
+        description={isAdmin
+          ? 'Change your admin account password'
+          : 'Change your local download user password'}
+      />
 
       {!isAdmin && !isLocalDownloadUser && (
         <Alert color="yellow" variant="light">
@@ -1176,7 +1259,7 @@ export default function Settings() {
         </Alert>
       )}
 
-      <form onSubmit={handleChangePassword}>
+      <form onSubmit={handleChangePassword} style={{ maxWidth: 420 }}>
         <Stack gap="sm">
           <PasswordInput
             label={isAdmin ? 'Current Admin Password' : 'Current Password'}
@@ -1198,11 +1281,16 @@ export default function Settings() {
             autoComplete="new-password"
             error={confirmPassword && confirmPassword !== newPassword ? 'Passwords do not match' : null}
           />
-          <Group justify="flex-end">
+          <Group justify="flex-start">
             <Button
               type="submit"
               loading={changePasswordMutation.isPending}
-              disabled={!isAdmin && !isLocalDownloadUser}
+              disabled={
+                (!isAdmin && !isLocalDownloadUser) ||
+                !currentPassword ||
+                newPassword.length < 8 ||
+                newPassword !== confirmPassword
+              }
             >
               Change Password
             </Button>
@@ -1213,203 +1301,247 @@ export default function Settings() {
   )
 
   const renderUsers = () => (
-    <Stack gap="lg">
-      <Stack gap={2}>
-        <Text fw={600} size="lg">Download-Only Users</Text>
-        <Text size="sm" c="dimmed">Can browse channels, schedule recordings, and download programs. Cannot access Settings.</Text>
-      </Stack>
-      <Alert color="blue" variant="light">
-        <Group justify="space-between" align="center" wrap="nowrap">
-          <Text size="sm">Plex Integration controls Plex-based sign-in and server/library sync.</Text>
-          <Button size="xs" variant="light" onClick={() => selectSection('plex')}>Open Plex Integration</Button>
-        </Group>
-      </Alert>
-      <Group grow align="flex-end">
-        <TextInput
-          label="Username"
-          placeholder="john"
-          value={newUserName}
-          onChange={(e) => setNewUserName(e.target.value)}
-        />
-        <TextInput
-          label="Display Name"
-          placeholder="John"
-          value={newUserDisplayName}
-          onChange={(e) => setNewUserDisplayName(e.target.value)}
-        />
-        <PasswordInput
-          label="Password"
-          placeholder="Min 8 chars"
-          value={newUserPassword}
-          onChange={(e) => setNewUserPassword(e.target.value)}
-        />
-      </Group>
-      <Group justify="flex-end">
-        <Button
-          leftSection={<IconPlus size={14} />}
-          onClick={() =>
-            createUserMutation.mutate({
-              username: newUserName,
-              display_name: newUserDisplayName || null,
-              password: newUserPassword || null,
-              status: 'active',
-            })
-          }
-          disabled={!newUserName}
-          loading={createUserMutation.isPending}
-        >
-          Add User
-        </Button>
-      </Group>
-      <Divider />
-      <Stack gap="xs">
-        {managedUsers.map((user) => (
-          <Group key={user.id} justify="space-between">
-            <Stack gap={0}>
-              <Text fw={500}>{user.display_name || user.username || `User ${user.id}`}</Text>
-              <Text size="xs" c="dimmed">
-                {user.username || 'Plex-only identity'} · {user.status}
-                {user.password_reset_required ? ' · reset required on next local login' : ''}
-              </Text>
-            </Stack>
-            <Group gap="xs">
-              {user.username && (
+    <Stack gap="xl">
+      <SectionHeader
+        title="Users"
+        description="Download-only users can browse, schedule, and download — but can't change settings"
+      />
+
+      <SubGroup label="Members">
+        <div>
+          {managedUsers.map((user) => {
+            const displayName = user.display_name || user.username || `User ${user.id}`
+            const isPlexUser = !user.username
+            return (
+              <div key={user.id} className={classes.userRow}>
+                <span className={classes.userAvatar}>{displayName.slice(0, 1).toUpperCase()}</span>
+                <Stack gap={0} style={{ flex: 1, minWidth: 0 }}>
+                  <Text size="sm" fw={500}>{displayName}</Text>
+                  <Text size="xs" c="dimmed">
+                    {isPlexUser ? 'Signs in with Plex' : `@${user.username}`}
+                    {user.password_reset_required ? ' · must reset password at next login' : ''}
+                  </Text>
+                </Stack>
+                <Badge variant="outline" color={isPlexUser ? 'gray' : 'yellow'}>
+                  {isPlexUser ? 'Plex' : 'Local'}
+                </Badge>
+                {user.username && (
+                  <Button
+                    variant="subtle"
+                    size={compactButtonSize}
+                    leftSection={<IconKey size={14} />}
+                    onClick={() => {
+                      setResetTargetUser(user)
+                      setResetUserPassword('')
+                      setResetPasswordModalOpen(true)
+                    }}
+                  >
+                    Set Password
+                  </Button>
+                )}
                 <Button
-                  variant="light"
-                  leftSection={<IconKey size={14} />}
-                  onClick={() => {
-                    setResetTargetUser(user)
-                    setResetUserPassword('')
-                    setResetPasswordModalOpen(true)
-                  }}
+                  variant="subtle"
+                  color="red"
+                  size={compactButtonSize}
+                  px={8}
+                  aria-label={`Delete ${displayName}`}
+                  onClick={() => deleteUserMutation.mutate(user.id)}
+                  loading={deleteUserMutation.isPending}
                 >
-                  Set Password
+                  <IconTrash size={14} />
                 </Button>
-              )}
-              <Button
-                variant="light"
-                color="red"
-                leftSection={<IconTrash size={14} />}
-                onClick={() => deleteUserMutation.mutate(user.id)}
-                loading={deleteUserMutation.isPending}
-              >
-                Delete
-              </Button>
-            </Group>
-          </Group>
-        ))}
-        {managedUsers.length === 0 && (
-          <Text size="sm" c="dimmed">No download-only users yet.</Text>
-        )}
-      </Stack>
+              </div>
+            )
+          })}
+          {managedUsers.length === 0 && (
+            <Text size="sm" c="dimmed">No download-only users yet.</Text>
+          )}
+        </div>
+      </SubGroup>
+
+      <SubGroup label="Add a download-only user">
+        <div className={classes.userAddGrid}>
+          <TextInput
+            label="Username"
+            placeholder="john"
+            value={newUserName}
+            onChange={(e) => setNewUserName(e.target.value)}
+          />
+          <TextInput
+            label="Display name"
+            placeholder="John"
+            value={newUserDisplayName}
+            onChange={(e) => setNewUserDisplayName(e.target.value)}
+          />
+          <PasswordInput
+            label="Password"
+            placeholder="Min 8 chars"
+            value={newUserPassword}
+            onChange={(e) => setNewUserPassword(e.target.value)}
+          />
+          <Button
+            leftSection={<IconPlus size={14} />}
+            onClick={() =>
+              createUserMutation.mutate({
+                username: newUserName,
+                display_name: newUserDisplayName || null,
+                password: newUserPassword || null,
+                status: 'active',
+              })
+            }
+            disabled={!newUserName}
+            loading={createUserMutation.isPending}
+          >
+            Add
+          </Button>
+        </div>
+        <Alert color="blue" variant="light" icon={<IconAlertCircle size={15} />}>
+          Plex sign-in is managed in{' '}
+          <Anchor onClick={() => selectSection('plex')}>Plex Integration</Anchor>.
+        </Alert>
+      </SubGroup>
     </Stack>
   )
 
   const renderPlex = () => (
-    <Stack gap="md">
-      <Text fw={600} size="lg">Plex Integration</Text>
-      <Text size="sm" c="dimmed">Connect a Plex account to enable Plex-based sign-in and automatic library scanning when recordings complete.</Text>
-      <Group align="center">
-        <Button
-          onClick={() => {
-            const popup = window.open('about:blank', '_blank')
-            connectPlexStartMutation.mutate({ popupRef: popup })
-          }}
-          loading={connectPlexStartMutation.isPending}
-        >
-          Connect Plex Account
-        </Button>
-        {plexConfig?.token_configured && (
+    <Stack gap="xl">
+      <SectionHeader
+        title="Plex Integration"
+        description="Plex-based sign-in for your users, and automatic library scans when recordings complete"
+      />
+
+      <SubGroup label="Account">
+        {!plexConfig?.token_configured ? (
           <>
-            <Button
-              variant="subtle"
-              onClick={() => listPlexResourcesMutation.mutate()}
-              loading={listPlexResourcesMutation.isPending}
-            >
-              Refresh Servers
-            </Button>
-            <Button
-              variant="subtle"
-              color="red"
-              onClick={() => disconnectPlexMutation.mutate()}
-              loading={disconnectPlexMutation.isPending}
-            >
-              Disconnect
-            </Button>
+            <Group>
+              <Button
+                onClick={() => {
+                  const popup = window.open('about:blank', '_blank')
+                  connectPlexStartMutation.mutate({ popupRef: popup })
+                }}
+                loading={connectPlexStartMutation.isPending}
+              >
+                Connect Plex Account
+              </Button>
+            </Group>
+            <Alert color="blue" variant="light" icon={<IconAlertCircle size={16} />}>
+              No Plex account connected. Click Connect Plex Account to sign in with Plex. Your servers and
+              libraries will appear here once connected.
+            </Alert>
           </>
+        ) : (
+          <Stack gap={0}>
+            <SettingRow label="Plex account" description="Used for Plex sign-in and library refreshes">
+              <Badge color="green" variant="light" leftSection={<IconCircleCheck size={11} />}>
+                Connected
+              </Badge>
+              <Button
+                variant="subtle"
+                size={compactButtonSize}
+                onClick={() => listPlexResourcesMutation.mutate()}
+                loading={listPlexResourcesMutation.isPending}
+              >
+                Refresh Servers
+              </Button>
+              <Button
+                variant="subtle"
+                color="red"
+                size={compactButtonSize}
+                onClick={() => disconnectPlexMutation.mutate()}
+                loading={disconnectPlexMutation.isPending}
+              >
+                Disconnect
+              </Button>
+            </SettingRow>
+          </Stack>
         )}
-      </Group>
+      </SubGroup>
 
-      {!plexConfig?.token_configured ? (
-        <Alert color="blue" variant="light" icon={<IconAlertCircle size={16} />}>
-          No Plex account connected. Click Connect Plex Account to sign in with Plex. Your servers and libraries will appear here once connected.
-        </Alert>
-      ) : (
+      {plexConfig?.token_configured && (
         <>
-          <Select
-            label="Plex Server"
-            placeholder="Select an owned server"
-            data={plexResources.map((r) => ({
-              value: r.resource_id,
-              label: `${r.name}${r.platform ? ` (${r.platform})` : ''}`,
-            }))}
-            value={plexForm.resource_id || null}
-            onChange={(value) => {
-              if (!value) return
-              const selected = plexResources.find((r) => r.resource_id === value)
-              updatePlexForm((prev) => ({
-                ...prev,
-                resource_id: value,
-                resource_name: selected?.name || '',
-                machine_identifier: selected?.machine_identifier || null,
-                connection_uri: selected?.base_url || '',
-                base_url: selected?.base_url || '',
-              }))
-              setPlexLibraries([])
-              listPlexLibrariesMutation.mutate({ resourceId: value, connectionUri: selected?.base_url || '' })
-            }}
-          />
+          <SubGroup label="Server">
+            <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+              <Select
+                label="Plex server"
+                placeholder="Select an owned server"
+                data={plexResources.map((r) => ({
+                  value: r.resource_id,
+                  label: `${r.name}${r.platform ? ` (${r.platform})` : ''}`,
+                }))}
+                value={plexForm.resource_id || null}
+                onChange={(value) => {
+                  if (!value) return
+                  const selected = plexResources.find((r) => r.resource_id === value)
+                  updatePlexForm((prev) => ({
+                    ...prev,
+                    resource_id: value,
+                    resource_name: selected?.name || '',
+                    machine_identifier: selected?.machine_identifier || null,
+                    connection_uri: selected?.base_url || '',
+                    base_url: selected?.base_url || '',
+                  }))
+                  setPlexLibraries([])
+                  listPlexLibrariesMutation.mutate({ resourceId: value, connectionUri: selected?.base_url || '' })
+                }}
+              />
+              <Select
+                label="Connection"
+                placeholder="Select which Plex endpoint to use"
+                data={(plexResources.find((r) => r.resource_id === plexForm.resource_id)?.connections || []).map((conn) => ({
+                  value: conn.uri,
+                  label: `${conn.uri}${conn.local ? ' (Local)' : ''}${conn.relay ? ' (Relay)' : ''}`,
+                }))}
+                value={plexForm.connection_uri || null}
+                onChange={(value) => {
+                  if (!value || !plexForm.resource_id) return
+                  updatePlexForm((prev) => ({ ...prev, connection_uri: value, base_url: value }))
+                  setPlexLibraries([])
+                  listPlexLibrariesMutation.mutate({ resourceId: plexForm.resource_id, connectionUri: value })
+                }}
+              />
+            </SimpleGrid>
+            <MultiSelect
+              label="Libraries to refresh after a recording completes"
+              placeholder="Choose one or more libraries"
+              data={plexLibraries.map((lib) => ({
+                value: String(lib.id),
+                label: `${lib.title}${lib.type ? ` (${lib.type})` : ''}`,
+              }))}
+              value={(plexForm.library_section_ids || []).map((v) => String(v))}
+              onChange={(values) => updatePlexForm((prev) => ({ ...prev, library_section_ids: values }))}
+              searchable
+            />
+          </SubGroup>
 
-          <Select
-            label="Connection URI"
-            placeholder="Select which Plex endpoint to use"
-            data={(plexResources.find((r) => r.resource_id === plexForm.resource_id)?.connections || []).map((conn) => ({
-              value: conn.uri,
-              label: `${conn.uri}${conn.local ? ' (Local)' : ''}${conn.relay ? ' (Relay)' : ''}`,
-            }))}
-            value={plexForm.connection_uri || null}
-            onChange={(value) => {
-              if (!value || !plexForm.resource_id) return
-              updatePlexForm((prev) => ({ ...prev, connection_uri: value, base_url: value }))
-              setPlexLibraries([])
-              listPlexLibrariesMutation.mutate({ resourceId: plexForm.resource_id, connectionUri: value })
-            }}
-          />
+          <SubGroup label="Behavior">
+            <Stack gap={0}>
+              <SettingRow
+                label="Allow Plex server users to sign in"
+                description="Anyone with access to your server can log in to Mustarrd and request recordings"
+              >
+                <Switch
+                  size={switchSize}
+                  aria-label="Allow Plex server users to sign in"
+                  checked={plexForm.auto_allow_all_server_users}
+                  onChange={(e) =>
+                    updatePlexForm((prev) => ({ ...prev, auto_allow_all_server_users: e.currentTarget.checked }))
+                  }
+                />
+              </SettingRow>
+              <SettingRow
+                label="Auto-refresh libraries after downloads"
+                description="Trigger a Plex library scan when a recording finishes processing"
+              >
+                <Switch
+                  size={switchSize}
+                  aria-label="Auto-refresh libraries after downloads"
+                  checked={plexForm.enabled}
+                  onChange={(e) => updatePlexForm((prev) => ({ ...prev, enabled: e.currentTarget.checked }))}
+                />
+              </SettingRow>
+            </Stack>
+          </SubGroup>
 
-          <MultiSelect
-            label="Libraries to Refresh"
-            placeholder="Choose one or more libraries"
-            data={plexLibraries.map((lib) => ({
-              value: String(lib.id),
-              label: `${lib.title}${lib.type ? ` (${lib.type})` : ''}`,
-            }))}
-            value={(plexForm.library_section_ids || []).map((v) => String(v))}
-            onChange={(values) => updatePlexForm((prev) => ({ ...prev, library_section_ids: values }))}
-            searchable
-          />
-
-          <Switch
-            label="Allow Plex server users to sign in to Mustarrd"
-            checked={plexForm.auto_allow_all_server_users}
-            onChange={(e) =>
-              updatePlexForm((prev) => ({ ...prev, auto_allow_all_server_users: e.currentTarget.checked }))
-            }
-          />
-          <Switch
-            label="Auto-refresh selected Plex libraries after downloads"
-            checked={plexForm.enabled}
-            onChange={(e) => updatePlexForm((prev) => ({ ...prev, enabled: e.currentTarget.checked }))}
-          />
           <Group justify="flex-end">
             <Button
               onClick={() =>
@@ -1441,9 +1573,9 @@ export default function Settings() {
     <ComskipSection
       formData={formData}
       onChange={handleChange}
+      onNavigateToProcessing={() => selectSection('processing')}
       onResetDefaults={() => {
-        setFormData((prev) => ({ ...prev, ...COMSKIP_DEFAULTS }))
-        setHasChanges(true)
+        applyChanges({ ...COMSKIP_DEFAULTS })
       }}
     />
   )
@@ -1461,12 +1593,69 @@ export default function Settings() {
     accounts: () => <AccountsSection showTitle={false} />,
     logs: () => <LogsSection showTitle={false} />,
   }
-  const configSections = new Set(['recording', 'processing', 'comskip', 'naming', 'appearance', 'security'])
-  const inConfigSection = isAdmin && configSections.has(activeSection)
   const visibleSectionId = availableSections.some((section) => section.id === activeSection)
     ? activeSection
     : (availableSections[0]?.id || 'security')
   const activeSectionContent = sectionContent[visibleSectionId]
+
+  const railGroups = isAdmin
+    ? SECTION_GROUPS
+    : [{ label: null, items: DOWNLOAD_USER_SECTIONS }]
+
+  const renderRail = () => (
+    <Stack gap={8} style={{ width: 218, flexShrink: 0, position: 'sticky', top: 16 }}>
+      {isAdmin && <SettingsSearch onNavigate={selectSection} />}
+      <Paper withBorder radius="md" p={8}>
+        {railGroups.map((group) => (
+          <div key={group.label || 'default'}>
+            {group.label && <div className={classes.railGroupLabel}>{group.label}</div>}
+            {group.items.map(({ id, label, icon: Icon }) => (
+              <NavLink
+                key={id}
+                label={label}
+                leftSection={<Icon size={15} />}
+                rightSection={
+                  id === 'accounts' && accountsNeedAttention ? (
+                    <span className={classes.warnDot} title="A provider account needs attention" />
+                  ) : null
+                }
+                active={visibleSectionId === id}
+                onClick={() => selectSection(id)}
+                styles={{
+                  root: { borderRadius: 6, padding: '7px 10px' },
+                  label: { fontSize: 13.5 },
+                  section: { marginRight: 8 },
+                }}
+              />
+            ))}
+          </div>
+        ))}
+      </Paper>
+    </Stack>
+  )
+
+  const renderMobileHome = () => (
+    <Stack gap="xs">
+      {isAdmin && <SettingsSearch isMobile onNavigate={selectSection} />}
+      <div>
+        {railGroups.map((group) => (
+          <div key={group.label || 'default'}>
+            {group.label && <div className={classes.mobileGroupLabel}>{group.label}</div>}
+            {group.items.map(({ id, label, icon: Icon }) => (
+              <button key={id} type="button" className={classes.mobileItem} onClick={() => selectSection(id)}>
+                <span className={classes.mobileItemIcon}><Icon size={18} /></span>
+                <span>{label}</span>
+                {id === 'accounts' && accountsNeedAttention && (
+                  <span className={classes.mobileWarnDot} title="A provider account needs attention" />
+                )}
+                <span className={classes.mobileItemChev}><IconChevronRight size={16} /></span>
+              </button>
+            ))}
+          </div>
+        ))}
+      </div>
+    </Stack>
+  )
 
   return (
     <Stack>
@@ -1562,59 +1751,46 @@ export default function Settings() {
         </Stack>
       </Modal>
 
-      <Group justify="space-between">
-        <Title order={2}>Settings</Title>
-        <Group>
-          {hasChanges && inConfigSection && (
-            <Button variant="subtle" onClick={handleReset}>
-              Discard Changes
-            </Button>
-          )}
-          {inConfigSection && (hasChanges || updateMutation.isPending) && (
-            <Button
-              onClick={handleSave}
-              loading={updateMutation.isPending}
-              disabled={Object.keys(comskipErrors).length > 0}
-            >
-              Save Settings
-            </Button>
-          )}
+      {(!isMobile || mobileView === 'home') && (
+        <Group justify="space-between">
+          <Title order={2}>Settings</Title>
         </Group>
-      </Group>
+      )}
 
       {isMobile ? (
-        <Stack gap="md">
-          <Select
-            data={availableSections.map(({ id, label }) => ({ value: id, label }))}
-            value={visibleSectionId}
-            onChange={(val) => val && selectSection(val)}
-            size="sm"
-          />
-          <Card shadow="sm" padding="lg" radius="md" withBorder>
-            {activeSectionContent?.()}
-          </Card>
-        </Stack>
+        mobileView === 'home' ? (
+          renderMobileHome()
+        ) : (
+          <Stack gap="xs">
+            <button type="button" className={classes.backBtn} onClick={goMobileHome}>
+              <IconChevronLeft size={16} /> Settings
+            </button>
+            <Card shadow="sm" padding="md" radius="md" withBorder>
+              <Box key={visibleSectionId} className={classes.fadeIn}>
+                {activeSectionContent?.()}
+              </Box>
+            </Card>
+          </Stack>
+        )
       ) : (
         <Group align="flex-start" gap="lg" wrap="nowrap">
-          <Paper withBorder radius="md" p="xs" style={{ width: 190, flexShrink: 0 }}>
-            <Stack gap={2}>
-              {availableSections.map(({ id, label, icon: Icon }) => (
-                <NavLink
-                  key={id}
-                  label={label}
-                  leftSection={<Icon size={16} />}
-                  active={visibleSectionId === id}
-                  onClick={() => selectSection(id)}
-                  styles={{ root: { borderRadius: 6 } }}
-                />
-              ))}
-            </Stack>
-          </Paper>
-
+          {renderRail()}
           <Card shadow="sm" padding="lg" radius="md" withBorder style={{ flex: 1, minWidth: 0 }}>
-            {activeSectionContent?.()}
+            <Box key={visibleSectionId} className={classes.fadeIn}>
+              {activeSectionContent?.()}
+            </Box>
           </Card>
         </Group>
+      )}
+
+      {isAdmin && (
+        <SaveBar
+          count={changedCount}
+          saving={updateMutation.isPending}
+          disabled={Object.keys(comskipErrors).length > 0}
+          onSave={handleSave}
+          onDiscard={handleReset}
+        />
       )}
     </Stack>
   )
