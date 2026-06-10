@@ -6,6 +6,14 @@ All notable changes to Mustarrd are listed here. Most recent changes are at the 
 
 ## 2026-06-10
 
+### Changed: The Settings page got a full redesign
+
+**What you would notice:** Settings is reorganized into three groups — Connections (Accounts, Plex Integration, Users), Recording (Recording, Post-Processing, Commercial Skip, File Naming), and System (Program Guide, Appearance, Security, Logs) — with a search box above the navigation that jumps straight to any setting. The confusing 8-option "Recording Format" dropdown is now two simple choices (Container: Keep .ts / MKV / MP4, and Remux vs Re-encode) plus a "Remove commercials" switch. Instead of Save/Discard buttons at the top of the page, a floating bar appears at the bottom whenever you have unsaved changes, showing exactly how many. On phones, Settings is now a tappable list of sections that you drill into and back out of, with bigger touch-friendly controls. Folder writability now shows as a small badge right on the folder fields (plus a live "GB free" badge), number fields use −/+ steppers, file-naming templates show a live preview of the resulting filename, Commercial Skip has an illustration of what gets kept and cut, and the Logs section is a compact color-coded viewer with a Download button. "Comskip" was renamed "Commercial Skip" and "Guide" is now "Program Guide", which also shows the automatic refresh interval.
+
+**What changed:** Mostly frontend: `Settings.jsx` was rebuilt around a grouped rail, client-side settings search, a sticky save bar driven by a per-field dirty count (saving now sends only the fields you changed), and a mobile (≤820px) drill-down view replacing the section dropdown. New shared components: NumberStepper, SettingRow/SubGroup primitives, SettingsSearch, SaveBar. The format picker maps onto the same `transcode_enabled` / `remux_only` / `transcode_format` / `comskip_enabled` fields as before. The unsaved-changes navigation blocker, Save & Continue modal, comskip bitmask handling, and all existing mutations are unchanged. Backend: `/api/epg/status` now includes `interval_hours` so the Program Guide section can display the refresh cadence.
+
+---
+
 ### Changed: Post-Processing settings no longer show a wall of status badges
 
 **What you would notice:** The Post-Processing section in Settings used to open with a cluster of badges and green boxes ("FFMPEG READY", "COMSKIP READY", "GPU encoding ready…") even when everything was working fine — which is the normal case for the Docker image, where all of these tools ship pre-installed. That status dump is gone. The page now goes straight to the settings, and you only see a message when something is actually wrong: a yellow warning if you pick a format that needs ffmpeg or Comskip and the tool is missing (including the underlying error detail), or a notice if you select VA-API hardware encoding and no usable GPU is visible to the app.
