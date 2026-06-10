@@ -1,4 +1,5 @@
 CLAUDE.local.md
+security_best_practices_report.md
 .DS_Store
 *.log
 *.pid
@@ -14,6 +15,7 @@ downloads/
 data/
 
 backend/venv/
+backend/.venv_tmp/
 backend/data/
 frontend/node_modules/
 frontend/dist/
