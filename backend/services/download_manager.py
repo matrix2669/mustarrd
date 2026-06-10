@@ -36,6 +36,13 @@ MIN_FREE_SPACE_FALLBACK_GB = 25
 # progress is persisted and broadcast every this-many bytes instead.
 CHUNKED_PROGRESS_INTERVAL_BYTES = 8 * 1024 * 1024
 
+# aiohttp's default read buffer is 64KB; while the transfer loop awaits the
+# disk write / DB commit for a chunk, flow control stops reading the socket,
+# the buffer fills, and the TCP receive window collapses — throttling
+# throughput to roughly window/RTT on high-latency provider links. A large
+# buffer lets socket reads run ahead of disk writes.
+DOWNLOAD_READ_BUFFER_BYTES = 4 * 1024 * 1024
+
 
 def _is_transient_network_error(e: BaseException) -> bool:
     """True for network-level errors worth retrying (disconnects, timeouts).
@@ -1713,7 +1720,9 @@ class DownloadManager:
         if offset > 0:
             request_headers["Range"] = f"bytes={offset}-"
 
-        async with aiohttp.ClientSession(timeout=timeout) as http_session:
+        async with aiohttp.ClientSession(
+            timeout=timeout, read_bufsize=DOWNLOAD_READ_BUFFER_BYTES
+        ) as http_session:
             needs_restart = False
 
             async with http_session.get(url, headers=request_headers) as response:

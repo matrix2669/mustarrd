@@ -6,6 +6,14 @@ All notable changes to Mustarrd are listed here. Most recent changes are at the 
 
 ## 2026-06-10
 
+### Fixed: Downloads are no longer much slower than the same URL fetched with other tools
+
+**What you would notice:** Recordings download noticeably faster, especially from providers far away (high network latency). Previously a download could crawl at a fraction of your real connection speed while a plain command-line fetch of the same stream ran several times faster.
+
+**What changed:** Backend: the download client used aiohttp's default 64KB read buffer. Every time the app paused to write a chunk to disk (or update progress), the tiny buffer filled, TCP flow control kicked in, and the transfer throttled to roughly one buffer per network round-trip. The download session now uses a 4MB read buffer so network reads keep running while the app writes to disk.
+
+---
+
 ### Changed: Browse, Downloads, and Scheduled got a matching redesign
 
 **What you would notice:** The program guide in Browse looks like an actual TV guide now: each program is a row with its start and end times in a fixed time column, day sections have sticky headers (a mustard "TODAY" for the current day), and every row shows exactly what you can do with it — Preview/Download buttons on catchup programs (mustard left edge), a Schedule button on upcoming ones (teal left edge), and a quiet "In progress" badge on whatever is airing right now (no more red dot that looked like it was recording). The channel list on the left is leaner — just the logo, name, and favorite star — while the guide header now tells you "{N}-day catchup · {M} programs available to download" with a small color legend. "Browse EPG" was renamed "Guide", and On Demand switched from a category list to a poster grid with a category dropdown. On Downloads, the Upcoming tab is gone (upcoming recordings live on the Scheduled page, and a link under Active takes you there); active downloads show a pipeline of stages — Download, Commercials, Re-encode — side by side, and History is now compact one-line rows with an All/Completed/Failed/Cancelled filter and icon buttons for play, download, retry, and delete. Scheduled shows your upcoming recordings as a day-by-day agenda ("TONIGHT", then future days) with the air time up front, and its History uses the same compact rows. Everything works the same on phones, with bigger touch targets and a stacked layout.
