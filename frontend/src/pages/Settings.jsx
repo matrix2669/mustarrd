@@ -15,7 +15,6 @@ import {
   Switch,
   Select,
   MultiSelect,
-  Badge,
   useMantineColorScheme,
   Modal,
   NavLink,
@@ -32,8 +31,6 @@ import {
   IconFile,
   IconAlertCircle,
   IconWand,
-  IconCheck,
-  IconX,
   IconMoon,
   IconDownload,
   IconLock,
@@ -74,6 +71,8 @@ const VAAPI_KERNEL_LABELS = {
   nvidia: 'NVIDIA',
 }
 
+// Returns a warning descriptor when VA-API has a problem worth surfacing,
+// or null when everything is fine (working GPU setups stay silent).
 function describeHardwareAccel(vaapi) {
   if (!vaapi || !vaapi.enabled) {
     return null
@@ -85,19 +84,8 @@ function describeHardwareAccel(vaapi) {
 
   switch (vaapi.source) {
     case 'auto-detected':
-      return {
-        color: 'green',
-        icon: <IconCheck size={12} />,
-        label: `GPU encoding ready${vendorLabel ? ` — ${vendorLabel}` : ''}`,
-        detail: `Recordings will be encoded on your ${vendorLabel || 'GPU'} (driver: ${vaapi.driver}).`,
-      }
     case 'env':
-      return {
-        color: 'green',
-        icon: <IconCheck size={12} />,
-        label: 'GPU encoding ready (manual)',
-        detail: `Using driver "${vaapi.driver}" from the LIBVA_DRIVER_NAME environment variable.`,
-      }
+      return null
     case 'device-missing':
       return {
         color: 'gray',
@@ -893,54 +881,6 @@ export default function Settings() {
           <Text size="sm" c="dimmed">How Mustarrd processes recordings after download</Text>
         </Stack>
 
-        {toolsStatus && (
-          <Stack gap="xs">
-            <Group gap="md">
-              <Badge
-                color={ffmpegReady ? 'green' : 'red'}
-                variant="light"
-                leftSection={ffmpegReady ? <IconCheck size={12} /> : <IconX size={12} />}
-              >
-                ffmpeg {ffmpegReady ? 'ready' : 'unavailable'}
-              </Badge>
-              <Badge
-                color={comskipReady ? 'green' : 'red'}
-                variant="light"
-                leftSection={comskipReady ? <IconCheck size={12} /> : <IconX size={12} />}
-              >
-                Comskip {comskipReady ? 'ready' : 'unavailable'}
-              </Badge>
-            </Group>
-            {toolsStatus.ffmpeg?.error && (
-              <Text size="xs" c="dimmed">ffmpeg error: {toolsStatus.ffmpeg.error}</Text>
-            )}
-            {toolsStatus.comskip?.error && (
-              <Text size="xs" c="dimmed">Comskip error: {toolsStatus.comskip.error}</Text>
-            )}
-            {(() => {
-              const hwStatus = describeHardwareAccel(toolsStatus.vaapi)
-              if (!hwStatus) return null
-              const gpuBlockedByFfmpeg = hwStatus.color === 'green' && ffmpegReady === false
-              const badgeColor = gpuBlockedByFfmpeg ? 'yellow' : hwStatus.color
-              const badgeIcon = gpuBlockedByFfmpeg ? <IconAlertCircle size={12} /> : hwStatus.icon
-              const badgeLabel = gpuBlockedByFfmpeg ? 'GPU detected, ffmpeg required' : hwStatus.label
-              const badgeDetail = gpuBlockedByFfmpeg
-                ? 'A GPU was found but ffmpeg is not installed. Install ffmpeg to use GPU encoding.'
-                : hwStatus.detail
-              return (
-                <Stack gap={4}>
-                  <Badge color={badgeColor} variant="light" leftSection={badgeIcon} style={{ alignSelf: 'flex-start' }}>
-                    {badgeLabel}
-                  </Badge>
-                  <Text size="xs" c="dimmed">{badgeDetail}</Text>
-                </Stack>
-              )
-            })()}
-          </Stack>
-        )}
-
-        <Divider variant="dashed" />
-
         <Stack gap="md">
           <Text size="xs" fw={600} c="dimmed" tt="uppercase" style={{ letterSpacing: '0.06em' }}>Concurrency</Text>
 
@@ -990,6 +930,9 @@ export default function Settings() {
                 {' '}To save recordings without converting, switch the format above to{' '}
                 <Text component="span" fw={500}>Keep original (.ts)</Text>.
               </Text>
+              {toolsStatus?.ffmpeg?.error && (
+                <Text size="xs" c="dimmed" mt={4}>{toolsStatus.ffmpeg.error}</Text>
+              )}
             </Alert>
           )}
 
@@ -1002,6 +945,9 @@ export default function Settings() {
                 </a>{' '}
                 for installation instructions.
               </Text>
+              {toolsStatus?.comskip?.error && (
+                <Text size="xs" c="dimmed" mt={4}>{toolsStatus.comskip.error}</Text>
+              )}
             </Alert>
           )}
 
@@ -1023,7 +969,7 @@ export default function Settings() {
             const hwStatus = describeHardwareAccel(toolsStatus.vaapi)
             if (!hwStatus) return null
             return (
-              <Alert color={hwStatus.color === 'green' ? 'green' : hwStatus.color === 'gray' ? 'blue' : 'yellow'} variant="light" icon={hwStatus.icon}>
+              <Alert color={hwStatus.color === 'gray' ? 'blue' : 'yellow'} variant="light" icon={hwStatus.icon}>
                 <Text size="sm" fw={500}>{hwStatus.label}</Text>
                 <Text size="xs" c="dimmed" mt={4}>{hwStatus.detail}</Text>
               </Alert>

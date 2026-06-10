@@ -6,6 +6,14 @@ All notable changes to Mustarrd are listed here. Most recent changes are at the 
 
 ## 2026-06-10
 
+### Changed: Post-Processing settings no longer show a wall of status badges
+
+**What you would notice:** The Post-Processing section in Settings used to open with a cluster of badges and green boxes ("FFMPEG READY", "COMSKIP READY", "GPU encoding ready…") even when everything was working fine — which is the normal case for the Docker image, where all of these tools ship pre-installed. That status dump is gone. The page now goes straight to the settings, and you only see a message when something is actually wrong: a yellow warning if you pick a format that needs ffmpeg or Comskip and the tool is missing (including the underlying error detail), or a notice if you select VA-API hardware encoding and no usable GPU is visible to the app.
+
+**What changed:** Frontend only. The readiness badges and the green "GPU encoding ready" confirmation box were removed from the Post-Processing section. The existing problem-driven alerts remain and now also carry the ffmpeg/Comskip detection error text that previously lived under the badges. The VA-API status box below the Hardware Acceleration dropdown only renders for problem states (no GPU visible, GPU found but driver unknown), never for healthy setups.
+
+---
+
 ### Fixed: Previews no longer get permanently stuck behind "Too Many Requests"
 
 **What you would notice:** After closing a couple of previews abruptly (closing the tab, navigating away, or a player error), every new preview attempt could fail forever — the app silently hit its two-preview safety limit and never recovered until a restart. Previews now free their slot the moment you leave, and if the limit is genuinely reached you see an honest "Preview limit reached" message instead of a misleading codec error.
