@@ -1,0 +1,126 @@
+/* Downloads page — pipeline cards for active downloads */
+
+.page {
+  --dl-faint: var(--mantine-color-dark-3);
+}
+
+:global([data-mantine-color-scheme='light']) .page {
+  --dl-faint: var(--mantine-color-gray-5);
+}
+
+.card {
+  background: var(--mantine-color-default);
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.cardHead {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.cardTitleWrap {
+  flex: 1;
+  min-width: 0;
+}
+
+.cardTitle {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--mantine-color-text);
+}
+
+.cardSub {
+  font-size: 12px;
+  color: var(--mantine-color-dimmed);
+  margin-top: 1px;
+}
+
+/* pipeline */
+.pipe {
+  display: flex;
+  gap: 6px;
+  margin-top: 14px;
+}
+
+.stage {
+  flex: 1;
+  min-width: 0;
+}
+
+.stageLabel {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  margin-bottom: 5px;
+}
+
+.stageName {
+  color: var(--mantine-color-dimmed);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.stagePercent {
+  color: var(--mantine-color-text);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+  margin-left: 6px;
+}
+
+.stageIdle .stageName,
+.stageIdle .stagePercent {
+  color: var(--dl-faint);
+}
+
+.bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--mantine-color-body);
+  overflow: hidden;
+  position: relative;
+}
+
+.fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--mantine-color-yellow-7);
+  transition: width 0.4s ease;
+}
+
+.stageDone .fill {
+  background: var(--mantine-color-green-6);
+}
+
+.fillIndet {
+  width: 40%;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--mantine-color-yellow-7);
+  position: absolute;
+  animation: pipe-indet 1.2s ease-in-out infinite alternate;
+}
+
+@keyframes pipe-indet {
+  from {
+    left: -10%;
+  }
+  to {
+    left: 70%;
+  }
+}
+
+.meta {
+  display: flex;
+  gap: 14px;
+  font-size: 11.5px;
+  color: var(--mantine-color-dimmed);
+  margin-top: 10px;
+  flex-wrap: wrap;
+  font-variant-numeric: tabular-nums;
+}

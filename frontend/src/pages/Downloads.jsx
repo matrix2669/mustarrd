@@ -7,22 +7,18 @@ import {
   Stack,
   Badge,
   ActionIcon,
-  Menu,
   Modal,
   Tabs,
   Loader,
   Alert,
-  Tooltip,
   Button,
   Collapse,
-  Select,
+  SegmentedControl,
 } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import { useNavigate, Link, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  IconDotsVertical,
-  IconPlayerStop,
   IconRefresh,
   IconTrash,
   IconAlertCircle,
@@ -36,15 +32,14 @@ import {
   IconChevronDown,
   IconChevronUp,
   IconDatabase,
-  IconCalendar,
-  IconFilter,
 } from '@tabler/icons-react'
 import dayjs from 'dayjs'
 import duration from 'dayjs/plugin/duration'
 
 import { accountsApi, authApi, downloadsApi, createDownloadWebSocket } from '../api'
-import ProgressBar from '../components/ProgressBar'
-import { formatChannelDateTime, formatAirDateTime, getGuideOffsetHours, getChannelDisplayTime, getNowUtc } from '../utils/channelTime'
+import HistoryRow from '../components/HistoryRow'
+import { formatChannelDateTime, formatAirDateTime, getGuideOffsetHours } from '../utils/channelTime'
+import classes from './Downloads.module.css'
 
 dayjs.extend(duration)
 
@@ -83,33 +78,6 @@ function formatDuration(minutes) {
   return `${mins}m`
 }
 
-function formatTimeUntil(displayTime, guideOffsetHours = 0) {
-  if (!displayTime) return null
-  const nowDisplay = getNowUtc().add(getGuideOffsetHours(guideOffsetHours), 'hour')
-  const diffMinutes = displayTime.diff(nowDisplay, 'minute')
-  if (diffMinutes <= 0) return null
-  const hours = Math.floor(diffMinutes / 60)
-  const mins = diffMinutes % 60
-  if (hours >= 48) return `in ${Math.floor(hours / 24)}d`
-  if (hours >= 24) {
-    const remHours = hours % 24
-    return remHours > 0 ? `in 1d ${remHours}h` : 'in 1d'
-  }
-  if (hours > 0) return mins > 0 ? `in ${hours}h ${mins}m` : `in ${hours}h`
-  return `in ${mins}m`
-}
-
-function formatRecordedDuration(seconds) {
-  if (!seconds || seconds <= 0) return null
-  const totalMinutes = Math.max(1, Math.round(seconds / 60))
-  const hours = Math.floor(totalMinutes / 60)
-  const mins = totalMinutes % 60
-  if (hours > 0) {
-    return `${hours}h ${String(mins).padStart(2, '0')}m`
-  }
-  return `${mins}m`
-}
-
 function getFileName(filePath) {
   if (!filePath || typeof filePath !== 'string') return 'file'
   const parts = filePath.split(/[\\/]/)
@@ -136,295 +104,137 @@ function getStatusBadge(status) {
   )
 }
 
-function getScheduledStatusBadge(status) {
-  const statusConfig = {
-    scheduled: { color: 'gray', icon: IconCalendar, label: 'Scheduled' },
-    queued: { color: 'yellow', icon: IconDownload, label: 'Queued' },
-    downloading: { color: 'yellow', icon: IconDownload, label: 'Downloading' },
-    processing: { color: 'teal', icon: IconSettings, label: 'Processing' },
-    completed: { color: 'green', icon: IconCheck, label: 'Completed' },
-    failed: { color: 'red', icon: IconX, label: 'Failed' },
-    cancelled: { color: 'orange', icon: IconX, label: 'Cancelled' },
-    paused_low_space: { color: 'yellow', icon: IconAlertCircle, label: 'Paused (Low Space)' },
-  }
-  const config = statusConfig[status] || statusConfig.scheduled
-  const Icon = config.icon
+function PipelineStage({ name, percent, indeterminate, done, idle }) {
+  const display = done ? '✓' : idle ? '—' : indeterminate ? '…' : `${Math.round(percent)}%`
+  const width = done ? 100 : Math.min(100, Math.max(0, percent || 0))
+  const stageClasses = [
+    classes.stage,
+    done ? classes.stageDone : '',
+    idle ? classes.stageIdle : '',
+  ].filter(Boolean).join(' ')
+
   return (
-    <Badge color={config.color} variant="light" size="sm" leftSection={<Icon size={12} />}>
-      {config.label}
-    </Badge>
+    <div className={stageClasses}>
+      <div className={classes.stageLabel}>
+        <span className={classes.stageName}>{name}</span>
+        <span className={classes.stagePercent}>{display}</span>
+      </div>
+      <div className={classes.bar}>
+        {indeterminate && !done ? (
+          <div className={classes.fillIndet} />
+        ) : (
+          <div className={classes.fill} style={{ width: `${width}%` }} />
+        )}
+      </div>
+    </div>
   )
 }
 
-function DownloadCard({
-  download,
-  isAdmin,
-  isDesktop,
-  onCancel,
-  onRetry,
-  onDelete,
-  onOpenFileLocation,
-  onPlayFile,
-  guideOffsetHours = 0,
-}) {
+function ActiveDownloadCard({ download, isAdmin, onCancel, guideOffsetHours = 0 }) {
   const [showLogDetails, setShowLogDetails] = useState(false)
-  const isActive = ['pending', 'downloading', 'processing'].includes(download.status)
-  const canRetry = ['failed', 'cancelled'].includes(download.status)
-  const retryLabel = download.status === 'cancelled' ? 'Download Again' : 'Retry'
+
+  const status = download.status
   const downloadProgress = typeof download.download_progress === 'number'
     ? download.download_progress
-    : (download.status === 'processing' ? 100 : (download.progress ?? 0))
+    : (status === 'processing' ? 100 : (download.progress ?? 0))
   const comskipProgress = typeof download.comskip_progress === 'number' ? download.comskip_progress : null
   const transcodeProgress = typeof download.transcode_progress === 'number' ? download.transcode_progress : null
   const comskipIndeterminate = Boolean(download.comskip_indeterminate)
   const transcodeIndeterminate = Boolean(download.transcode_indeterminate)
-  const completedFileName = getFileName(download.output_path)
-  const recordedDuration = formatRecordedDuration(download.recorded_duration_seconds)
-  const downloadHref = `/api/downloads/${download.id}/file?action=download`
-  const playHref = `/downloads/${download.id}/play`
+  const hasComskipStage = comskipProgress !== null || comskipIndeterminate
+  const hasTranscodeStage = transcodeProgress !== null || transcodeIndeterminate
 
-  const formatStagePercent = (value, indeterminate = false) => {
-    if (indeterminate) return '...'
-    if (typeof value !== 'number') return '—'
-    return `${Math.round(value)}%`
-  }
+  const airedWindow = `${formatAirDateTime(download, 'start', guideOffsetHours) || 'Unknown'} - ${formatChannelDateTime(download, 'end', guideOffsetHours, 'h:mm A') || 'Unknown'} (${formatDuration(download.duration_minutes)})`
+  const requestedBy = download.requested_by?.display_name ||
+    download.requested_by?.username ||
+    (download.requested_by_user_id ? `User #${download.requested_by_user_id}` : 'Unknown')
 
   return (
-    <Card shadow="sm" padding="md" radius="md" withBorder>
-      <Stack gap="xs">
-        <Group justify="space-between" wrap="nowrap">
-          <Stack gap={2} style={{ flex: 1, overflow: 'hidden' }}>
-            <Text fw={500}>
-              {download.program_title}
-            </Text>
-            <Text size="sm" c="dimmed" truncate>
-              {download.channel_name}
-            </Text>
-          </Stack>
-          <Group gap="xs">
-            {getStatusBadge(download.status)}
-            <Menu shadow="md" width={150}>
-              <Menu.Target>
-                <ActionIcon variant="subtle">
-                  <IconDotsVertical size={16} />
-                </ActionIcon>
-              </Menu.Target>
-              <Menu.Dropdown>
-                {isActive && (
-                  <Menu.Item
-                    leftSection={<IconPlayerStop size={14} />}
-                    onClick={() => onCancel(download)}
-                  >
-                    Cancel
-                  </Menu.Item>
-                )}
-                {canRetry && (
-                  <Menu.Item
-                    leftSection={<IconRefresh size={14} />}
-                    onClick={() => onRetry(download)}
-                  >
-                    {retryLabel}
-                  </Menu.Item>
-                )}
-                {!isActive && (
-                  <Menu.Item
-                    color="red"
-                    leftSection={<IconTrash size={14} />}
-                    onClick={() => onDelete(download)}
-                  >
-                    Delete
-                  </Menu.Item>
-                )}
-              </Menu.Dropdown>
-            </Menu>
-          </Group>
-        </Group>
+    <div className={classes.card}>
+      <div className={classes.cardHead}>
+        <div className={classes.cardTitleWrap}>
+          <div className={classes.cardTitle}>{download.program_title}</div>
+          <div className={classes.cardSub}>
+            {download.channel_name} · Aired {airedWindow}
+            {isAdmin && <> · Requested by {requestedBy}</>}
+          </div>
+        </div>
+        {getStatusBadge(status)}
+        <ActionIcon
+          variant="subtle"
+          color="gray"
+          size={30}
+          radius={7}
+          aria-label="Cancel download"
+          title="Cancel download"
+          onClick={() => onCancel(download)}
+        >
+          <IconX size={16} />
+        </ActionIcon>
+      </div>
 
-        <Text size="xs" c="dimmed">
-          Aired: {formatAirDateTime(download, 'start', guideOffsetHours) || 'Unknown'} - {formatChannelDateTime(download, 'end', guideOffsetHours, 'h:mm A') || 'Unknown'} ({formatDuration(download.duration_minutes)})
-        </Text>
+      <div className={classes.pipe}>
+        <PipelineStage
+          name="Download"
+          percent={downloadProgress}
+          indeterminate={Boolean(download.indeterminate) && status === 'downloading'}
+          done={status === 'processing' || downloadProgress >= 100}
+          idle={status === 'pending'}
+        />
+        {hasComskipStage && (
+          <PipelineStage
+            name="Commercials"
+            percent={comskipProgress ?? 0}
+            indeterminate={comskipIndeterminate}
+            done={comskipProgress !== null && comskipProgress >= 100 && !comskipIndeterminate}
+            idle={false}
+          />
+        )}
+        {hasTranscodeStage && (
+          <PipelineStage
+            name="Re-encode"
+            percent={transcodeProgress ?? 0}
+            indeterminate={transcodeIndeterminate}
+            done={transcodeProgress !== null && transcodeProgress >= 100 && !transcodeIndeterminate}
+            idle={false}
+          />
+        )}
+      </div>
 
-        {isAdmin && (
-          <Text size="xs" c="dimmed">
-            Requested by:{' '}
-            {download.requested_by?.display_name ||
-              download.requested_by?.username ||
-              (download.requested_by_user_id ? `User #${download.requested_by_user_id}` : 'Unknown')}
-          </Text>
+      <div className={classes.meta}>
+        {status === 'downloading' && (
+          <span>{formatBytes(download.downloaded_bytes)} / {formatBytes(download.file_size)}</span>
         )}
+        {status === 'processing' && <span>{download.message || 'Processing...'}</span>}
+        {status === 'pending' && <span>Waiting in queue...</span>}
+      </div>
 
-        {['downloading', 'processing'].includes(download.status) && (
-          <Stack gap={6}>
-            <Group justify="space-between">
-              <Text size="xs" c="dimmed">Download</Text>
-              <Text size="xs" c="dimmed">
-                {formatStagePercent(downloadProgress, download.indeterminate && download.status === 'downloading')}
-              </Text>
-            </Group>
-            <ProgressBar
-              progress={downloadProgress}
-              color="blue"
-              indeterminate={download.indeterminate && download.status === 'downloading'}
-            />
-            {download.status === 'downloading' && (
-              <Text size="xs" c="dimmed">
-                {formatBytes(download.downloaded_bytes)} / {formatBytes(download.file_size)}
-              </Text>
-            )}
-
-            {(comskipProgress !== null || comskipIndeterminate) && (
-              <>
-                <Group justify="space-between">
-                  <Text size="xs" c="dimmed">Commercial Detect</Text>
-                  <Text size="xs" c="dimmed">
-                    {formatStagePercent(comskipProgress, comskipIndeterminate)}
-                  </Text>
-                </Group>
-                <ProgressBar
-                  progress={comskipProgress ?? 0}
-                  color="orange"
-                  indeterminate={comskipIndeterminate}
-                />
-              </>
-            )}
-
-            {(transcodeProgress !== null || transcodeIndeterminate) && (
-              <>
-                <Group justify="space-between">
-                  <Text size="xs" c="dimmed">Re-encode</Text>
-                  <Text size="xs" c="dimmed">
-                    {formatStagePercent(transcodeProgress, transcodeIndeterminate)}
-                  </Text>
-                </Group>
-                <ProgressBar
-                  progress={transcodeProgress ?? 0}
-                  color="teal"
-                  indeterminate={transcodeIndeterminate}
-                />
-              </>
-            )}
-
-            {download.status === 'processing' && (
-              <Text size="xs" c="dimmed">
-                {download.message || 'Processing...'}
-              </Text>
-            )}
-          </Stack>
-        )}
-
-        {download.logs?.length > 0 && (
-          <Stack gap={6}>
-            <Group>
-              <Button
-                size="compact-xs"
-                variant="subtle"
-                leftSection={showLogDetails ? <IconChevronUp size={12} /> : <IconChevronDown size={12} />}
-                onClick={() => setShowLogDetails((prev) => !prev)}
-              >
-                {showLogDetails ? 'Hide log details' : 'Show log details'}
-              </Button>
-            </Group>
-            <Collapse in={showLogDetails}>
-              <Card withBorder radius="sm" p="xs" bg="dark.8">
-                <Stack gap={2}>
-                  {download.logs.slice(-6).map((line, index) => (
-                    <Text key={`${download.id}-log-${index}`} size="xs" c="dimmed" ff="monospace">
-                      {line}
-                    </Text>
-                  ))}
-                </Stack>
-              </Card>
-            </Collapse>
-          </Stack>
-        )}
-
-        {download.status === 'completed' && (
-          <Tooltip label={download.output_path}>
-            <Text size="xs" c="dimmed" truncate>
-              Saved to: {completedFileName}
-            </Text>
-          </Tooltip>
-        )}
-        {download.status === 'completed' && download.file_size > 0 && (
-          <Text size="xs" c="dimmed">
-            Download size: {formatBytes(download.file_size)}
-          </Text>
-        )}
-        {download.status === 'completed' && recordedDuration && (
-          <Text size="xs" c="dimmed">
-            Recording duration: {recordedDuration}
-          </Text>
-        )}
-        {download.status === 'completed' && (
-          <Group gap="xs">
-            {isDesktop ? (
-              <>
-                <Button
-                  size="xs"
-                  variant="light"
-                  leftSection={<IconFolderOpen size={14} />}
-                  onClick={() => onOpenFileLocation(download)}
-                >
-                  Open File Location
-                </Button>
-                <Button
-                  size="xs"
-                  variant="default"
-                  leftSection={<IconPlayerPlay size={14} />}
-                  onClick={() => onPlayFile(download)}
-                >
-                  Play
-                </Button>
-              </>
-            ) : (
-              <>
-                <Button
-                  component="a"
-                  href={downloadHref}
-                  size="xs"
-                  variant="light"
-                  leftSection={<IconDownload size={14} />}
-                >
-                  Download
-                </Button>
-                <Button
-                  component="a"
-                  href={playHref}
-                  size="xs"
-                  variant="default"
-                  leftSection={<IconPlayerPlay size={14} />}
-                >
-                  Play
-                </Button>
-              </>
-            )}
-          </Group>
-        )}
-        {download.status === 'completed' && download.error_message && (
-          <Alert color="yellow" variant="light" p="xs">
-            <Text size="xs">{renderErrorMessage(download.error_message)}</Text>
-          </Alert>
-        )}
-
-        {download.status === 'failed' && download.error_message && (
-          <Alert color="red" variant="light" p="xs">
-            <Text size="xs">{renderErrorMessage(download.error_message)}</Text>
-          </Alert>
-        )}
-        {canRetry && (
-          <Group gap="xs">
+      {download.logs?.length > 0 && (
+        <Stack gap={6} mt={8}>
+          <Group>
             <Button
-              size="xs"
-              variant="light"
-              leftSection={<IconRefresh size={14} />}
-              onClick={() => onRetry(download)}
+              size="compact-xs"
+              variant="subtle"
+              leftSection={showLogDetails ? <IconChevronUp size={12} /> : <IconChevronDown size={12} />}
+              onClick={() => setShowLogDetails((prev) => !prev)}
             >
-              {retryLabel}
+              {showLogDetails ? 'Hide log details' : 'Show log details'}
             </Button>
           </Group>
-        )}
-      </Stack>
-    </Card>
+          <Collapse in={showLogDetails}>
+            <Card withBorder radius="sm" p="xs" bg="dark.8">
+              <Stack gap={2}>
+                {download.logs.slice(-6).map((line, index) => (
+                  <Text key={`${download.id}-log-${index}`} size="xs" c="dimmed" ff="monospace">
+                    {line}
+                  </Text>
+                ))}
+              </Stack>
+            </Card>
+          </Collapse>
+        </Stack>
+      )}
+    </div>
   )
 }
 
@@ -456,12 +266,6 @@ export default function Downloads() {
   const { data: diskSpace } = useQuery({
     queryKey: ['downloads', 'disk-space'],
     queryFn: downloadsApi.diskSpace,
-    refetchInterval: 30000,
-  })
-
-  const { data: upcomingRecordings } = useQuery({
-    queryKey: ['downloads', 'upcoming'],
-    queryFn: downloadsApi.upcoming,
     refetchInterval: 30000,
   })
 
@@ -633,6 +437,97 @@ export default function Downloads() {
     (accounts || []).map((account) => [Number(account.id), getGuideOffsetHours(account.guide_offset_hours)])
   )
 
+  const renderHistoryActions = (download) => {
+    const canRetry = ['failed', 'cancelled'].includes(download.status)
+    const retryLabel = download.status === 'cancelled' ? 'Download again' : 'Retry'
+    const downloadHref = `/api/downloads/${download.id}/file?action=download`
+    const playHref = `/downloads/${download.id}/play`
+
+    return (
+      <>
+        {download.status === 'completed' && (
+          isDesktop ? (
+            <>
+              <ActionIcon
+                variant="subtle"
+                color="gray"
+                size={30}
+                radius={7}
+                aria-label="Play"
+                title="Play"
+                onClick={() => handlePlayFile(download)}
+              >
+                <IconPlayerPlay size={15} />
+              </ActionIcon>
+              <ActionIcon
+                variant="subtle"
+                color="gray"
+                size={30}
+                radius={7}
+                aria-label="Open file location"
+                title="Open file location"
+                onClick={() => handleOpenFileLocation(download)}
+              >
+                <IconFolderOpen size={15} />
+              </ActionIcon>
+            </>
+          ) : (
+            <>
+              <ActionIcon
+                component="a"
+                href={playHref}
+                variant="subtle"
+                color="gray"
+                size={30}
+                radius={7}
+                aria-label="Play"
+                title="Play"
+              >
+                <IconPlayerPlay size={15} />
+              </ActionIcon>
+              <ActionIcon
+                component="a"
+                href={downloadHref}
+                variant="subtle"
+                color="gray"
+                size={30}
+                radius={7}
+                aria-label="Download file"
+                title="Download file"
+              >
+                <IconDownload size={15} />
+              </ActionIcon>
+            </>
+          )
+        )}
+        {canRetry && (
+          <ActionIcon
+            variant="subtle"
+            color="gray"
+            size={30}
+            radius={7}
+            aria-label={retryLabel}
+            title={retryLabel}
+            onClick={() => retryMutation.mutate(download)}
+          >
+            <IconRefresh size={15} />
+          </ActionIcon>
+        )}
+        <ActionIcon
+          variant="subtle"
+          color="red"
+          size={30}
+          radius={7}
+          aria-label="Remove from history"
+          title="Remove from history"
+          onClick={() => deleteMutation.mutate(download)}
+        >
+          <IconTrash size={15} />
+        </ActionIcon>
+      </>
+    )
+  }
+
   if (isLoading) {
     return (
       <Stack align="center" justify="center" h={300}>
@@ -650,13 +545,13 @@ export default function Downloads() {
   }
 
   return (
-    <Stack>
+    <Stack className={classes.page}>
       <Group justify="space-between" align="center">
         <Title order={2}>Downloads</Title>
         {diskSpace && (
           <Badge
             color={diskSpace.available === false ? 'orange' : diskSpace.is_low ? 'red' : 'gray'}
-            variant={diskSpace.available === false || diskSpace.is_low ? 'filled' : 'light'}
+            variant={diskSpace.available === false || diskSpace.is_low ? 'filled' : 'outline'}
             leftSection={<IconDatabase size={12} />}
             size="lg"
           >
@@ -668,15 +563,12 @@ export default function Downloads() {
       </Group>
 
       <Tabs
-        value={['active', 'upcoming', 'history'].includes(searchParams.get('tab')) ? searchParams.get('tab') : 'active'}
+        value={['active', 'history'].includes(searchParams.get('tab')) ? searchParams.get('tab') : 'active'}
         onChange={(val) => setSearchParams({ tab: val }, { replace: true })}
       >
-        <Tabs.List grow style={{ flexWrap: 'nowrap' }}>
+        <Tabs.List>
           <Tabs.Tab value="active" leftSection={<IconDownload size={16} />}>
             Active {activeDownloads.length > 0 && `(${activeDownloads.length})`}
-          </Tabs.Tab>
-          <Tabs.Tab value="upcoming" leftSection={<IconCalendar size={16} />}>
-            Upcoming {upcomingRecordings?.length > 0 && `(${upcomingRecordings.length})`}
           </Tabs.Tab>
           <Tabs.Tab value="history" leftSection={<IconClock size={16} />}>
             History {historyDownloads.length > 0 && `(${historyDownloads.length})`}
@@ -687,11 +579,11 @@ export default function Downloads() {
           {activeDownloads.length === 0 ? (
             <Card shadow="sm" padding="xl" radius="md" withBorder>
               <Stack align="center" gap="md">
-                <IconDownload size={48} opacity={0.3} />
+                <IconDownload size={40} opacity={0.3} />
                 <Text c="dimmed" ta="center">
                   No active downloads.
                 </Text>
-                <Text c="dimmed" ta="center" size="sm">
+                <Text c="dimmed" ta="center" size="sm" maw={380}>
                   Find a show in Browse, then click Download on any program.
                 </Text>
                 <Button onClick={() => navigate('/browse')}>
@@ -702,104 +594,44 @@ export default function Downloads() {
           ) : (
             <Stack gap="md">
               {activeDownloads.map((download) => (
-                <DownloadCard
+                <ActiveDownloadCard
                   key={download.id}
                   download={download}
                   isAdmin={Boolean(authStatus?.is_admin)}
-                  isDesktop={isDesktop}
                   onCancel={(d) => cancelMutation.mutate(d)}
-                  onRetry={(d) => retryMutation.mutate(d)}
-                  onDelete={(d) => deleteMutation.mutate(d)}
-                  onOpenFileLocation={handleOpenFileLocation}
-                  onPlayFile={handlePlayFile}
                   guideOffsetHours={accountGuideOffsets[Number(download.account_id)] || 0}
                 />
               ))}
             </Stack>
           )}
-        </Tabs.Panel>
-
-        <Tabs.Panel value="upcoming" pt="md">
-          {!upcomingRecordings || upcomingRecordings.length === 0 ? (
-            <Card shadow="sm" padding="xl" radius="md" withBorder>
-              <Stack align="center" gap="md">
-                <IconCalendar size={48} opacity={0.3} />
-                <Text c="dimmed" ta="center">
-                  No upcoming recordings.
-                </Text>
-                <Text c="dimmed" ta="center" size="sm">
-                  Schedule a show from the Browse page and it will appear here.
-                </Text>
-                <Button onClick={() => navigate('/browse')}>
-                  Go to Browse
-                </Button>
-              </Stack>
-            </Card>
-          ) : (
-            <Stack gap="sm">
-              <Text size="xs" c="dimmed">
-                To cancel or edit a recording, go to{' '}
-                <Link to="/scheduled" style={{ color: 'var(--mantine-color-orange-5)' }}>Scheduled Recordings</Link>.
-              </Text>
-              {upcomingRecordings.map((rec) => {
-                const guideOffset = accountGuideOffsets[Number(rec.account_id)] || 0
-                const airStart = formatAirDateTime(rec, 'start', guideOffset)
-                const airEnd = formatChannelDateTime(rec, 'end', guideOffset, 'h:mm A')
-                const downloadAt = formatAirDateTime(rec, 'available', guideOffset)
-                const downloadDisplayTime = getChannelDisplayTime(rec, 'available', guideOffset)
-                const timeUntil = formatTimeUntil(downloadDisplayTime, guideOffset)
-                const totalDuration = (rec.duration_minutes || 0) + (rec.pre_padding_minutes || 0) + (rec.post_padding_minutes || 0)
-                const paddingNote = totalDuration !== (rec.duration_minutes || 0) ? `${formatDuration(totalDuration)} with padding` : null
-                const downloadNotes = [timeUntil, paddingNote].filter(Boolean)
-                return (
-                  <Card key={rec.id} shadow="sm" padding="md" radius="md" withBorder>
-                    <Stack gap={2}>
-                      <Group justify="space-between" wrap="nowrap" align="flex-start">
-                        <Stack gap={2} style={{ flex: 1, overflow: 'hidden' }}>
-                          <Text fw={500}>{rec.program_title}</Text>
-                          <Text size="sm" c="dimmed" truncate>{rec.channel_name}</Text>
-                        </Stack>
-                        {getScheduledStatusBadge(rec.status)}
-                      </Group>
-                      <Text size="xs" c="dimmed">
-                        Airs: {airStart || 'Unknown'} - {airEnd || 'Unknown'} ({formatDuration(rec.duration_minutes || 0)})
-                      </Text>
-                      <Text size="xs" c="dimmed">
-                        Download starts: {downloadAt || 'Unknown'}{downloadNotes.length > 0 ? ` (${downloadNotes.join(', ')})` : ''}
-                      </Text>
-                    </Stack>
-                  </Card>
-                )
-              })}
-            </Stack>
-          )}
+          <Text size="xs" c="dimmed" mt="sm">
+            Recordings scheduled for later live on the{' '}
+            <Link to="/scheduled" style={{ color: 'var(--mantine-color-yellow-7)' }}>Scheduled</Link> page.
+          </Text>
         </Tabs.Panel>
 
         <Tabs.Panel value="history" pt="md">
           {historyDownloads.length === 0 ? (
             <Card shadow="sm" padding="xl" radius="md" withBorder>
               <Stack align="center" gap="md">
-                <IconClock size={48} opacity={0.3} />
+                <IconClock size={40} opacity={0.3} />
                 <Text c="dimmed" ta="center">
                   No download history yet.
                 </Text>
-                <Text c="dimmed" ta="center" size="sm">
+                <Text c="dimmed" ta="center" size="sm" maw={380}>
                   Completed, failed, and cancelled downloads will appear here.
                 </Text>
               </Stack>
             </Card>
           ) : (
-            <Stack gap="md">
+            <Stack gap="xs">
               <Group justify="space-between">
-                <Select
+                <SegmentedControl
                   size="xs"
-                  w={160}
                   value={historyFilter}
                   onChange={(v) => setHistoryFilter(v || 'all')}
-                  leftSection={<IconFilter size={14} />}
-                  allowDeselect={false}
                   data={[
-                    { value: 'all', label: 'All statuses' },
+                    { value: 'all', label: 'All' },
                     { value: 'completed', label: 'Completed' },
                     { value: 'failed', label: 'Failed' },
                     { value: 'cancelled', label: 'Cancelled' },
@@ -821,20 +653,27 @@ export default function Downloads() {
                   No {historyFilter} downloads.
                 </Text>
               ) : (
-                filteredHistoryDownloads.map((download) => (
-                  <DownloadCard
-                    key={download.id}
-                    download={download}
-                    isAdmin={Boolean(authStatus?.is_admin)}
-                    isDesktop={isDesktop}
-                    onCancel={(d) => cancelMutation.mutate(d)}
-                    onRetry={(d) => retryMutation.mutate(d)}
-                    onDelete={(d) => deleteMutation.mutate(d)}
-                    onOpenFileLocation={handleOpenFileLocation}
-                    onPlayFile={handlePlayFile}
-                    guideOffsetHours={accountGuideOffsets[Number(download.account_id)] || 0}
-                  />
-                ))
+                <div>
+                  {filteredHistoryDownloads.map((download) => {
+                    const guideOffset = accountGuideOffsets[Number(download.account_id)] || 0
+                    const aired = formatAirDateTime(download, 'start', guideOffset)
+                    const subtitleParts = [download.channel_name, aired]
+                    if (download.status === 'completed' && download.output_path) {
+                      subtitleParts.push(getFileName(download.output_path))
+                    }
+                    return (
+                      <HistoryRow
+                        key={download.id}
+                        status={download.status}
+                        title={download.program_title}
+                        subtitle={subtitleParts.filter(Boolean).join(' · ')}
+                        error={download.error_message ? renderErrorMessage(download.error_message) : null}
+                        size={download.status === 'completed' && download.file_size > 0 ? formatBytes(download.file_size) : null}
+                        actions={renderHistoryActions(download)}
+                      />
+                    )
+                  })}
+                </div>
               )}
             </Stack>
           )}
