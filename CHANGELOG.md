@@ -4,7 +4,25 @@ All notable changes to Mustarrd are listed here. Most recent changes are at the 
 
 ---
 
+## 2026-06-10
+
+### Fixed: Downloading hundreds of TV episodes at once no longer stalls the app
+
+**What you would notice:** If you selected more than 200 episodes of a TV series and clicked Download, the server would accept all of them and start queuing hundreds of individual download tasks at once, which could freeze the interface for several seconds on lower-powered hardware like a Raspberry Pi or Unraid box. Mustarrd now rejects any batch over 200 episodes before doing any database work, and shows a clear validation error so you can split the request into smaller groups.
+
+**What changed:** The series download endpoint now enforces a hard limit of 200 episodes per request. Requests at or below 200 are unchanged. Three new regression tests cover the limit boundary.
+
+---
+
 ## 2026-06-09
+
+### Improved: Export and Import buttons on Scheduled Recordings stay together on phone-sized screens
+
+**What you would notice:** On a narrow phone screen, the Export and Import buttons on the Scheduled Recordings page now always appear side by side on the same row. Previously, Import could end up stranded alone on a second row while Export stayed next to the Auto-retry toggle on the first, making the two buttons look unrelated.
+
+**What changed:** Export and Import are now kept in a single no-wrap group so they always move together if the header needs to wrap. Desktop layout is unchanged.
+
+---
 
 ### Fixed: Provider error messages can no longer masquerade as completed recordings
 
@@ -35,14 +53,6 @@ All notable changes to Mustarrd are listed here. Most recent changes are at the 
 **What you would notice:** On the Browse EPG page, when your IPTV provider is unreachable, the large right panel now ends with an actionable link instead of a dead-end message. If you are an admin, you see "Check Settings, Accounts." as a clickable link that takes you directly to the Accounts section where you can check your connection. If you are not an admin, you see "Contact your administrator." Previously, the panel gave you nowhere to go.
 
 **What changed:** One block in the Browse page. No backend, no configuration changes.
-
----
-
-### Fixed: Downloads no longer complete silently when your provider returns a JSON error instead of a stream
-
-**What you would notice:** Some IPTV providers send a JSON error message (for example, "maximum connections reached" or "stream unavailable") disguised as a normal HTTP 200 response. Before this fix, Mustarrd wrote that tiny JSON blob to the recording file and marked the download as Completed. You would end up with a corrupt, unplayable recording in Plex or Jellyfin showing 0:00 duration, with no indication anything went wrong. After this fix, Mustarrd detects the JSON content type and immediately marks the download as Failed with a clear reason: "Provider returned an error page (Content-Type: application/json)."
-
-**What changed:** The content-type guard in the download manager, which already rejected HTML and plain-text error pages, now also rejects `application/json` responses. The check applies at both the initial request and the restart path so no code path lets a JSON error body through. Two regression tests cover the affected cases.
 
 ---
 
