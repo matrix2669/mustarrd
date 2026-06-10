@@ -228,6 +228,7 @@ class EPGIngestManager:
 
     def get_status(self) -> dict:
         status = dict(self._status)
+        status["interval_hours"] = self._interval // 3600
         if self._task_pending:
             status["running"] = True
         for key in ("started_at", "last_completed_at"):
