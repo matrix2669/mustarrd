@@ -1,22 +1,19 @@
 """
-Regression test: provider returns HTTP 200 with an application/json body (error).
+Regression test: provider returns HTTP 200 with an application/xml body (error).
 
-Some Xtream Codes providers return JSON error messages with HTTP 200 instead of
-an HTTP error status. For example:
+Some Xtream Codes providers return XML error messages with HTTP 200 instead of an
+HTTP error status. For example:
 
     HTTP/1.1 200 OK
-    Content-Type: application/json
-    {"error": "Stream unavailable", "code": "403"}
+    Content-Type: application/xml
+    <error><message>Stream unavailable</message><code>403</code></error>
 
-Before the fix, _download_file passes the text/* guard (application/json does not
-start with "text/"), writes the small JSON body to the output file, and marks the
-download COMPLETED. The user ends up with a corrupt recording that Plex/Jellyfin
-cannot play.
+Before the fix, the content-type guard only rejected text/* and application/json.
+application/xml slipped through both guards: the XML body was written to the output
+.ts file and the download was silently marked COMPLETED with a corrupt recording.
 
-After the fix, _download_file raises as soon as it sees application/json so the
-download is marked FAILED with a clear message.
-
-This test currently FAILS: no exception is raised for application/json bodies.
+After the fix, the guard also rejects application/xml so the download fails with a
+clear error message instead.
 """
 
 import asyncio
@@ -63,18 +60,19 @@ def _make_client_session(response):
     return client_cm
 
 
-class JsonBodyRejectionTests(unittest.IsolatedAsyncioTestCase):
+class XmlBodyRejectionTests(unittest.IsolatedAsyncioTestCase):
 
-    async def test_json_200_raises_exception(self):
-        """HTTP 200 with application/json body must raise, not write JSON to disk.
+    async def test_xml_200_raises_exception(self):
+        """HTTP 200 with application/xml body must raise, not write XML to disk.
 
-        Providers that return JSON error messages with HTTP 200 and
-        Content-Type: application/json bypass the existing text/* guard.
-        The JSON body gets written to the output .ts file and the download
-        is silently marked COMPLETED with a corrupt, non-playable file.
+        Providers that return XML error messages with HTTP 200 and
+        Content-Type: application/xml bypass both the existing text/* guard
+        and the application/json guard added in PR #365. The XML body gets
+        written to the output .ts file and the download is silently marked
+        COMPLETED with a corrupt, non-playable recording.
         """
-        json_body = b'{"error": "Stream unavailable", "code": "403"}'
-        response = _make_response(200, "application/json", [json_body])
+        xml_body = b"<error><message>Stream unavailable</message><code>403</code></error>"
+        response = _make_response(200, "application/xml", [xml_body])
         client_cm = _make_client_session(response)
 
         manager = DownloadManager()
@@ -88,7 +86,7 @@ class JsonBodyRejectionTests(unittest.IsolatedAsyncioTestCase):
                 with patch.object(manager, "_broadcast_progress", AsyncMock()):
                     with self.assertRaises(Exception) as ctx:
                         await manager._download_file(
-                            "http://provider/timeshift/user/pass/60/2026-06-06:00-00/1.ts",
+                            "http://provider/timeshift/user/pass/60/2026-06-09:00-00/1.ts",
                             tmp_path,
                             1,
                             db_session,
@@ -101,10 +99,10 @@ class JsonBodyRejectionTests(unittest.IsolatedAsyncioTestCase):
             "Exception message must indicate the response was not a valid stream.",
         )
 
-    async def test_json_200_session_limit_raises_exception(self):
-        """HTTP 200 with application/json session-limit error must raise."""
-        json_body = b'{"message": "maximum connections reached", "status": "error"}'
-        response = _make_response(200, "application/json; charset=utf-8", [json_body])
+    async def test_xml_200_with_charset_raises_exception(self):
+        """HTTP 200 with application/xml; charset=utf-8 body must raise."""
+        xml_body = b'<?xml version="1.0"?><result><status>error</status><msg>Session expired</msg></result>'
+        response = _make_response(200, "application/xml; charset=utf-8", [xml_body])
         client_cm = _make_client_session(response)
 
         manager = DownloadManager()
@@ -118,7 +116,7 @@ class JsonBodyRejectionTests(unittest.IsolatedAsyncioTestCase):
                 with patch.object(manager, "_broadcast_progress", AsyncMock()):
                     with self.assertRaises(Exception):
                         await manager._download_file(
-                            "http://provider/timeshift/user/pass/60/2026-06-06:00-00/1.ts",
+                            "http://provider/timeshift/user/pass/60/2026-06-09:00-00/1.ts",
                             tmp_path,
                             1,
                             db_session,
