@@ -111,6 +111,14 @@
   overflow: hidden;
 }
 
+/* Logos render bare — no box, no fill — so transparent provider art sits
+   directly on the row; the bordered box is only the initials fallback. */
+.chLogoImage {
+  background: transparent;
+  border-color: transparent;
+  border-radius: 0;
+}
+
 .chLogo img {
   width: 100%;
   height: 100%;

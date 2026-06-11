@@ -6,6 +6,14 @@ All notable changes to Mustarrd are listed here. Most recent changes are at the 
 
 ## 2026-06-11
 
+### Changed: Channel logos in the guide render clean and load instantly after the first visit
+
+**What you would notice:** In the Browse channel list and guide header, channel logos no longer sit inside a bordered box with a dark fill behind them — logos with transparency now sit directly on the row, sized consistently. The boxed look only remains for channels with no logo at all, which still show their two-letter initials. Logos also load instantly after the first visit instead of re-downloading from your provider every time you open the guide; if a channel's logo URL is dead, the initials fallback appears instead of a broken image.
+
+**What changed:** Frontend: the logo box styling (background, border, rounding) now applies only to the initials fallback; images render bare with the same fixed dimensions, and a load-error fallback switches to initials. Backend: a new `GET /api/logos?url=...` endpoint proxies provider logo URLs through a disk cache under the config dir (`logo_cache/`) and serves them with a one-week `Cache-Control` header, so the browser caches them too. The proxy only fetches http(s) URLs on public addresses, re-checks each redirect hop, caps logos at 2MB, and briefly remembers failures so dead URLs aren't retried on every render.
+
+---
+
 ### Fixed: Processing progress bars ramp evenly and hardware encoding falls back safely
 
 **What you would notice:** During post-processing, the Commercials/Re-encode stage bars no longer sprint to ~40% and then crawl, and they no longer sit pinned at 100% while ffmpeg is clearly still working. Progress now tracks the actual work: the quick segment-extraction step takes a small slice of the bar when re-encoding (a bigger slice when only remuxing), and the bar holds at 99% until ffmpeg genuinely finishes. Separately, if your saved Hardware Acceleration choice isn't usable where the app is running — the classic case is VideoToolbox selected on a Mac but the app running inside Docker, which is a Linux VM with no access to Apple's video hardware — the recording is now encoded on the CPU instead of producing a broken file, and the download completes with a warning explaining the fallback.

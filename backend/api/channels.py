@@ -5,7 +5,7 @@ from typing import Optional
 
 import aiohttp
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from starlette.background import BackgroundTask
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -16,6 +16,7 @@ from models import StarredChannel, XtreamAccount
 from services.download_builder import _normalize_provider_start_token
 from services.epg_service import epg_service, NoCatchupSupportError
 from services.account_credentials import resolve_account_password_with_migration
+from services.logo_cache import logo_cache
 from services.xtream_client import XtreamClient
 
 
@@ -53,6 +54,35 @@ async def _close_preview_connection(provider_response, http_session) -> None:
 
 def _channel_has_tv_archive(ch: dict) -> bool:
     return int(ch.get("tv_archive", 0) or 0) == 1
+
+
+@router.get("/logos")
+async def get_channel_logo(
+    url: str = Query(..., min_length=1, max_length=2048),
+    _auth: AuthContext = Depends(require_admin_or_download_user),
+):
+    """Serve a provider channel logo through the disk cache.
+
+    Provider logo hosts rarely send cache headers, so the browser refetches
+    every logo on every guide render. Fetch once, cache to disk, and serve
+    with a long max-age so repeat visits never hit the network.
+    """
+    result = await logo_cache.get_logo(url)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Logo unavailable")
+
+    content, content_type = result
+    return Response(
+        content=content,
+        media_type=content_type,
+        headers={
+            "Cache-Control": "public, max-age=604800, immutable",
+            "X-Content-Type-Options": "nosniff",
+            # Logo bytes come from third-party hosts; the sandbox stops a
+            # crafted SVG from running scripts on our origin if opened directly.
+            "Content-Security-Policy": "default-src 'none'; sandbox",
+        },
+    )
 
 
 @router.get("/accounts/{account_id}/categories")

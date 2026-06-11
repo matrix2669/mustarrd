@@ -58,11 +58,25 @@ function channelInitials(name) {
     .toUpperCase()
 }
 
+function channelLogoSrc(streamIcon) {
+  if (!streamIcon || !/^https?:\/\//i.test(streamIcon)) return null
+  // Logos go through the backend cache so they load from disk after the
+  // first fetch instead of hitting the provider host on every render.
+  return `/api/logos?url=${encodeURIComponent(streamIcon)}`
+}
+
 function ChannelLogo({ channel, className }) {
+  const [failed, setFailed] = useState(false)
+  const src = channelLogoSrc(channel?.stream_icon)
+  // The guide header reuses one ChannelLogo across channel switches, so a
+  // failure on one channel must not hide the next channel's logo.
+  useEffect(() => setFailed(false), [src])
+  const showImage = src && !failed
+  const baseClass = className || classes.chLogo
   return (
-    <span className={className || classes.chLogo}>
-      {channel?.stream_icon ? (
-        <img src={channel.stream_icon} alt="" loading="lazy" />
+    <span className={showImage ? `${baseClass} ${classes.chLogoImage}` : baseClass}>
+      {showImage ? (
+        <img src={src} alt="" loading="lazy" onError={() => setFailed(true)} />
       ) : (
         channelInitials(channel?.name)
       )}
