@@ -1962,6 +1962,13 @@ class DownloadManager:
         if not post_processor.ffmpeg_available:
             await log_callback("Post-processing enabled but ffmpeg not available; skipping remux/transcode.")
 
+        hw_accel, hw_warning = await asyncio.to_thread(
+            post_processor.resolve_hw_accel, hw_accel
+        )
+        if hw_warning:
+            await log_callback(hw_warning)
+            warnings.append(hw_warning)
+
         download_progress = 100.0
         comskip_progress: Optional[float] = None
         transcode_progress: Optional[float] = None

@@ -80,6 +80,7 @@ class ComSkipFailureErrorMessageTests(unittest.IsolatedAsyncioTestCase):
         mock_pp = MagicMock()
         mock_pp.comskip_available = True
         mock_pp.ffmpeg_available = False
+        mock_pp.resolve_hw_accel = lambda accel: (accel, None)
         mock_pp.get_comskip_path.return_value = "/usr/bin/comskip"
         mock_pp.detect_commercials = AsyncMock(
             side_effect=RuntimeError("Comskip exited with code 1")

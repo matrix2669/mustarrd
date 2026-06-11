@@ -63,6 +63,7 @@ class ComSkipExceptionFallthroughTests(unittest.IsolatedAsyncioTestCase):
             mock_pp = MagicMock()
             mock_pp.comskip_available = True
             mock_pp.ffmpeg_available = True
+            mock_pp.resolve_hw_accel = lambda accel: (accel, None)
             mock_pp.get_comskip_path.return_value = "/usr/bin/comskip"
             mock_pp.get_ffmpeg_path.return_value = "/usr/bin/ffmpeg"
             mock_pp.detect_commercials = AsyncMock(
@@ -92,6 +93,7 @@ class ComSkipExceptionFallthroughTests(unittest.IsolatedAsyncioTestCase):
             mock_pp = MagicMock()
             mock_pp.comskip_available = True
             mock_pp.ffmpeg_available = True
+            mock_pp.resolve_hw_accel = lambda accel: (accel, None)
             mock_pp.get_comskip_path.return_value = "/usr/bin/comskip"
             mock_pp.get_ffmpeg_path.return_value = "/usr/bin/ffmpeg"
             mock_pp.detect_commercials = AsyncMock(return_value="/tmp/recording.edl")

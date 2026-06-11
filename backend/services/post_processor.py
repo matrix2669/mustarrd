@@ -61,6 +61,9 @@ class PostProcessor:
     VAAPI_SYSFS_DRM_CLASS = Path("/sys/class/drm")
     # Corrupt input can make ffprobe hang forever; cap how long we wait for it.
     FFPROBE_TIMEOUT_SECONDS = 60.0
+    # Re-encoding a second of video costs roughly this many times more wall
+    # time than stream-copying it; used to weight commercial-removal progress.
+    ENCODE_COST_FACTOR = 8.0
     VAAPI_DEFAULT_DRIVERS_PATH = (
         "/usr/local/lib/x86_64-linux-gnu/dri:/usr/local/lib/aarch64-linux-gnu/dri:"
         "/usr/lib/x86_64-linux-gnu/dri:/usr/lib/aarch64-linux-gnu/dri"
@@ -453,6 +456,32 @@ class PostProcessor:
 
         return available
 
+    def resolve_hw_accel(self, hw_accel: HardwareAccel) -> tuple[HardwareAccel, Optional[str]]:
+        """Fall back to CPU when the selected hardware encoder is unavailable.
+
+        Catches stale settings, e.g. VideoToolbox chosen while running natively
+        on macOS but the app now runs inside Docker (a Linux VM that has no
+        access to Apple's media engine). Returns (effective_accel, warning);
+        warning is None when the selection is usable as-is.
+        """
+        if hw_accel == HardwareAccel.CPU:
+            return hw_accel, None
+        available = {
+            accel.get("id")
+            for accel in self.get_available_hardware_accels()
+            if accel.get("available")
+        }
+        if hw_accel.value in available:
+            return hw_accel, None
+        reason = (
+            f"Hardware encoder '{hw_accel.value}' is not available on this system"
+        )
+        if hw_accel == HardwareAccel.APPLE_SILICON and platform.system() != "Darwin":
+            reason += (
+                " (VideoToolbox only works on macOS itself, not inside Docker/Linux)"
+            )
+        return HardwareAccel.CPU, f"{reason}; falling back to CPU encoding."
+
     def _get_encoder_args(
         self,
         hw_accel: HardwareAccel,
@@ -596,8 +625,11 @@ class PostProcessor:
                 seconds = self._parse_ffmpeg_time(key, value)
                 if seconds is None or duration <= 0:
                     continue
-                progress = min(100.0, (seconds / duration) * 100.0)
-                if progress_callback and (progress - last_progress >= 0.5 or progress >= 100):
+                # ffprobe durations for IPTV TS streams are estimates, so hold
+                # below 100 until the process actually exits; 100 is reported
+                # after a clean exit below.
+                progress = min(99.0, (seconds / duration) * 100.0)
+                if progress_callback and progress - last_progress >= 0.5:
                     last_progress = progress
                     await self._notify_progress(progress_callback, progress)
 
@@ -1293,6 +1325,11 @@ class PostProcessor:
             )
             # Extract each segment
             segment_count = len(keep_segments)
+            extract_costs, extract_share = self._plan_commercial_removal_progress(
+                keep_segments, duration, remux_only
+            )
+            extract_total = sum(extract_costs) or 1.0
+            extracted_cost = 0.0
             for i, (start, end) in enumerate(keep_segments):
                 temp_path = input_file.with_stem(f"{input_file.stem}_seg{i}").with_suffix(".ts")
                 temp_files.append(temp_path)
@@ -1336,8 +1373,11 @@ class PostProcessor:
                     raise Exception(
                         f"ffmpeg segment extraction failed: {seg_stderr.decode(errors='ignore')}"
                     )
+                extracted_cost += extract_costs[i]
                 if progress_callback and segment_count > 0:
-                    await self._notify_progress(progress_callback, (i + 1) / segment_count * 40.0)
+                    await self._notify_progress(
+                        progress_callback, extracted_cost / extract_total * extract_share
+                    )
 
             # Write concat file
             with open(concat_file, "w") as f:
@@ -1373,7 +1413,10 @@ class PostProcessor:
 
             kept_duration = sum(max(0.0, end - start) for start, end in keep_segments)
             async def mapped_callback(p: float):
-                await self._notify_progress(progress_callback, 40.0 + (p * 0.6))
+                await self._notify_progress(
+                    progress_callback,
+                    extract_share + (p / 100.0) * (100.0 - extract_share)
+                )
             await self._notify_log(
                 log_callback,
                 f"ffmpeg concat cmd: {' '.join(shlex.quote(str(c)) for c in cmd)}"
@@ -1466,6 +1509,36 @@ class PostProcessor:
             os.remove(input_path)
 
         return str(output_path)
+
+    def _plan_commercial_removal_progress(
+        self,
+        keep_segments: List[tuple],
+        duration: float,
+        remux_only: bool,
+    ) -> tuple[List[float], float]:
+        """Weight the two commercial-removal phases by expected wall time.
+
+        Returns (extract_costs, extract_share):
+          extract_costs — relative cost of extracting each keep segment.
+            Extraction uses output-side -ss with -c copy, so ffmpeg demuxes the
+            input from t=0 up to the segment's end; cost scales with the end
+            position, not the segment length.
+          extract_share — the percentage of the overall bar (0-100) the
+            extraction phase should occupy. The concat phase costs the kept
+            duration times ENCODE_COST_FACTOR when re-encoding, or times 1
+            when remuxing (stream copy).
+        """
+        extract_costs = [
+            min(end, duration) if end > start else duration
+            for start, end in keep_segments
+        ]
+        extract_total = sum(extract_costs)
+        kept_duration = sum(max(0.0, end - start) for start, end in keep_segments)
+        concat_cost = kept_duration * (1.0 if remux_only else self.ENCODE_COST_FACTOR)
+        total = extract_total + concat_cost
+        if total <= 0:
+            return extract_costs, 50.0
+        return extract_costs, (extract_total / total) * 100.0
 
     def _cleanup_comskip_outputs(self, input_path: str, edl_path: str) -> None:
         """Remove comskip output artifacts."""

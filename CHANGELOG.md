@@ -4,6 +4,16 @@ All notable changes to Mustarrd are listed here. Most recent changes are at the 
 
 ---
 
+## 2026-06-11
+
+### Fixed: Processing progress bars ramp evenly and hardware encoding falls back safely
+
+**What you would notice:** During post-processing, the Commercials/Re-encode stage bars no longer sprint to ~40% and then crawl, and they no longer sit pinned at 100% while ffmpeg is clearly still working. Progress now tracks the actual work: the quick segment-extraction step takes a small slice of the bar when re-encoding (a bigger slice when only remuxing), and the bar holds at 99% until ffmpeg genuinely finishes. Separately, if your saved Hardware Acceleration choice isn't usable where the app is running — the classic case is VideoToolbox selected on a Mac but the app running inside Docker, which is a Linux VM with no access to Apple's video hardware — the recording is now encoded on the CPU instead of producing a broken file, and the download completes with a warning explaining the fallback.
+
+**What changed:** Backend only. `remove_commercials` previously gave a fixed 40% of the bar to segment extraction and 60% to the concat encode, stepping equally per segment; it now weights each segment by how much of the input ffmpeg has to read for it and splits the two phases by estimated wall time (stream copy vs. re-encode, ~8× cost factor). `_run_ffmpeg_with_progress` caps mid-run progress at 99% because ffprobe durations for IPTV TS streams are estimates; 100% is only reported after a clean exit. A new `resolve_hw_accel` check runs before post-processing: if the selected hardware encoder isn't in ffmpeg's available encoders on the current platform, it falls back to CPU and surfaces a "Completed with warnings" message.
+
+---
+
 ## 2026-06-10
 
 ### Fixed: Downloads are no longer much slower than the same URL fetched with other tools

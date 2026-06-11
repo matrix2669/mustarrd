@@ -128,6 +128,7 @@ class PostProcessFailureCancelCleanupTests(unittest.IsolatedAsyncioTestCase):
         mock_pp = MagicMock()
         mock_pp.comskip_available = True
         mock_pp.ffmpeg_available = True
+        mock_pp.resolve_hw_accel = lambda accel: (accel, None)
         mock_pp.get_ffmpeg_path.return_value = "/usr/bin/ffmpeg"
         mock_pp.detect_commercials = AsyncMock(side_effect=fake_detect)
         mock_pp.remove_commercials = AsyncMock(side_effect=fake_remove_commercials)
@@ -163,6 +164,7 @@ class PostProcessFailureCancelCleanupTests(unittest.IsolatedAsyncioTestCase):
         mock_pp = MagicMock()
         mock_pp.comskip_available = True
         mock_pp.ffmpeg_available = True
+        mock_pp.resolve_hw_accel = lambda accel: (accel, None)
         mock_pp.get_ffmpeg_path.return_value = "/usr/bin/ffmpeg"
         mock_pp.detect_commercials = AsyncMock(side_effect=fake_detect)
         mock_pp.remove_commercials = AsyncMock()
@@ -218,6 +220,7 @@ class PostProcessFailureCancelCleanupTests(unittest.IsolatedAsyncioTestCase):
         mock_pp = MagicMock()
         mock_pp.comskip_available = True
         mock_pp.ffmpeg_available = True
+        mock_pp.resolve_hw_accel = lambda accel: (accel, None)
         mock_pp.get_ffmpeg_path.return_value = "/usr/bin/ffmpeg"
         mock_pp.detect_commercials = AsyncMock(side_effect=fake_detect)
         mock_pp.remove_commercials = AsyncMock(side_effect=fake_remove)
