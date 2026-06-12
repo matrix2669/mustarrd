@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Optional, Callable, List, Dict, Tuple
 from enum import Enum
 
+from services.process_runner import ProcessRunner
+
 logger = logging.getLogger(__name__)
 
 
@@ -69,10 +71,11 @@ class PostProcessor:
         "/usr/lib/x86_64-linux-gnu/dri:/usr/lib/aarch64-linux-gnu/dri"
     )
 
-    def __init__(self):
+    def __init__(self, runner: Optional[ProcessRunner] = None):
         self._ffmpeg_path = shutil.which("ffmpeg")
         self._comskip_path = shutil.which("comskip")
         self._available_encoders: Optional[List[str]] = None
+        self._runner = runner or ProcessRunner()
 
     @staticmethod
     def _is_executable(path: Optional[str]) -> bool:
@@ -228,12 +231,7 @@ class PostProcessor:
             return False, "not executable or not found"
 
         try:
-            result = subprocess.run(
-                [path, *args],
-                capture_output=True,
-                text=True,
-                timeout=timeout
-            )
+            result = self._runner.run_sync([path, *args], timeout=timeout)
         except FileNotFoundError:
             return False, "not found"
         except subprocess.TimeoutExpired:
@@ -296,11 +294,8 @@ class PostProcessor:
             return []
 
         try:
-            result = subprocess.run(
-                [self._ffmpeg_path, "-encoders", "-hide_banner"],
-                capture_output=True,
-                text=True,
-                timeout=10
+            result = self._runner.run_sync(
+                [self._ffmpeg_path, "-encoders", "-hide_banner"], timeout=10
             )
             self._available_encoders = result.stdout
             return self._available_encoders
@@ -1645,10 +1640,8 @@ class PostProcessor:
         ]
 
         try:
-            process = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+            result = await self._runner.run_capture(
+                cmd, timeout=self.FFPROBE_TIMEOUT_SECONDS
             )
         except FileNotFoundError:
             await self._notify_log(
@@ -1657,28 +1650,20 @@ class PostProcessor:
             )
             return 0
 
-        try:
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(), timeout=self.FFPROBE_TIMEOUT_SECONDS
-            )
-        except asyncio.TimeoutError:
-            await self._terminate_process(process)
+        if result.timed_out:
             await self._notify_log(
                 log_callback,
                 f"ffprobe timed out after {self.FFPROBE_TIMEOUT_SECONDS:.0f}s; "
                 "duration unavailable."
             )
             return 0
-        except asyncio.CancelledError:
-            await self._terminate_process(process)
-            raise
-        if process.returncode != 0:
-            stderr_text = stderr.decode(errors="ignore").strip()
+        if result.returncode != 0:
+            stderr_text = result.stderr_text.strip()
             if stderr_text:
                 await self._notify_log(log_callback, f"ffprobe failed: {stderr_text}")
             return 0
         try:
-            return float(stdout.decode().strip())
+            return float(result.stdout_text.strip())
         except ValueError:
             await self._notify_log(log_callback, "ffprobe returned invalid duration.")
             return 0
@@ -1715,10 +1700,8 @@ class PostProcessor:
         ]
 
         try:
-            process = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+            run = await self._runner.run_capture(
+                cmd, timeout=self.FFPROBE_TIMEOUT_SECONDS
             )
         except FileNotFoundError:
             await self._notify_log(
@@ -1728,31 +1711,23 @@ class PostProcessor:
             return result
 
         result["checked"] = True
-        try:
-            stdout, _stderr = await asyncio.wait_for(
-                process.communicate(), timeout=self.FFPROBE_TIMEOUT_SECONDS
-            )
-        except asyncio.TimeoutError:
+        if run.timed_out:
             # The timeout exists because corrupt input can make ffprobe hang;
             # a hang is itself a strong corruption signal.
-            await self._terminate_process(process)
             result["ok"] = False
             result["reason"] = (
                 f"ffprobe timed out after {self.FFPROBE_TIMEOUT_SECONDS:.0f}s "
                 "while reading the file"
             )
             return result
-        except asyncio.CancelledError:
-            await self._terminate_process(process)
-            raise
 
-        if process.returncode != 0:
+        if run.returncode != 0:
             result["ok"] = False
             result["reason"] = "the container could not be parsed"
             return result
 
         try:
-            payload = json.loads(stdout.decode(errors="ignore") or "{}")
+            payload = json.loads(run.stdout_text or "{}")
         except ValueError:
             result["ok"] = False
             result["reason"] = "ffprobe returned unreadable output"
