@@ -1,6 +1,5 @@
 from datetime import datetime, timedelta, timezone
 from typing import Optional
-import os
 import re
 
 from sqlalchemy import select
@@ -8,10 +7,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import Download, DownloadStatus, AppSettings, XtreamAccount
 from services.account_credentials import resolve_account_password_with_migration
-from services.file_namer import file_namer
 from services.epg_service import epg_service
+from services.output_path import output_path as output_path_builder
 from services.xtream_client import XtreamClient
-from config import settings as app_settings
 
 
 def _coerce_ts(value) -> int:
@@ -145,7 +143,6 @@ async def build_download_from_program(
 
     settings_result = await session.execute(select(AppSettings))
     settings = settings_result.scalar_one_or_none()
-    download_folder = settings.download_folder if settings and settings.download_folder else app_settings.default_download_folder
 
     program_start_utc, program_end_utc, duration_minutes, program_start, program_end = _parse_program_times(program)
 
@@ -158,14 +155,14 @@ async def build_download_from_program(
         "category_name": program.get("category", ""),
     }
 
-    if custom_filename:
-        filename = custom_filename
-        if not filename.endswith(".ts"):
-            filename += ".ts"
-        filename = file_namer.sanitize_filename(filename.removesuffix(".ts")) + ".ts"
-    else:
-        program_type = epg_service.detect_program_type(program, channel)
-        filename = file_namer.generate_filename(program, channel, program_type, settings.to_dict() if settings else None)
+    program_type = epg_service.detect_program_type(program, channel)
+    completed_path = output_path_builder.for_program(
+        settings,
+        program,
+        channel,
+        program_type,
+        custom_filename=custom_filename,
+    )
 
     pre_padding = int(pre_padding_minutes or 0)
     post_padding = int(post_padding_minutes or 0)
@@ -206,7 +203,7 @@ async def build_download_from_program(
         stop_timestamp=int(program_end_utc.timestamp()),
         duration_minutes=padded_duration,
         source_url=source_url,
-        output_path=os.path.join(download_folder, filename),
+        output_path=completed_path,
         status=DownloadStatus.PENDING.value,
         requested_by_user_id=requested_by_user_id,
         request_source=request_source,

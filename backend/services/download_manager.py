@@ -358,6 +358,21 @@ class DownloadManager:
 
         return [str(c) for c in candidates]
 
+    def _find_processed_output(self, input_path: str, settings: Optional[AppSettings]) -> Optional[str]:
+        """Single source of truth for "did post-processing already produce an
+        output file?".
+
+        Both restart recovery and the live post-process path ask this same
+        question when the raw input has gone missing: is the transcoded/remuxed
+        output sitting next to where the input used to be? Keeping it in one
+        method stops the two callers from drifting into disagreeing answers
+        (which would duplicate or drop a recording after a mid-move crash).
+        """
+        for candidate in self._processed_output_candidates(input_path, settings):
+            if Path(candidate).is_file():
+                return candidate
+        return None
+
     def _path_is_under(self, path: str, parent: str) -> bool:
         try:
             path_real = os.path.realpath(os.path.abspath(path))
@@ -650,11 +665,7 @@ class DownloadManager:
                         continue
 
                     # If we lost the input file but still have an output, finalize it.
-                    processed_found = None
-                    for candidate in self._processed_output_candidates(input_path, settings):
-                        if Path(candidate).is_file():
-                            processed_found = candidate
-                            break
+                    processed_found = self._find_processed_output(input_path, settings)
                     if processed_found:
                         completed_path = await self._move_to_completed_async(processed_found, completed_folder, download_folder)
                         download.output_path = completed_path
@@ -1000,11 +1011,7 @@ class DownloadManager:
                 working_input_path = original_path
                 original_file = Path(original_path)
                 if not original_file.is_file():
-                    processed_found = None
-                    for candidate in self._processed_output_candidates(original_path, settings):
-                        if Path(candidate).is_file():
-                            processed_found = candidate
-                            break
+                    processed_found = self._find_processed_output(original_path, settings)
                     if processed_found:
                         completed_path = await self._move_to_completed_async(processed_found, completed_folder, download_folder)
                         moved_completed_path = completed_path

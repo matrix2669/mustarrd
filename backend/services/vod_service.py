@@ -5,24 +5,10 @@ from urllib.parse import urlparse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from config import settings as app_settings
 from models import Download, DownloadStatus, XtreamAccount, AppSettings
 from services.account_credentials import resolve_account_password_with_migration
 from services.xtream_client import XtreamClient
-from services.file_namer import file_namer
-from services.vod_namer import movie_output_path, series_episode_output_path
-
-
-def _resolve_download_folder(settings: Optional[AppSettings]) -> str:
-    if settings and settings.download_folder:
-        return settings.download_folder
-    return app_settings.default_download_folder
-
-
-def _extract_year(text: Optional[str]) -> Optional[int]:
-    if not text:
-        return None
-    return file_namer.extract_year(text)
+from services.output_path import output_path as output_path_builder
 
 
 def _effective_port(parsed) -> Optional[int]:
@@ -83,10 +69,10 @@ async def build_movie_download(
 
     settings_result = await session.execute(select(AppSettings))
     settings = settings_result.scalar_one_or_none()
-    download_folder = _resolve_download_folder(settings)
 
-    year = _extract_year(release_date) or _extract_year(title)
-    output_path = movie_output_path(download_folder, title, year, container_extension)
+    output_path = output_path_builder.for_movie(
+        settings, title, container_extension, release_date=release_date
+    )
 
     trusted_direct_source = _trusted_direct_source(direct_source, account.server_url)
     if trusted_direct_source:
@@ -137,10 +123,9 @@ async def build_episode_download(
 
     settings_result = await session.execute(select(AppSettings))
     settings = settings_result.scalar_one_or_none()
-    download_folder = _resolve_download_folder(settings)
 
-    output_path = series_episode_output_path(
-        download_folder,
+    output_path = output_path_builder.for_series_episode(
+        settings,
         show_name,
         season,
         episode_num,

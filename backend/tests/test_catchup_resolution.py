@@ -416,7 +416,7 @@ class CatchupResolutionTests(unittest.TestCase):
         )
 
         with patch("services.download_builder.resolve_account_password_with_migration", new=AsyncMock(return_value="pass")):
-            with patch("services.download_builder.file_namer.generate_filename", return_value="test.ts"):
+            with patch("services.output_path.file_namer.generate_filename", return_value="test.ts"):
                 with patch("services.download_builder.epg_service.detect_program_type", return_value="other"):
                     return await build_download_from_program(
                         session,
