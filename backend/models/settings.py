@@ -58,6 +58,11 @@ class AppSettings(Base):
     integrity_check_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
 
     comskip_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Cut vs Mark. True = Cut (physically remove commercials, the pre-existing
+    # behaviour, forces a re-encode). False = Mark (detect only; write an EDL
+    # sidecar + embed commercial chapters, no cut, no forced re-encode).
+    # Defaults to Cut so existing comskip_enabled installs are unchanged.
+    comskip_cut: Mapped[bool] = mapped_column(Boolean, default=True)
     comskip_path: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     comskip_ini_path: Mapped[str | None] = mapped_column(String(1000), nullable=True)
 
@@ -107,6 +112,7 @@ class AppSettings(Base):
             "remux_only": self.remux_only,
             "integrity_check_enabled": self.integrity_check_enabled,
             "comskip_enabled": self.comskip_enabled,
+            "comskip_cut": self.comskip_cut,
             "comskip_path": self.comskip_path,
             "comskip_ini_path": self.comskip_ini_path,
             "comskip_custom_ini_path": self.comskip_custom_ini_path,

@@ -913,7 +913,9 @@ export default function Settings() {
     const container = !formData.transcode_enabled ? 'ts' : formData.transcode_format === 'mp4' ? 'mp4' : 'mkv'
     const method = formData.remux_only ? 'remux' : 'encode'
     const isTs = container === 'ts'
-    const comskipOn = Boolean(formData.comskip_enabled) && !isTs
+    const comskipOn = Boolean(formData.comskip_enabled)
+    // Off / Mark / Cut. comskip_cut defaults to Cut (true) when comskip is on.
+    const comskipMode = !comskipOn ? 'off' : (formData.comskip_cut === false ? 'mark' : 'cut')
     const ffmpegReady = toolsStatus?.ffmpeg?.available
     const comskipReady = toolsStatus?.comskip?.available
 
@@ -927,9 +929,30 @@ export default function Settings() {
 
     const handleContainerChange = (value) => {
       if (value === 'ts') {
-        applyChanges({ transcode_enabled: false, comskip_enabled: false })
+        // Cut needs a container, so switching to Keep .ts drops Cut. Mark works
+        // on .ts (sidecar only), so it is left in place.
+        const patch = { transcode_enabled: false }
+        if (comskipMode === 'cut') patch.comskip_enabled = false
+        applyChanges(patch)
       } else {
         applyChanges({ transcode_enabled: true, transcode_format: value })
+      }
+    }
+
+    const handleCommercialsChange = (mode) => {
+      if (mode === 'off') {
+        applyChanges({ comskip_enabled: false })
+      } else if (mode === 'mark') {
+        // Mark detects but does not cut; it never forces a re-encode.
+        applyChanges({ comskip_enabled: true, comskip_cut: false })
+      } else {
+        // Cut physically removes commercials and needs a container conversion.
+        const patch = { comskip_enabled: true, comskip_cut: true }
+        if (isTs) {
+          patch.transcode_enabled = true
+          patch.transcode_format = 'mkv'
+        }
+        applyChanges(patch)
       }
     }
 
@@ -968,25 +991,37 @@ export default function Settings() {
               </SettingRow>
             )}
             <SettingRow
-              label="Remove commercials"
+              label="Commercials"
               description={isTs
-                ? 'Requires a container conversion — choose MKV or MP4 above'
-                : 'Detect and cut ad breaks with Comskip before saving'}
+                ? 'Mark writes an .edl sidecar (no cut). Cutting needs MKV or MP4 above.'
+                : 'Mark keeps the full video and tags the ad breaks; Cut removes them.'}
             >
               {comskipOn && (
                 <Button variant="subtle" size="xs" onClick={() => selectSection('comskip')}>
                   Tune detection →
                 </Button>
               )}
-              <Switch
-                size={switchSize}
-                aria-label="Remove commercials"
-                checked={comskipOn}
-                disabled={isTs}
-                onChange={(e) => handleChange('comskip_enabled', e.currentTarget.checked)}
+              <SegmentedControl
+                value={comskipMode}
+                onChange={handleCommercialsChange}
+                data={[
+                  { value: 'off', label: 'Off' },
+                  { value: 'mark', label: 'Mark only' },
+                  { value: 'cut', label: 'Cut out', disabled: isTs },
+                ]}
               />
             </SettingRow>
           </Stack>
+
+          {comskipMode === 'mark' && isTs && (
+            <Alert color="yellow" variant="light">
+              <Text size="sm">
+                Plex chapter-skip needs MKV or MP4. On{' '}
+                <Text component="span" fw={500}>Keep .ts</Text> you'll only get the .edl sidecar
+                (Kodi/Jellyfin/Emby still work).
+              </Text>
+            </Alert>
+          )}
 
           {ffmpegReady === false && !isTs && (
             <Alert color="yellow" variant="light">

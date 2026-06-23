@@ -4,6 +4,16 @@ All notable changes to Mustarrd are listed here. Most recent changes are at the 
 
 ---
 
+## 2026-06-23
+
+### Added: Commercial Skip can now mark ad breaks instead of cutting them
+
+**What you would notice:** The Settings "Remove commercials" on/off switch is now a three-way choice called **Commercials**: **Off · Mark only · Cut out**. "Cut out" is exactly the old behaviour — Comskip finds the ads and they're physically removed from the recording. The new "Mark only" keeps your recording whole and untouched, and instead saves where the ads are two ways: an `.edl` file next to the video (so Kodi, Jellyfin, Emby and MythTV auto-skip them) and commercial chapter markers inside MKV/MP4 files (so Plex can jump break-to-break by chapter). Unlike "Cut out," "Mark only" no longer forces a re-encode, so it works even with **Keep .ts** — though on Keep .ts you only get the `.edl` file, not the Plex chapters (Settings warns you about this). Existing setups come up as "Cut out," so nothing changes unless you switch.
+
+**What changed:** Commercial Skip split into two ideas: `comskip_enabled` ("does Comskip run") and a new `comskip_cut` flag ("cut vs. mark," defaults to cut). The "Comskip forces a re-encode" rule now applies to Cut mode only. In Mark mode the pipeline runs detection, skips the cut, keeps the Comskip `.edl` renamed to match the finished video and carried into the completed folder beside it, and — on an MKV/MP4 container pass — muxes in "Commercial" chapter markers derived from the same detection. Plex auto-skip of external files isn't possible without writing into Plex's private database (rejected); chapters are the supported stand-in. Regression tests cover the Mark-mode settings constraint, the chapter metadata, the kept/renamed sidecar, and that no cut is applied.
+
+---
+
 ## 2026-06-11
 
 ### Fixed: Recordings play in Firefox-based browsers, and the player scrub bar now spans the whole recording

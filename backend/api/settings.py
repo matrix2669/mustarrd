@@ -98,6 +98,7 @@ class SettingsUpdate(BaseModel):
     remux_only: Optional[bool] = None
     integrity_check_enabled: Optional[bool] = None
     comskip_enabled: Optional[bool] = None
+    comskip_cut: Optional[bool] = None
     comskip_path: Optional[str] = None
     comskip_ini_path: Optional[str] = None
     comskip_custom_ini_path: Optional[str] = None
@@ -137,6 +138,7 @@ NON_NULLABLE_FIELDS = {
     "remux_only",
     "integrity_check_enabled",
     "comskip_enabled",
+    "comskip_cut",
     "comskip_detect_method",
     "comskip_max_commercialbreak",
     "comskip_min_commercialbreak",
@@ -302,12 +304,15 @@ async def update_settings(
             value = value.strip() or None
         setattr(settings, field, value)
 
-    # Enforce ComSkip constraint on the final stored state: comskip requires
-    # FFmpeg, so transcode_enabled must stay True.  remux_only is NOT forced
-    # off: the pipeline supports stream-copy commercial removal (segment
-    # extraction + concat with -c copy), so remux_only=True + comskip_enabled=True
-    # is the valid "fast remux + skip commercials" profile written by onboarding.
-    if settings.comskip_enabled:
+    # Enforce ComSkip constraint on the final stored state: the cut needs
+    # FFmpeg, so transcode_enabled must stay True.  This applies to Cut mode
+    # ONLY (comskip_enabled AND comskip_cut).  Mark mode (comskip_cut=False)
+    # does not cut, so it honours the format picker — including Keep .ts — and
+    # never forces a re-encode (see docs/adr/0001-commercial-skip-mark-mode.md).
+    # remux_only is NOT forced off: the pipeline supports stream-copy commercial
+    # removal (segment extraction + concat with -c copy), so remux_only=True +
+    # Cut is the valid "fast remux + skip commercials" profile from onboarding.
+    if settings.comskip_enabled and settings.comskip_cut:
         settings.transcode_enabled = True
 
     # Validate min<=max pairs on the final stored state so two separate PUT

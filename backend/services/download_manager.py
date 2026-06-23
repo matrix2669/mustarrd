@@ -986,6 +986,7 @@ class DownloadManager:
             working_input_path: Optional[str] = None
             completed_output_path: Optional[str] = None
             post_processed_path: Optional[str] = None
+            moved_sidecar_path: Optional[str] = None
             try:
                 result = await session.execute(
                     select(Download).where(Download.id == download_id)
@@ -1066,6 +1067,11 @@ class DownloadManager:
                 completed_path = await self._move_to_completed_async(final_path, completed_folder, download_folder)
                 completed_output_path = completed_path
                 moved_completed_path = completed_path
+                # Mark mode leaves an .edl sidecar next to the final video; carry
+                # it to the completed folder in lockstep so its stem keeps matching.
+                moved_sidecar_path = await self._move_sidecar_to_completed(
+                    final_path, completed_path, completed_folder, download_folder
+                )
                 download.output_path = completed_path
                 await self._store_recorded_duration(download, completed_path)
                 integrity_warning = await self._integrity_check_warning(completed_path, settings)
@@ -1087,6 +1093,7 @@ class DownloadManager:
                     completed_path,
                     keep_logs=bool(warnings),
                     delete_original=delete_original,
+                    keep_paths=[moved_sidecar_path] if moved_sidecar_path else None,
                 )
 
                 download.status = DownloadStatus.COMPLETED.value
@@ -1462,11 +1469,40 @@ class DownloadManager:
         except Exception:
             pass
 
-    def _cleanup_working_files(self, original_path: str, completed_path: str, keep_logs: bool, delete_original: bool = True) -> None:
+    async def _move_sidecar_to_completed(
+        self,
+        final_path: str,
+        completed_path: str,
+        completed_folder: str,
+        download_folder: Optional[str],
+    ) -> Optional[str]:
+        """Carry a Mark-mode .edl sidecar to the completed folder beside its video.
+
+        The sidecar shares the final video's stem; it must land next to the moved
+        video so players find `Show - S01E04.edl` beside `Show - S01E04.mkv`.
+        No-op when there is no sidecar (Cut mode, or Comskip found nothing).
+        """
+        sidecar = Path(final_path).with_suffix(".edl")
+        if not sidecar.exists():
+            return None
+        dest = str(Path(completed_path).with_suffix(".edl"))
+        if os.path.abspath(str(sidecar)) == os.path.abspath(dest):
+            return dest  # completed == download folder; already in place
+        try:
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            return await asyncio.to_thread(shutil.move, str(sidecar), dest)
+        except OSError:
+            return None
+
+    def _cleanup_working_files(self, original_path: str, completed_path: str, keep_logs: bool, delete_original: bool = True, keep_paths: Optional[list] = None) -> None:
         try:
             original_file = Path(original_path)
             base_dir = original_file.parent
             stem = original_file.stem
+            protected_reals = set()
+            for keep in (keep_paths or []):
+                if keep:
+                    protected_reals.add(os.path.realpath(os.path.abspath(str(keep))))
             # Escape glob special chars ([, ], ?) in the stem so channel names like
             # "[BBC HD]" don't silently fail to match or accidentally match unrelated files.
             escaped_stem = glob_module.escape(stem)
@@ -1502,6 +1538,8 @@ class DownloadManager:
                     try:
                         candidate_real = os.path.realpath(os.path.abspath(str(path)))
                         if candidate_real == completed_real:
+                            continue
+                        if candidate_real in protected_reals:
                             continue
                         path.unlink()
                     except Exception:
@@ -1938,6 +1976,12 @@ class DownloadManager:
 
         will_comskip = settings.comskip_enabled and post_processor.comskip_available
         will_transcode = settings.transcode_enabled and post_processor.ffmpeg_available
+        # Cut physically removes commercials (forces a container pass); Mark only
+        # detects, then keeps an EDL sidecar + embeds chapters on whatever
+        # container pass the format picker asks for. See ADR-0001.
+        comskip_cut = getattr(settings, "comskip_cut", True)
+        will_cut = will_comskip and comskip_cut
+        will_mark = will_comskip and not comskip_cut
 
         if not will_comskip and not will_transcode:
             return current_path, warnings
@@ -2012,6 +2056,7 @@ class DownloadManager:
         # log_callback defined above to also persist logs
 
         commercials_removed = False
+        mark_edl_path: Optional[str] = None  # set in Mark mode when commercials are found
 
         # Run Comskip if enabled
         if will_comskip:
@@ -2049,7 +2094,15 @@ class DownloadManager:
                 comskip_indeterminate = False
                 await broadcast_processing(comskip_progress, current_message, indeterminate=False)
 
-                if edl_path:
+                if edl_path and will_mark:
+                    # Mark mode: detection only. Defer the EDL sidecar + chapter
+                    # embedding until after any container pass so the sidecar is
+                    # named after the final video. The cut is intentionally skipped.
+                    mark_edl_path = edl_path
+                    await log_callback(
+                        "Comskip: commercials detected; marking only (video left uncut)."
+                    )
+                elif edl_path:
                     output_format = OutputFormat(settings.transcode_format or "mkv")
                     accel_name = hw_accel.value if hw_accel != HardwareAccel.CPU else "CPU"
                     if remux_only:
@@ -2115,6 +2168,22 @@ class DownloadManager:
                 await log_callback(f"Transcode error: {e}")
                 warnings.append(f"Transcode failed: {e}")
                 logger.exception("Transcode error (continuing anyway)")
+
+        # Mark mode: now that the final video exists (a container pass above for
+        # MKV/MP4, or the untouched .ts for Keep .ts), embed commercial chapters
+        # (MKV/MP4 only) and keep the EDL sidecar named after the final video.
+        if will_mark and mark_edl_path:
+            try:
+                current_path = await post_processor.embed_chapters(
+                    current_path, mark_edl_path, log_callback=log_callback
+                )
+                sidecar_path = post_processor._write_edl_sidecar(current_path, mark_edl_path)
+                if sidecar_path:
+                    await log_callback(f"Commercial Skip (Mark): wrote sidecar {os.path.basename(sidecar_path)}")
+            except Exception as e:
+                await log_callback(f"Commercial Skip (Mark) finalize error: {e}")
+                warnings.append(f"Commercial marking failed: {e}")
+                logger.exception("Mark-mode finalize error (continuing anyway)")
 
         return current_path, warnings
 
