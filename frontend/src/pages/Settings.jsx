@@ -994,7 +994,7 @@ export default function Settings() {
               label="Commercials"
               description={isTs
                 ? 'Mark writes an .edl sidecar (no cut). Cutting needs MKV or MP4 above.'
-                : 'Mark keeps the full video and tags the ad breaks; Cut removes them.'}
+                : 'Mark keeps the full video — it writes an .edl sidecar and embeds Plex chapters at the ad breaks; Cut removes them.'}
             >
               {comskipOn && (
                 <Button variant="subtle" size="xs" onClick={() => selectSection('comskip')}>
