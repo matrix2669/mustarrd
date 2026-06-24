@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MantineProvider } from '@mantine/core'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -6,6 +6,18 @@ import { MemoryRouter } from 'react-router-dom'
 import dayjs from 'dayjs'
 
 import Scheduled from './Scheduled'
+
+// Freeze the clock at midday before the relative fixtures below are built.
+// The day-grouping ("TONIGHT" = starts today) compares against the real clock,
+// so a fixture of `now + 2h` built near midnight would slip into tomorrow and
+// drop the TONIGHT header — a flake that only fired when CI ran close to UTC
+// midnight. Pinning to noon keeps every offset on a predictable calendar day.
+// shouldAdvanceTime lets Testing Library's waitFor still progress.
+vi.useFakeTimers({ shouldAdvanceTime: true })
+vi.setSystemTime(new Date('2026-06-23T12:00:00Z'))
+afterAll(() => {
+  vi.useRealTimers()
+})
 
 vi.mock('../api', () => ({
   schedulesApi: {
