@@ -139,7 +139,7 @@ describe('Settings page', () => {
     await screen.findByText('Connections')
 
     fireEvent.change(screen.getByLabelText('Search settings'), { target: { value: 'commercials' } })
-    fireEvent.click(await screen.findByText('Remove commercials'))
+    fireEvent.click(await screen.findByText('Commercials'))
 
     expect(await screen.findByText('Container')).toBeInTheDocument()
     expect(screen.getByText('Conversion method')).toBeInTheDocument()
@@ -185,29 +185,60 @@ describe('Settings page', () => {
     // remux + mkv + no comskip from the fixture
     expect(await screen.findByRole('radio', { name: 'MKV' })).toBeChecked()
     expect(screen.getByRole('radio', { name: 'Remux (fast)' })).toBeChecked()
-    const comskipSwitch = screen.getByRole('switch', { name: 'Remove commercials' })
-    expect(comskipSwitch).not.toBeChecked()
+    expect(screen.getByRole('radio', { name: 'Off' })).toBeChecked()
+  })
 
-    // turning on commercial removal marks comskip_enabled dirty
-    fireEvent.click(comskipSwitch)
+  it('offers Off / Mark only / Cut out and Mark does not force a re-encode', async () => {
+    renderSettings()
+    await screen.findByText('Connections')
+
+    fireEvent.click(screen.getByText('Post-Processing'))
+
+    // fixture has comskip off → Off selected
+    expect(await screen.findByRole('radio', { name: 'Off' })).toBeChecked()
+
+    // Mark only: detect but do not cut; must NOT force transcode fields
+    fireEvent.click(screen.getByRole('radio', { name: 'Mark only' }))
     fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
     await waitFor(() => {
       expect(settingsApi.update).toHaveBeenCalled()
     })
-    expect(settingsApi.update.mock.calls[0][0]).toEqual({ comskip_enabled: true })
+    expect(settingsApi.update.mock.calls[0][0]).toEqual({
+      comskip_enabled: true,
+      comskip_cut: false,
+    })
   })
 
-  it('disables commercial removal on Keep .ts', async () => {
+  it('Cut out enables comskip and cuts (forces a container conversion)', async () => {
+    renderSettings()
+    await screen.findByText('Connections')
+
+    fireEvent.click(screen.getByText('Post-Processing'))
+
+    fireEvent.click(await screen.findByRole('radio', { name: 'Cut out' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+    await waitFor(() => {
+      expect(settingsApi.update).toHaveBeenCalled()
+    })
+    // fixture is already MKV/transcode-enabled, so only the comskip fields change
+    expect(settingsApi.update.mock.calls[0][0]).toEqual({
+      comskip_enabled: true,
+      comskip_cut: true,
+    })
+  })
+
+  it('allows Mark only on Keep .ts but disables Cut out, with a chapter warning', async () => {
     renderSettings()
     await screen.findByText('Connections')
 
     fireEvent.click(screen.getByText('Post-Processing'))
     fireEvent.click(await screen.findByRole('radio', { name: 'Keep .ts' }))
 
-    expect(screen.getByRole('switch', { name: 'Remove commercials' })).toBeDisabled()
-    expect(
-      screen.getByText('Requires a container conversion — choose MKV or MP4 above')
-    ).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: 'Cut out' })).toBeDisabled()
+    expect(screen.getByRole('radio', { name: 'Mark only' })).not.toBeDisabled()
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Mark only' }))
+    expect(screen.getByText(/Plex chapter-skip needs MKV or MP4/i)).toBeInTheDocument()
     // method row hidden for .ts
     expect(screen.queryByText('Conversion method')).not.toBeInTheDocument()
   })

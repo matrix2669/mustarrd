@@ -155,6 +155,13 @@ async def _apply_lightweight_migrations(conn) -> None:
         if await _column_exists(conn, "app_settings", "comskip_ini_path"):
             await _carry_over_legacy_comskip_ini(conn)
 
+    # Cut-vs-Mark flag for Commercial Skip. Defaults to 1 (Cut) so existing
+    # comskip_enabled installs keep cutting commercials exactly as before.
+    if not await _column_exists(conn, "app_settings", "comskip_cut"):
+        await conn.execute(
+            text("ALTER TABLE app_settings ADD COLUMN comskip_cut BOOLEAN DEFAULT 1")
+        )
+
 
 async def _carry_over_legacy_comskip_ini(conn) -> None:
     """Preserve a pre-editor custom comskip INI choice.

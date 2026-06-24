@@ -1596,6 +1596,161 @@ class PostProcessor:
                         segments.append((start, end, seg_type))
         return segments
 
+    def _edl_to_ffmetadata_chapters(self, commercial_segments: list, duration: float) -> str:
+        """Build an FFMETADATA chapter block from parsed EDL commercial segments.
+
+        Used by Mark mode (see docs/adr/0002-plex-commercial-skip-via-chapters.md):
+        the unaltered video keeps its full runtime, and these chapters let a Plex
+        client jump break-to-break. Commercial spans are titled "Commercial"; the
+        content spans between/around them are chaptered too so every boundary is a
+        seek target. Returns "" when no commercials were found (no chapters to add).
+        """
+        commercials = [
+            (start, end) for start, end, _ in commercial_segments if end > start
+        ]
+        if not commercials:
+            return ""
+
+        # Label the whole timeline: commercial spans plus the content gaps
+        # between them (the inverse), then order by start time.
+        content = self._invert_segments(commercial_segments, duration)
+        spans = [(start, end, "Commercial") for start, end in commercials]
+        spans.extend((start, end, "Content") for start, end in content if end > start)
+        spans.sort(key=lambda s: s[0])
+
+        lines = [";FFMETADATA1"]
+        for start, end, title in spans:
+            start_ms = int(round(start * 1000))
+            end_ms = int(round(end * 1000))
+            if end_ms <= start_ms:
+                continue
+            lines.extend([
+                "",
+                "[CHAPTER]",
+                "TIMEBASE=1/1000",
+                f"START={start_ms}",
+                f"END={end_ms}",
+                f"title={title}",
+            ])
+        return "\n".join(lines) + "\n"
+
+    def _write_edl_sidecar(self, video_path: str, edl_path: str) -> Optional[str]:
+        """Keep the detected EDL as a sidecar named after the finished video.
+
+        Mark mode preserves Comskip's detection alongside the unaltered video:
+        `Show - S01E04.mkv` → `Show - S01E04.edl` in the same folder, so generic
+        players (Kodi/Jellyfin/Emby/MythTV) auto-skip from it. Returns the sidecar
+        path, or None when Comskip found no commercials (no stray sidecar then).
+
+        The Comskip EDL may be named after a probe file (`*_comskip_input.edl`)
+        rather than the final video; this renames it to the video's stem.
+        """
+        if not edl_path or not os.path.exists(edl_path):
+            return None
+
+        # Only keep a sidecar when there is something to skip.
+        if not self._parse_edl(edl_path):
+            return None
+
+        target = Path(video_path).with_suffix(".edl")
+        source = Path(edl_path)
+        if source.resolve() == target.resolve():
+            return str(target)
+
+        shutil.copyfile(source, target)
+        return str(target)
+
+    async def embed_chapters(
+        self,
+        video_path: str,
+        edl_path: str,
+        log_callback: Optional[Callable[[str], None]] = None,
+    ) -> str:
+        """Mux commercial-break chapters (from the EDL) into an MKV/MP4 in place.
+
+        Mark mode's Plex path (ADR-0002): the unaltered video gets "Commercial"
+        chapter markers a Plex client can jump by. Chapters need a real container,
+        so this is a no-op for MPEG-TS (Keep .ts → sidecar only) and whenever
+        Comskip found nothing. Returns the path to the chaptered video (same path
+        on success; the original, untouched, on any skip/failure).
+        """
+        video = Path(video_path)
+        if video.suffix.lower() not in (".mkv", ".mp4"):
+            return str(video_path)  # chapters can't be embedded in MPEG-TS
+        if not self.ffmpeg_available:
+            return str(video_path)
+
+        segments = (
+            self._parse_edl(edl_path)
+            if edl_path and os.path.exists(edl_path)
+            else []
+        )
+        if not segments:
+            return str(video_path)
+
+        duration = await self._get_duration(video_path, log_callback=log_callback)
+        metadata = self._edl_to_ffmetadata_chapters(segments, duration)
+        if not metadata:
+            return str(video_path)
+
+        meta_path = video.with_suffix(".chapters.ffmeta")
+        tmp_out = video.with_stem(f"{video.stem}_chapters_tmp").with_suffix(video.suffix)
+        try:
+            meta_path.write_text(metadata)
+            cmd = [
+                self._ffmpeg_path,
+                "-i", str(video),
+                "-i", str(meta_path),
+                "-y",
+                "-map", "0",
+                "-map_metadata", "1",
+                "-map_chapters", "1",
+                "-c", "copy",
+                str(tmp_out),
+            ]
+            await self._notify_log(
+                log_callback,
+                f"Embedding commercial chapters: {' '.join(shlex.quote(str(c)) for c in cmd)}"
+            )
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            try:
+                _, stderr = await process.communicate()
+            except asyncio.CancelledError:
+                await self._terminate_process(process)
+                raise
+            returncode = process.returncode if process.returncode is not None else -1
+            if returncode != 0:
+                excerpt = (stderr or b"").decode(errors="ignore").strip()[-400:]
+                await self._notify_log(
+                    log_callback,
+                    f"Chapter embedding failed (exit {returncode}); keeping video without chapters."
+                    + (f" {excerpt}" if excerpt else "")
+                )
+                self._remove_partial_output(tmp_out)
+                return str(video_path)
+            os.replace(tmp_out, video)
+            return str(video_path)
+        except asyncio.CancelledError:
+            self._remove_partial_output(tmp_out)
+            raise
+        except Exception as exc:
+            await self._notify_log(
+                log_callback,
+                f"Chapter embedding error ({exc}); keeping video without chapters."
+            )
+            self._remove_partial_output(tmp_out)
+            return str(video_path)
+        finally:
+            try:
+                if meta_path.exists():
+                    meta_path.unlink()
+            except Exception:
+                pass
+
     def _invert_segments(self, commercial_segments: list, duration: float) -> list:
         """Convert commercial segments to keep segments."""
         if not commercial_segments:

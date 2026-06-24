@@ -64,7 +64,7 @@ export const SEARCH_INDEX = [
   { label: 'Minimum free space', section: 'recording', kw: 'disk gb pause low' },
   { label: 'Recording padding (start early / end late)', section: 'recording', kw: 'minutes before after buffer' },
   { label: 'Output container (.ts / MKV / MP4)', section: 'processing', kw: 'format remux transcode encode ffmpeg' },
-  { label: 'Remove commercials', section: 'processing', kw: 'comskip ads skip' },
+  { label: 'Commercials', section: 'processing', kw: 'comskip ads skip mark cut commercials' },
   { label: 'Hardware acceleration', section: 'processing', kw: 'gpu vaapi intel quick sync encode' },
   { label: 'Delete original after processing', section: 'processing', kw: 'source ts cleanup' },
   { label: 'Max concurrent post-processing', section: 'processing', kw: 'parallel conversion limit' },
