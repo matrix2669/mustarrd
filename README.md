@@ -11,14 +11,14 @@ Mustarrd connects to your IPTV provider and lets you download past programs. Thi
 
 - **Browse past programs:** scroll back through your provider's program guide (EPG) and see what's available to download
 - **Starred channels:** star your favorite channels so they always appear at the top of the list
-- **Program preview:** preview a live channel or catchup program in your browser before queuing a download
-- **Commercial skip:** ComSkip integration removes commercials before saving. Detection method, break length limits, show-protection margins, and thread count are all configurable from the Settings page, no config file editing needed
+- **Quick channel previews:** preview a live channel or any catchup program right in your browser before queuing a download — plays in every major browser, no separate player needed
+- **Commercial skip (cut *or* mark):** ComSkip finds the ad breaks, then either **cuts them out** of the recording or **marks them** so your media player skips them on playback. Marking leaves the recording whole and writes an `.edl` sidecar (Kodi, Jellyfin, Emby, MythTV) plus commercial chapter markers inside MKV/MP4 (so Plex can jump break-to-break). Detection method, break length limits, show-protection margins, and thread count are all configurable from the Settings page, no config file editing needed
 - **Flexible output formats:** save recordings as-is (.ts), remux to MKV or MP4, or re-encode with FFmpeg for smaller files
 - **GPU-accelerated encoding:** if your server has an Intel, AMD, or NVIDIA GPU, re-encoding uses it automatically; the Settings page shows GPU status in plain language
-- **Download from On Demand:** If your provider provides on demand listings, you can grab those too!
+- **Download from On Demand:** if your provider offers on demand listings, you can grab those too — movies and series browse as a poster grid
 - **Scheduled recordings:** set programs to download automatically when they air; export and import your schedule as a backup or to move to another machine
 - **Smart file naming:** TV shows, movies, and sports get automatically named in the right format (`Breaking Bad - S01E01 - Pilot.ts`, `The Matrix (1999).ts`, etc.)
-- **Plex Link:** Allow your plex users to request programming by logging in with their Plex creds (or don't) and push recording directly to your TV recording library
+- **Plex Link:** let your Plex users request programming by logging in with their Plex credentials (or don't), and push finished recordings straight into your Plex library
 - **Multiple accounts:** connect more than one IPTV provider. Add more users to give them download access
 
 ## Why Do I Need This? I have Sonarr...
@@ -86,8 +86,8 @@ Then open **http://localhost:4177** in your browser.
 
 1. Go to **Browse** and select an account
 2. Click a channel to open its program guide
-3. Programs with a **mustard yellow border** have catchup available. Click one to open the download dialog
-4. Review the auto-generated filename (edit if needed) and click **Download**
+3. Catchup programs have a **mustard left edge** with **Preview** and **Download** buttons; upcoming programs have a **teal edge** with a **Schedule** button
+4. Click **Download**, review the auto-generated filename (edit if needed), and confirm
 
 ### Monitor Downloads
 
@@ -132,7 +132,7 @@ Filename templates are customizable in Settings if you want a different format. 
 | Folder | Contents |
 |--------|----------|
 | `./downloads/` | In-progress downloads and temp files used for ComSkip |
-| `./completed/` | Finished files. Point this at your media library |
+| `./completed/` | Finished files (plus the `.edl` ad-break sidecar when commercial **Mark only** is on). Point this at your media library |
 | `./config/` | Database, settings, and Comskip config. Keep this private |
 
 Before first run, update the host paths in `docker-compose.yml` (`./config`, `./downloads`, `./completed`) to match your system.
