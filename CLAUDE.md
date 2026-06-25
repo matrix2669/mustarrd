@@ -95,3 +95,17 @@ Environment detection: Docker paths activate via `CATCHUP_DOCKER=1` or container
 - Short imperative commit messages (e.g., `Fix missing Path import`)
 - PRs need: concise summary, steps to test, screenshots for UI changes (convention: `.github/pr-screenshots/`)
 - User-facing changes get a `CHANGELOG.md` entry written in plain English ("What you would notice" / "What changed"), newest at top
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitHub Issues (`gh` CLI). See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default label vocabulary (needs-triage, needs-info, ready-for-agent, ready-for-human, wontfix). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
