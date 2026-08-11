@@ -42,6 +42,21 @@ class TemplateWiringTests(unittest.TestCase):
         )
         self.assertEqual(result, "Breaking Bad 2x05.ts")
 
+    def test_tv_template_can_create_show_and_season_subdirectories(self):
+        settings = {
+            "tv_template": (
+                "TV Shows/{show}/Season {season:02d}/"
+                "{show} - S{season:02d}E{episode:02d} - {title}"
+            )
+        }
+        result = FileNamer().generate_filename(
+            _prog("Breaking Bad S02E05 - Breakage"), _channel(), "tv_show", settings
+        )
+        self.assertEqual(
+            result,
+            "TV Shows/Breaking Bad/Season 02/Breaking Bad - S02E05 - Breakage.ts",
+        )
+
     def test_tv_falls_back_to_default_template_when_no_season_episode(self):
         settings = {"default_template": "{title} ({date})"}
         result = FileNamer().generate_filename(_prog("Evening News"), _channel(), "tv_show", settings)
@@ -56,10 +71,29 @@ class TemplateWiringTests(unittest.TestCase):
         result = FileNamer().generate_filename(_prog("Evening News"), _channel(), "other", settings)
         self.assertEqual(result, "Evening News - 2024-03-15.ts")
 
-    def test_channel_variable_available_in_template(self):
+    def test_template_slash_creates_subdirectory(self):
         settings = {"default_template": "{channel}/{title}"}
         result = FileNamer().generate_filename(_prog("The Wire"), _channel("HBO"), "other", settings)
-        self.assertEqual(result, "HBO The Wire.ts")
+        self.assertEqual(result, "HBO/The Wire.ts")
+
+    def test_slash_from_metadata_does_not_create_extra_subdirectory(self):
+        settings = {"default_template": "{channel}/{title}"}
+        result = FileNamer().generate_filename(
+            _prog("AC/DC Live"), _channel("HBO/West"), "other", settings
+        )
+        self.assertEqual(result, "HBO West/AC DC Live.ts")
+
+    def test_template_cannot_escape_with_parent_segments(self):
+        settings = {"default_template": "../../{title}"}
+        result = FileNamer().generate_filename(_prog("The Wire"), _channel(), "other", settings)
+        self.assertEqual(result, "unknown-program/unknown-program/The Wire.ts")
+        self.assertNotIn("..", result)
+        self.assertFalse(result.startswith("/"))
+
+    def test_leading_template_slash_remains_relative(self):
+        settings = {"default_template": "/TV Shows/{title}"}
+        result = FileNamer().generate_filename(_prog("The Wire"), _channel(), "other", settings)
+        self.assertEqual(result, "TV Shows/The Wire.ts")
 
     def test_tv_no_subtitle_default_omits_title_segment(self):
         # EPG title with no episode subtitle must not duplicate the show name.

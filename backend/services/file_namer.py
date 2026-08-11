@@ -35,7 +35,7 @@ class FileNamer:
 
     @staticmethod
     def sanitize_filename(name: str) -> str:
-        """Remove invalid characters for filesystem."""
+        """Remove invalid characters for a single filesystem path component."""
         # Remove stylized "New" markers used in some EPG titles
         name = re.sub(r'[\[\(\-–—|:]*\s*ᴺᵉʷ\s*[\]\)]*\s*(?:-\s*)?', ' ', name)
         # Remove stylized "Live" markers frequently injected by providers
@@ -59,6 +59,45 @@ class FileNamer:
         if len(encoded) > 200:
             sanitized = encoded[:200].decode("utf-8", errors="ignore").rstrip() or "unknown-program"
         return sanitized
+
+    @classmethod
+    def sanitize_relative_path(cls, path: str) -> str:
+        """Sanitize an already-rendered relative path while preserving ``/`` levels.
+
+        Each slash-delimited component is sanitized independently. Empty
+        components are dropped so a leading slash cannot make the result
+        absolute, while ``.`` and ``..`` become ``unknown-program`` through
+        ``sanitize_filename`` and therefore cannot traverse outside the
+        configured recording folder. Backslashes remain invalid filename
+        characters instead of becoming path separators.
+        """
+        components = []
+        for component in path.split('/'):
+            if not component.strip():
+                continue
+            components.append(cls.sanitize_filename(component))
+        return '/'.join(components) or "unknown-program"
+
+    @classmethod
+    def render_template_path(cls, template: str, context: dict) -> str:
+        """Render a filename template as a safe relative path.
+
+        Forward slashes written literally in a saved template create directory
+        levels. Each level is formatted and sanitized independently so slashes
+        coming from provider metadata (for example a show named ``AC/DC``) stay
+        inside that component rather than becoming extra directories. Empty
+        path levels are ignored, which also prevents a leading slash from
+        turning a template into an absolute path. ``.`` and ``..`` sanitize to
+        ``unknown-program`` and therefore cannot traverse outside the configured
+        download folder.
+        """
+        components = []
+        for component_template in template.split('/'):
+            if not component_template.strip():
+                continue
+            rendered = component_template.format_map(context)
+            components.append(cls.sanitize_filename(rendered))
+        return '/'.join(components) or "unknown-program"
 
     @classmethod
     def extract_season_episode(cls, text: str) -> Optional[Tuple[int, int]]:
@@ -182,11 +221,11 @@ class FileNamer:
             template = s.get("default_template") or self._DEFAULT_TEMPLATES["default"]
 
         try:
-            filename = template.format_map(context)
+            filename = self.render_template_path(template, context)
         except (KeyError, ValueError, AttributeError):
-            filename = f"{title} - {date_str}"
+            filename = self.sanitize_filename(f"{title} - {date_str}")
 
-        return self.sanitize_filename(filename) + ".ts"
+        return filename + ".ts"
 
 
 # Global instance
