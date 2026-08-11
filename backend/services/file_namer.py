@@ -61,6 +61,24 @@ class FileNamer:
         return sanitized
 
     @classmethod
+    def sanitize_relative_path(cls, path: str) -> str:
+        """Sanitize an already-rendered relative path while preserving ``/`` levels.
+
+        Each slash-delimited component is sanitized independently. Empty
+        components are dropped so a leading slash cannot make the result
+        absolute, while ``.`` and ``..`` become ``unknown-program`` through
+        ``sanitize_filename`` and therefore cannot traverse outside the
+        configured recording folder. Backslashes remain invalid filename
+        characters instead of becoming path separators.
+        """
+        components = []
+        for component in path.split('/'):
+            if not component.strip():
+                continue
+            components.append(cls.sanitize_filename(component))
+        return '/'.join(components) or "unknown-program"
+
+    @classmethod
     def render_template_path(cls, template: str, context: dict) -> str:
         """Render a filename template as a safe relative path.
 
