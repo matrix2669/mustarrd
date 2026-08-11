@@ -50,30 +50,6 @@ def _download_folder(settings) -> str:
     return app_settings.default_download_folder
 
 
-def _sanitize_relative_filename(path: str) -> str:
-    """Sanitize an already-rendered filename while preserving safe subdirectories.
-
-    The download and schedule modals send the generated preview back as
-    ``custom_filename`` even when the user does not edit it.  Template paths
-    therefore arrive here already rendered (for example
-    ``TV Shows/Show/Season 01/Episode.ts``).  Sanitize each slash-delimited
-    component independently instead of sanitizing the whole value as one flat
-    filename.
-
-    Empty components are dropped so a leading slash cannot make the result
-    absolute.  ``.`` and ``..`` become ``unknown-program`` through
-    ``sanitize_filename``, preventing traversal outside the configured download
-    folder.  Backslashes remain invalid filename characters and are converted
-    to spaces rather than treated as path separators.
-    """
-    components = []
-    for component in path.split("/"):
-        if not component.strip():
-            continue
-        components.append(file_namer.sanitize_filename(component))
-    return "/".join(components) or "unknown-program"
-
-
 class OutputPath:
     """Builds completed-file paths for every kind of recording target.
 
@@ -96,7 +72,7 @@ class OutputPath:
             filename = custom_filename
             if not filename.endswith(".ts"):
                 filename += ".ts"
-            filename = _sanitize_relative_filename(filename.removesuffix(".ts")) + ".ts"
+            filename = file_namer.sanitize_relative_path(filename.removesuffix(".ts")) + ".ts"
         else:
             filename = file_namer.generate_filename(
                 program, channel, program_type, _settings_dict(settings)
