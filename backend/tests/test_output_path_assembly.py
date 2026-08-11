@@ -86,6 +86,49 @@ class CatchupAssemblyTests(unittest.TestCase):
         )
         self.assertTrue(download.output_path.endswith(".ts"), download.output_path)
 
+    def test_catchup_template_subdirectories_are_joined_under_download_folder(self):
+        account = _account()
+        settings = AppSettings(
+            download_folder="/recordings",
+            tv_template=(
+                "TV Shows/{show}/Season {season:02d}/"
+                "{show} - S{season:02d}E{episode:02d} - {title}"
+            ),
+        )
+        program = {
+            "title": "Breaking Bad S02E05 - Breakage",
+            "description": "",
+            "start_time": "2026-03-30T10:00:00",
+            "end_time": "2026-03-30T11:00:00",
+            "category": "TV Shows",
+        }
+
+        async def run():
+            with (
+                patch(
+                    "services.download_builder.resolve_account_password_with_migration",
+                    new=AsyncMock(return_value="pass"),
+                ),
+                patch(
+                    "services.download_builder.epg_service.detect_program_type",
+                    return_value="tv_show",
+                ),
+            ):
+                return await build_download_from_program(
+                    _session(account, settings),
+                    account_id=1,
+                    channel_id="999",
+                    channel_name="AMC",
+                    program=program,
+                )
+
+        download = asyncio.run(run())
+        self.assertEqual(
+            download.output_path,
+            "/recordings/TV Shows/Breaking Bad/Season 02/"
+            "Breaking Bad - S02E05 - Breakage.ts",
+        )
+
     def test_catchup_custom_filename_is_sanitised_and_joined(self):
         account = _account()
         settings = AppSettings(download_folder="/recordings")
