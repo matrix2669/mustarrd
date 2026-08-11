@@ -53,6 +53,25 @@ class VaapiDriverResolutionTests(unittest.TestCase):
 
         return device, sysfs_class_dir
 
+    def test_render_device_environment_override(self):
+        with patch.dict(
+            os.environ,
+            {"CATCHUP_VAAPI_RENDER_DEVICE": "/dev/dri/renderD129"},
+            clear=False,
+        ):
+            spec = importlib.util.spec_from_file_location(
+                "post_processor_vaapi_device_env_under_test",
+                MODULE_PATH,
+            )
+            module = importlib.util.module_from_spec(spec)
+            assert spec and spec.loader
+            spec.loader.exec_module(module)
+
+        self.assertEqual(
+            module.PostProcessor.VAAPI_RENDER_DEVICE,
+            Path("/dev/dri/renderD129"),
+        )
+
     def test_env_override_wins(self):
         with patch.object(POST_PROCESSOR_MODULE.platform, "system", return_value="Linux"):
             with patch.dict(os.environ, {"LIBVA_DRIVER_NAME": "custom-driver"}, clear=False):
