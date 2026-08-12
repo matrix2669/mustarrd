@@ -85,15 +85,25 @@ class OutputPath:
         title: str,
         extension: Optional[str],
         release_date: Optional[str] = None,
+        tmdb_id=None,
     ) -> str:
         """Completed-file path for a VOD movie.
 
         Year is taken from ``release_date`` if present, otherwise extracted from
-        the title — matching the previous vod_service behaviour.
+        the title. VOD movies honor the saved ``movie_template`` and can use
+        provider-supplied ``{tmdb}``/``{tmdb_id}`` metadata.
         """
         folder = _download_folder(settings)
+        settings_dict = _settings_dict(settings) or {}
         year = file_namer.extract_year(release_date or "") or file_namer.extract_year(title or "")
-        return movie_output_path(folder, title, year, extension)
+        return movie_output_path(
+            folder,
+            title,
+            year,
+            extension,
+            template=settings_dict.get("movie_template"),
+            tmdb_id=tmdb_id,
+        )
 
     def for_series_episode(
         self,
