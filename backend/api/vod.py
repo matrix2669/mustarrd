@@ -51,6 +51,29 @@ class SeriesDownloadRequest(BaseModel):
     episodes: Annotated[list[EpisodeItem], Field(max_length=200)]
 
 
+def _extract_tmdb_id(payload: object) -> Optional[str]:
+    """Extract provider TMDB metadata from common Xtream response shapes."""
+    if not isinstance(payload, dict):
+        return None
+
+    info = payload.get("info")
+    if not isinstance(info, dict):
+        info = {}
+
+    for value in (
+        info.get("tmdb_id"),
+        info.get("tmdb"),
+        payload.get("tmdb_id"),
+        payload.get("tmdb"),
+    ):
+        if value is None:
+            continue
+        normalized = str(value).strip()
+        if normalized:
+            return normalized
+    return None
+
+
 async def _get_client(session: AsyncSession, account: XtreamAccount) -> XtreamClient:
     password = await resolve_account_password_with_migration(session, account)
     return XtreamClient(account.server_url, account.username, password)
@@ -64,6 +87,40 @@ async def _get_account(session: AsyncSession, account_id: int) -> XtreamAccount:
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
     return account
+
+
+async def _resolve_provider_tmdb_id(
+    session: AsyncSession,
+    account_id: int,
+    media_id: str,
+    media_type: str,
+) -> Optional[str]:
+    """
+    Recover TMDB metadata directly from the provider when the client omits it.
+
+    This keeps output naming correct for stale/alternate clients and costs one
+    provider detail request per movie or series batch only when tmdb_id was not
+    supplied in the download request.
+    """
+    account = await _get_account(session, account_id)
+    client = await _get_client(session, account)
+    try:
+        if media_type == "series":
+            payload = await client.get_series_info(media_id)
+        else:
+            payload = await client.get_vod_info(media_id)
+        return _extract_tmdb_id(payload)
+    except Exception:
+        logger.warning(
+            "Unable to recover provider TMDB metadata account_id=%s media_type=%s media_id=%s",
+            account_id,
+            media_type,
+            media_id,
+            exc_info=True,
+        )
+        return None
+    finally:
+        await client.close()
 
 
 @router.get("/movies/categories")
@@ -129,6 +186,15 @@ async def download_movie(
     auth: AuthContext = Depends(require_admin_or_download_user),
     session: AsyncSession = Depends(get_session)
 ):
+    tmdb_id = str(data.tmdb_id).strip() if data.tmdb_id is not None else None
+    if not tmdb_id:
+        tmdb_id = await _resolve_provider_tmdb_id(
+            session,
+            data.account_id,
+            data.vod_id,
+            "movie",
+        )
+
     try:
         download = await build_movie_download(
             session,
@@ -138,7 +204,7 @@ async def download_movie(
             container_extension=data.container_extension,
             direct_source=data.direct_source,
             release_date=str(data.release_date) if data.release_date is not None else None,
-            tmdb_id=str(data.tmdb_id) if data.tmdb_id is not None else None,
+            tmdb_id=tmdb_id,
             requested_by_user_id=auth.user_id,
             request_source=auth.provider or "admin_local",
         )
@@ -224,6 +290,15 @@ async def download_series(
     auth: AuthContext = Depends(require_admin_or_download_user),
     session: AsyncSession = Depends(get_session)
 ):
+    tmdb_id = str(data.tmdb_id).strip() if data.tmdb_id is not None else None
+    if not tmdb_id:
+        tmdb_id = await _resolve_provider_tmdb_id(
+            session,
+            data.account_id,
+            data.series_id,
+            "series",
+        )
+
     # Build every episode first; nothing is persisted until the whole batch
     # validates, so a mid-batch failure cannot leave a partial episode set.
     downloads = []
@@ -241,7 +316,7 @@ async def download_series(
                 container_extension=episode.container_extension,
                 direct_source=episode.direct_source,
                 duration_minutes=episode.duration_minutes,
-                tmdb_id=str(data.tmdb_id) if data.tmdb_id is not None else None,
+                tmdb_id=tmdb_id,
                 requested_by_user_id=auth.user_id,
                 request_source=auth.provider or "admin_local",
             )
