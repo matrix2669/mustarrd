@@ -14,6 +14,10 @@ describe('VOD series TMDB metadata normalization', () => {
     ).toBe('1438')
   })
 
+  it('falls through an empty detailed id to an alternate detailed field', () => {
+    expect(extractSeriesTmdbId({ info: { tmdb_id: '', tmdb: 1438 } })).toBe('1438')
+  })
+
   it('falls back to series-list metadata', () => {
     expect(extractSeriesTmdbId({}, { tmdb_id: 1438 })).toBe('1438')
   })
