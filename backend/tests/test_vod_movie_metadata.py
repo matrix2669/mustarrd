@@ -6,7 +6,7 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from api.vod import MovieDownloadRequest, SeriesDownloadRequest
+from api.vod import MovieDownloadRequest, SeriesDownloadRequest, _extract_tmdb_id
 from services.output_path import output_path
 
 
@@ -45,6 +45,31 @@ class MovieDownloadRequestMetadataTests(unittest.TestCase):
             episodes=[],
         )
         self.assertEqual(str(request.tmdb_id), "1438")
+
+
+class ProviderTmdbMetadataTests(unittest.TestCase):
+    def test_extracts_bad_monkey_series_detail_shape(self):
+        self.assertEqual(
+            _extract_tmdb_id({"info": {"tmdb": "130853"}}),
+            "130853",
+        )
+
+    def test_prefers_info_tmdb_id(self):
+        self.assertEqual(
+            _extract_tmdb_id(
+                {
+                    "info": {"tmdb_id": 1438, "tmdb": "9999"},
+                    "tmdb_id": "8888",
+                }
+            ),
+            "1438",
+        )
+
+    def test_falls_back_to_top_level_tmdb_id(self):
+        self.assertEqual(_extract_tmdb_id({"tmdb_id": 693134}), "693134")
+
+    def test_ignores_empty_provider_values(self):
+        self.assertIsNone(_extract_tmdb_id({"info": {"tmdb_id": "", "tmdb": None}}))
 
 
 class VodMovieTemplateMetadataTests(unittest.TestCase):
