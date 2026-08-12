@@ -12,10 +12,6 @@ from services.output_path import output_path as output_path_builder
 
 
 def _effective_port(parsed) -> Optional[int]:
-    """Resolve a parsed URL's port, applying scheme defaults (80/443).
-
-    Returns None for invalid ports or unknown schemes so callers fail closed.
-    """
     try:
         port = parsed.port
     except ValueError:
@@ -118,6 +114,7 @@ async def build_episode_download(
     container_extension: Optional[str],
     direct_source: Optional[str] = None,
     duration_minutes: Optional[int] = None,
+    tmdb_id: Optional[str] = None,
     requested_by_user_id: Optional[int] = None,
     request_source: str = "admin",
 ) -> Download:
@@ -137,6 +134,7 @@ async def build_episode_download(
         episode_title,
         container_extension,
         episode_id=episode_id,
+        tmdb_id=tmdb_id,
     )
 
     trusted_direct_source = _trusted_direct_source(direct_source, account.server_url)
