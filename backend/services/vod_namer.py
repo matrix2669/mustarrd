@@ -6,6 +6,7 @@ from services.file_namer import file_namer
 
 
 _DEFAULT_MOVIE_TEMPLATE = "{title} ({year})"
+_DEFAULT_TV_TEMPLATE = "{show} - S{season:02d}E{episode:02d} - {title}"
 _TMDB_ID_PATTERN = re.compile(r"(?:^|/)(\d+)(?:/?$)")
 
 
@@ -39,26 +40,28 @@ def _tmdb_tags(value) -> str:
     return f"{{tmdb-{tmdb_id}}} [tmdbid={tmdb_id}]"
 
 
+def _render_relative_template(template: str, context: dict) -> list[str]:
+    """Render a media template as safe relative path components."""
+    components = []
+    for component_template in template.split("/"):
+        if not component_template.strip():
+            continue
+        rendered = component_template.format_map(context)
+        # Optional metadata may render empty. Clean common punctuation/spacing
+        # artifacts without changing intentional punctuation in normal titles.
+        rendered = re.sub(r"\s*\(\s*\)\s*", " ", rendered)
+        rendered = re.sub(r"\s{2,}", " ", rendered).strip()
+        rendered = re.sub(r"\s+-\s*$", "", rendered).strip()
+        components.append(_sanitize_component(rendered))
+    return components
+
+
 def _movie_title_and_year(title: str, year: Optional[int]) -> tuple[str, Optional[int]]:
     safe_title = _sanitize_component(title)
     if year:
         clean_title = re.sub(r"\s*\(\d{4}\)\s*$", "", safe_title).strip() or safe_title
         return clean_title, year
     return safe_title, None
-
-
-def _render_movie_template(template: str, context: dict) -> list[str]:
-    """Render a VOD movie template as safe relative path components."""
-    components = []
-    for component_template in template.split("/"):
-        if not component_template.strip():
-            continue
-        rendered = component_template.format_map(context)
-        # When optional metadata is unavailable, avoid artifacts such as
-        # "Movie ()" or doubled spaces around an empty {tmdb} token.
-        rendered = re.sub(r"\s*\(\s*\)\s*", " ", rendered)
-        components.append(_sanitize_component(rendered))
-    return components
 
 
 def movie_output_path(
@@ -79,7 +82,7 @@ def movie_output_path(
 
     selected_template = template or _DEFAULT_MOVIE_TEMPLATE
     try:
-        components = _render_movie_template(selected_template, context)
+        components = _render_relative_template(selected_template, context)
     except (KeyError, ValueError, AttributeError):
         components = []
 
@@ -101,6 +104,8 @@ def series_episode_output_path(
     episode_title: Optional[str],
     extension: Optional[str],
     episode_id: Optional[str] = None,
+    template: Optional[str] = None,
+    tmdb_id=None,
 ) -> str:
     safe_show = _sanitize_component(show_name)
     safe_title = _sanitize_component(episode_title) if episode_title else ""
@@ -110,23 +115,36 @@ def series_episode_output_path(
     season_num = int(season or 0)
     episode_num = int(episode or 0)
 
-    season_folder = f"Season {season_num:02d}"
-    base_name = f"S{season_num:02d}E{episode_num:02d} - {safe_show}"
-    if safe_title:
-        base_name = f"{base_name} - {safe_title}"
-    elif episode_num <= 0 and episode_id:
-        # No usable title and no real episode number: append the provider
-        # episode ID so multiple untitled zero-episode entries get distinct
-        # output paths. Leave normal numbered episodes (S02E05, etc.) clean.
-        base_name = f"{base_name} - {_sanitize_component(str(episode_id))}"
+    context = {
+        "show": safe_show,
+        "season": season_num,
+        "episode": episode_num,
+        "title": safe_title,
+        "tmdb": _tmdb_tags(tmdb_id),
+        "tmdb_id": _numeric_tmdb_id(tmdb_id),
+    }
 
-    # Cap combined base_name so the filename stays under Linux NAME_MAX (255
-    # bytes). Each component is independently capped at 200 bytes by
-    # sanitize_filename, but two components together can reach ~400 bytes.
-    encoded = base_name.encode("utf-8")
+    selected_template = template or _DEFAULT_TV_TEMPLATE
+    try:
+        components = _render_relative_template(selected_template, context)
+    except (KeyError, ValueError, AttributeError):
+        components = []
+
+    if not components:
+        base_name = f"{safe_show} - S{season_num:02d}E{episode_num:02d}"
+        if safe_title:
+            base_name = f"{base_name} - {safe_title}"
+        elif episode_num <= 0 and episode_id:
+            base_name = f"{base_name} - {_sanitize_component(str(episode_id))}"
+        components = [_sanitize_component(base_name)]
+
+    # Keep the final filename component below a conservative byte limit before
+    # appending the extension. sanitize_filename already applies the same cap,
+    # but renderers can combine several formatted values into one component.
+    final_component = components[-1]
+    encoded = final_component.encode("utf-8")
     if len(encoded) > 200:
-        base_name = encoded[:200].decode("utf-8", errors="ignore").rstrip() or "unknown-episode"
+        final_component = encoded[:200].decode("utf-8", errors="ignore").rstrip() or "unknown-episode"
 
-    filename = f"{base_name}.{_safe_extension(extension)}"
-
-    return os.path.join(download_folder, safe_show, season_folder, filename)
+    filename = f"{final_component}.{_safe_extension(extension)}"
+    return os.path.join(download_folder, *components[:-1], filename)
