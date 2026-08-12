@@ -59,6 +59,7 @@ async def build_movie_download(
     container_extension: Optional[str],
     direct_source: Optional[str] = None,
     release_date: Optional[str] = None,
+    tmdb_id: Optional[str] = None,
     requested_by_user_id: Optional[int] = None,
     request_source: str = "admin",
 ) -> Download:
@@ -71,7 +72,11 @@ async def build_movie_download(
     settings = settings_result.scalar_one_or_none()
 
     output_path = output_path_builder.for_movie(
-        settings, title, container_extension, release_date=release_date
+        settings,
+        title,
+        container_extension,
+        release_date=release_date,
+        tmdb_id=tmdb_id,
     )
 
     trusted_direct_source = _trusted_direct_source(direct_source, account.server_url)
