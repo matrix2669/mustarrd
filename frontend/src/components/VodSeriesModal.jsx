@@ -35,6 +35,21 @@ function normalizeEpisode(raw, seasonFallback = 0) {
   }
 }
 
+export function extractSeriesTmdbId(info, series = null) {
+  const value =
+    info?.info?.tmdb_id ??
+    info?.info?.tmdb ??
+    info?.tmdb_id ??
+    info?.tmdb ??
+    series?.tmdb_id ??
+    series?.tmdb ??
+    null
+
+  if (value === null || value === undefined || value === '') return null
+  const match = String(value).trim().match(/(?:^|\/)(\d+)(?:\/?$)/)
+  return match ? match[1] : null
+}
+
 export default function SeriesModal({ opened, onClose, series, accountId }) {
   const queryClient = useQueryClient()
   const [selectedIds, setSelectedIds] = useState(new Set())
@@ -66,6 +81,8 @@ export default function SeriesModal({ opened, onClose, series, accountId }) {
       .filter((season) => season.episodes.length > 0)
       .sort((a, b) => a.season - b.season)
   }, [seriesInfo])
+
+  const tmdbId = useMemo(() => extractSeriesTmdbId(seriesInfo, series), [seriesInfo, series])
 
   const allEpisodeIds = useMemo(() => {
     return seasons.flatMap((season) => season.episodes.map((ep) => ep.id))
@@ -103,7 +120,7 @@ export default function SeriesModal({ opened, onClose, series, accountId }) {
   }
 
   const toggleAll = () => {
-    setSelectedIds((prev) => {
+    setSelectedIds(() => {
       if (allSelected) {
         return new Set()
       }
@@ -151,6 +168,7 @@ export default function SeriesModal({ opened, onClose, series, accountId }) {
       account_id: parseInt(accountId),
       series_id: series.series_id?.toString(),
       series_name: series.name,
+      tmdb_id: tmdbId,
       episodes,
     })
   }
