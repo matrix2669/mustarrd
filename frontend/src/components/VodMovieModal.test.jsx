@@ -14,6 +14,10 @@ describe('VOD movie metadata normalization', () => {
     ).toBe('2026-08-01')
   })
 
+  it('falls through an empty release date to provider year', () => {
+    expect(extractReleaseDate({ info: { releasedate: '', year: 2026 } })).toBe('2026')
+  })
+
   it('extracts a numeric TMDB id from provider metadata', () => {
     expect(extractTmdbId({ info: { tmdb_id: 123456 } })).toBe('123456')
   })
@@ -22,6 +26,10 @@ describe('VOD movie metadata normalization', () => {
     expect(
       extractTmdbId({ info: { tmdb: 'https://www.themoviedb.org/movie/693134' } })
     ).toBe('693134')
+  })
+
+  it('falls through an empty TMDB id to an alternate provider field', () => {
+    expect(extractTmdbId({ info: { tmdb_id: '', tmdb: 693134 } })).toBe('693134')
   })
 
   it('returns null when no usable TMDB id is available', () => {
