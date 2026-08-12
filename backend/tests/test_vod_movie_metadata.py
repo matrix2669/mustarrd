@@ -8,6 +8,7 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from api.vod import MovieDownloadRequest, SeriesDownloadRequest, _extract_tmdb_id
 from services.output_path import output_path
+from services.vod_service import _clean_episode_title
 
 
 MOVIE_TEMPLATE = "Movies/{title} ({year}) {tmdb}/{title} ({year})"
@@ -70,6 +71,24 @@ class ProviderTmdbMetadataTests(unittest.TestCase):
 
     def test_ignores_empty_provider_values(self):
         self.assertIsNone(_extract_tmdb_id({"info": {"tmdb_id": "", "tmdb": None}}))
+
+
+class VodEpisodeTitleMetadataTests(unittest.TestCase):
+    def test_strips_provider_show_and_episode_prefix(self):
+        self.assertEqual(
+            _clean_episode_title(
+                "Bad Monkey - S01E01 - The Floating-Human-Body-Parts Capital of America",
+                1,
+                1,
+            ),
+            "The Floating-Human-Body-Parts Capital of America",
+        )
+
+    def test_keeps_legitimate_title_containing_episode_marker(self):
+        self.assertEqual(
+            _clean_episode_title("The S01E01 Mystery", 1, 1),
+            "The S01E01 Mystery",
+        )
 
 
 class VodMovieTemplateMetadataTests(unittest.TestCase):
