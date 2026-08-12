@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { extractReleaseDate, extractTmdbId } from './VodMovieModal'
+import { extractReleaseDate, extractTmdbId, resolveMovieMetadata } from './VodMovieModal'
 
 
 describe('VOD movie metadata normalization', () => {
@@ -30,6 +30,30 @@ describe('VOD movie metadata normalization', () => {
 
   it('falls through an empty TMDB id to an alternate provider field', () => {
     expect(extractTmdbId({ info: { tmdb_id: '', tmdb: 693134 } })).toBe('693134')
+  })
+
+  it('falls back to movie-list metadata when detailed VOD info omits TMDB and year', () => {
+    expect(
+      resolveMovieMetadata(
+        { info: { plot: 'Detailed response without IDs' } },
+        { tmdb_id: '1049471', year: 2026 }
+      )
+    ).toEqual({
+      releaseDate: '2026',
+      tmdbId: '1049471',
+    })
+  })
+
+  it('prefers detailed metadata when it is available', () => {
+    expect(
+      resolveMovieMetadata(
+        { info: { tmdb_id: '693134', releasedate: '2024-02-27' } },
+        { tmdb_id: '1', year: 2024 }
+      )
+    ).toEqual({
+      releaseDate: '2024-02-27',
+      tmdbId: '693134',
+    })
   })
 
   it('returns null when no usable TMDB id is available', () => {
