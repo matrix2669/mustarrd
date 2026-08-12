@@ -37,12 +37,12 @@ function normalizeEpisode(raw, seasonFallback = 0) {
 
 export function extractSeriesTmdbId(info, series = null) {
   const value =
-    info?.info?.tmdb_id ??
-    info?.info?.tmdb ??
-    info?.tmdb_id ??
-    info?.tmdb ??
-    series?.tmdb_id ??
-    series?.tmdb ??
+    info?.info?.tmdb_id ||
+    info?.info?.tmdb ||
+    info?.tmdb_id ||
+    info?.tmdb ||
+    series?.tmdb_id ||
+    series?.tmdb ||
     null
 
   if (value === null || value === undefined || value === '') return null
@@ -260,7 +260,7 @@ export default function SeriesModal({ opened, onClose, series, accountId }) {
                       </Stack>
                     </Accordion.Panel>
                   </Accordion.Item>
-                )
+                )}
               })}
             </Accordion>
           </ScrollArea>
