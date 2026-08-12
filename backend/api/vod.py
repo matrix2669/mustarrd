@@ -171,8 +171,8 @@ async def get_series_categories(
     try:
         return await client.get_series_categories()
     except Exception:
-        logger.exception("Failed to load VOD categories account_id=%s", account_id)
-        raise HTTPException(status_code=400, detail="Failed to load VOD categories from provider")
+        logger.exception("Failed to load series categories account_id=%s", account_id)
+        raise HTTPException(status_code=400, detail="Failed to load series categories from provider")
     finally:
         await client.close()
 
