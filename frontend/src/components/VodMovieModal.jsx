@@ -16,16 +16,31 @@ import { IconPlayerPlay, IconCalendar } from '@tabler/icons-react'
 
 import { vodApi } from '../api'
 
-function extractReleaseDate(info) {
-  return (
-    info?.info?.releasedate ||
-    info?.info?.releaseDate ||
-    info?.info?.year ||
-    info?.releasedate ||
-    info?.releaseDate ||
-    info?.year ||
+export function extractReleaseDate(info) {
+  const value =
+    info?.info?.releasedate ??
+    info?.info?.releaseDate ??
+    info?.info?.year ??
+    info?.releasedate ??
+    info?.releaseDate ??
+    info?.year ??
     null
-  )
+
+  if (value === null || value === undefined || value === '') return null
+  return String(value)
+}
+
+export function extractTmdbId(info) {
+  const value =
+    info?.info?.tmdb_id ??
+    info?.info?.tmdb ??
+    info?.tmdb_id ??
+    info?.tmdb ??
+    null
+
+  if (value === null || value === undefined || value === '') return null
+  const match = String(value).trim().match(/(?:^|\/)(\d+)(?:\/?$)/)
+  return match ? match[1] : null
 }
 
 export default function MovieModal({ opened, onClose, movie, accountId }) {
@@ -39,6 +54,7 @@ export default function MovieModal({ opened, onClose, movie, accountId }) {
   })
 
   const releaseDate = useMemo(() => extractReleaseDate(movieInfo), [movieInfo])
+  const tmdbId = useMemo(() => extractTmdbId(movieInfo), [movieInfo])
 
   const downloadMutation = useMutation({
     mutationFn: (data) => vodApi.downloadMovie(data),
@@ -69,6 +85,7 @@ export default function MovieModal({ opened, onClose, movie, accountId }) {
       container_extension: movie.container_extension,
       direct_source: movie.direct_source || null,
       release_date: releaseDate,
+      tmdb_id: tmdbId,
     })
   }
 
