@@ -43,6 +43,13 @@ export function extractTmdbId(info) {
   return match ? match[1] : null
 }
 
+export function resolveMovieMetadata(movieInfo, movie) {
+  return {
+    releaseDate: extractReleaseDate(movieInfo) || extractReleaseDate(movie),
+    tmdbId: extractTmdbId(movieInfo) || extractTmdbId(movie),
+  }
+}
+
 export default function MovieModal({ opened, onClose, movie, accountId }) {
   const queryClient = useQueryClient()
 
@@ -53,8 +60,12 @@ export default function MovieModal({ opened, onClose, movie, accountId }) {
     retry: false,
   })
 
-  const releaseDate = useMemo(() => extractReleaseDate(movieInfo), [movieInfo])
-  const tmdbId = useMemo(() => extractTmdbId(movieInfo), [movieInfo])
+  const movieMetadata = useMemo(
+    () => resolveMovieMetadata(movieInfo, movie),
+    [movieInfo, movie]
+  )
+  const releaseDate = movieMetadata.releaseDate
+  const tmdbId = movieMetadata.tmdbId
 
   const downloadMutation = useMutation({
     mutationFn: (data) => vodApi.downloadMovie(data),
