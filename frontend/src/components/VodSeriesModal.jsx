@@ -260,7 +260,7 @@ export default function SeriesModal({ opened, onClose, series, accountId }) {
                       </Stack>
                     </Accordion.Panel>
                   </Accordion.Item>
-                )}
+                )
               })}
             </Accordion>
           </ScrollArea>
