@@ -27,7 +27,10 @@ class MovieDownloadRequest(BaseModel):
     name: str
     container_extension: Optional[str] = None
     direct_source: Optional[str] = None
-    release_date: Optional[str] = None
+    # Xtream providers commonly return a bare numeric year here. Accept either
+    # form at the API boundary and normalize before handing it to the service.
+    release_date: Optional[str | int] = None
+    tmdb_id: Optional[str | int] = None
 
 
 class EpisodeItem(BaseModel):
@@ -133,7 +136,8 @@ async def download_movie(
             title=data.name,
             container_extension=data.container_extension,
             direct_source=data.direct_source,
-            release_date=data.release_date,
+            release_date=str(data.release_date) if data.release_date is not None else None,
+            tmdb_id=str(data.tmdb_id) if data.tmdb_id is not None else None,
             requested_by_user_id=auth.user_id,
             request_source=auth.provider or "admin_local",
         )
@@ -167,8 +171,8 @@ async def get_series_categories(
     try:
         return await client.get_series_categories()
     except Exception:
-        logger.exception("Failed to load series categories account_id=%s", account_id)
-        raise HTTPException(status_code=400, detail="Failed to load series categories from provider")
+        logger.exception("Failed to load VOD categories account_id=%s", account_id)
+        raise HTTPException(status_code=400, detail="Failed to load VOD categories from provider")
     finally:
         await client.close()
 
