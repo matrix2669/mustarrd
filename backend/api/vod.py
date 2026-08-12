@@ -47,6 +47,7 @@ class SeriesDownloadRequest(BaseModel):
     account_id: int
     series_id: str
     series_name: str
+    tmdb_id: Optional[str | int] = None
     episodes: Annotated[list[EpisodeItem], Field(max_length=200)]
 
 
@@ -240,6 +241,7 @@ async def download_series(
                 container_extension=episode.container_extension,
                 direct_source=episode.direct_source,
                 duration_minutes=episode.duration_minutes,
+                tmdb_id=str(data.tmdb_id) if data.tmdb_id is not None else None,
                 requested_by_user_id=auth.user_id,
                 request_source=auth.provider or "admin_local",
             )
