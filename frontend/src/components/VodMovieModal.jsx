@@ -18,12 +18,12 @@ import { vodApi } from '../api'
 
 export function extractReleaseDate(info) {
   const value =
-    info?.info?.releasedate ??
-    info?.info?.releaseDate ??
-    info?.info?.year ??
-    info?.releasedate ??
-    info?.releaseDate ??
-    info?.year ??
+    info?.info?.releasedate ||
+    info?.info?.releaseDate ||
+    info?.info?.year ||
+    info?.releasedate ||
+    info?.releaseDate ||
+    info?.year ||
     null
 
   if (value === null || value === undefined || value === '') return null
@@ -32,10 +32,10 @@ export function extractReleaseDate(info) {
 
 export function extractTmdbId(info) {
   const value =
-    info?.info?.tmdb_id ??
-    info?.info?.tmdb ??
-    info?.tmdb_id ??
-    info?.tmdb ??
+    info?.info?.tmdb_id ||
+    info?.info?.tmdb ||
+    info?.tmdb_id ||
+    info?.tmdb ||
     null
 
   if (value === null || value === undefined || value === '') return null
