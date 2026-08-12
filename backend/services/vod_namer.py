@@ -5,6 +5,10 @@ from typing import Optional
 from services.file_namer import file_namer
 
 
+_DEFAULT_MOVIE_TEMPLATE = "{title} ({year})"
+_TMDB_ID_PATTERN = re.compile(r"(?:^|/)(\d+)(?:/?$)")
+
+
 def _sanitize_component(value: str) -> str:
     return file_namer.sanitize_filename(value or "Unknown")
 
@@ -20,15 +24,73 @@ def _safe_extension(ext: Optional[str]) -> str:
     return cleaned.lower()
 
 
-def movie_output_path(download_folder: str, title: str, year: Optional[int], extension: Optional[str]) -> str:
+def _numeric_tmdb_id(value) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    match = _TMDB_ID_PATTERN.search(text)
+    return match.group(1) if match else ""
+
+
+def _tmdb_tags(value) -> str:
+    tmdb_id = _numeric_tmdb_id(value)
+    if not tmdb_id:
+        return ""
+    return f"{{tmdb-{tmdb_id}}} [tmdbid={tmdb_id}]"
+
+
+def _movie_title_and_year(title: str, year: Optional[int]) -> tuple[str, Optional[int]]:
     safe_title = _sanitize_component(title)
     if year:
-        title_base = re.sub(r'\s*\(\d{4}\)\s*$', '', safe_title)
-        filename = f"{title_base} ({year})"
-    else:
-        filename = safe_title
-    filename = f"{filename}.{_safe_extension(extension)}"
-    return os.path.join(download_folder, filename)
+        clean_title = re.sub(r"\s*\(\d{4}\)\s*$", "", safe_title).strip() or safe_title
+        return clean_title, year
+    return safe_title, None
+
+
+def _render_movie_template(template: str, context: dict) -> list[str]:
+    """Render a VOD movie template as safe relative path components."""
+    components = []
+    for component_template in template.split("/"):
+        if not component_template.strip():
+            continue
+        rendered = component_template.format_map(context)
+        # When optional metadata is unavailable, avoid artifacts such as
+        # "Movie ()" or doubled spaces around an empty {tmdb} token.
+        rendered = re.sub(r"\s*\(\s*\)\s*", " ", rendered)
+        components.append(_sanitize_component(rendered))
+    return components
+
+
+def movie_output_path(
+    download_folder: str,
+    title: str,
+    year: Optional[int],
+    extension: Optional[str],
+    template: Optional[str] = None,
+    tmdb_id=None,
+) -> str:
+    clean_title, normalized_year = _movie_title_and_year(title, year)
+    context = {
+        "title": clean_title,
+        "year": normalized_year or "",
+        "tmdb": _tmdb_tags(tmdb_id),
+        "tmdb_id": _numeric_tmdb_id(tmdb_id),
+    }
+
+    selected_template = template or _DEFAULT_MOVIE_TEMPLATE
+    try:
+        components = _render_movie_template(selected_template, context)
+    except (KeyError, ValueError, AttributeError):
+        components = []
+
+    if not components:
+        fallback = clean_title
+        if normalized_year:
+            fallback = f"{fallback} ({normalized_year})"
+        components = [_sanitize_component(fallback)]
+
+    filename = f"{components[-1]}.{_safe_extension(extension)}"
+    return os.path.join(download_folder, *components[:-1], filename)
 
 
 def series_episode_output_path(
