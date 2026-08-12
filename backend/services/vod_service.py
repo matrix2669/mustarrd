@@ -1,4 +1,5 @@
 from datetime import datetime
+import re
 from typing import Optional
 from urllib.parse import urlparse
 
@@ -45,6 +46,41 @@ def _trusted_direct_source(direct_source: Optional[str], account_server_url: str
     if source_port is None or account_port is None or source_port != account_port:
         return None
     return direct_source
+
+
+def _clean_episode_title(
+    episode_title: Optional[str],
+    season: int,
+    episode_num: int,
+) -> Optional[str]:
+    """
+    Strip provider-added show/episode prefixes from an episode title.
+
+    Some Xtream providers return titles such as
+    ``Bad Monkey - S01E01 - The Floating-Human-Body-Parts Capital of America``.
+    The TV template already renders show/season/episode, so keeping that prefix
+    duplicates the metadata in the final filename. Only strip when the matching
+    SxxExx marker is at the start or is preceded by a common title separator.
+    """
+    if not episode_title:
+        return episode_title
+
+    title = str(episode_title).strip()
+    marker = re.compile(
+        rf"\bS0*{int(season)}E0*{int(episode_num)}\b\s*(?:[-–—:]\s*)?",
+        re.IGNORECASE,
+    )
+    match = marker.search(title)
+    if not match:
+        return title
+
+    prefix = title[:match.start()].rstrip()
+    suffix = title[match.end():].strip()
+    if not suffix:
+        return title
+    if prefix and prefix[-1] not in "-–—:":
+        return title
+    return suffix
 
 
 async def build_movie_download(
@@ -126,12 +162,13 @@ async def build_episode_download(
     settings_result = await session.execute(select(AppSettings))
     settings = settings_result.scalar_one_or_none()
 
+    clean_episode_title = _clean_episode_title(episode_title, season, episode_num)
     output_path = output_path_builder.for_series_episode(
         settings,
         show_name,
         season,
         episode_num,
-        episode_title,
+        clean_episode_title,
         container_extension,
         episode_id=episode_id,
         tmdb_id=tmdb_id,
@@ -151,7 +188,7 @@ async def build_episode_download(
         account_id=account_id,
         channel_id=str(series_id),
         channel_name="On Demand Shows",
-        program_title=episode_title or show_name or "Unknown",
+        program_title=clean_episode_title or show_name or "Unknown",
         program_start=now,
         program_end=now,
         duration_minutes=int(duration_minutes or 0),
