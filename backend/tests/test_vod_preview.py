@@ -184,6 +184,23 @@ class SourceRelayTests(unittest.IsolatedAsyncioTestCase):
             await self._call(_make_request(client_host=None))
         self.assertEqual(ctx.exception.status_code, 403)
 
+    async def test_a_forwarded_request_is_refused(self):
+        """A reverse proxy sharing this process's network namespace makes every
+        request look local, so the peer address alone stops distinguishing
+        anything. FFmpeg sends no proxy headers; a proxy adds them."""
+        for header in ["x-forwarded-for", "x-forwarded-host", "x-real-ip", "forwarded"]:
+            with self.assertRaises(HTTPException) as ctx:
+                await self._call(_make_request(headers={header: "203.0.113.7"}))
+            self.assertEqual(ctx.exception.status_code, 403, header)
+
+    async def test_a_range_header_is_not_mistaken_for_a_proxy_header(self):
+        response = await self._call(
+            _make_request(headers={"range": "bytes=0-99"}),
+            provider_status=206,
+            provider_headers={"Content-Range": "bytes 0-99/500"},
+        )
+        self.assertEqual(response.status_code, 206)
+
     async def test_unknown_token_is_refused(self):
         self.token = "not-a-token"
         with self.assertRaises(HTTPException) as ctx:

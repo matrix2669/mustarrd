@@ -61,6 +61,10 @@ SOURCE_RELAY_CHUNK_SIZE = 256 * 1024
 # read timeout rather than a permanently wedged session.
 SOURCE_RELAY_TIMEOUT = aiohttp.ClientTimeout(total=None, sock_connect=15, sock_read=60)
 LOOPBACK_CLIENT_HOSTS = {"127.0.0.1", "::1", "::ffff:127.0.0.1"}
+# Headers a request only carries if something forwarded it. FFmpeg sends none
+# of them, so their presence means the caller is not the child process this
+# endpoint exists for.
+PROXIED_REQUEST_HEADERS = ("x-forwarded-for", "x-forwarded-host", "x-real-ip", "forwarded")
 
 # When each preview's ceiling falls due, keyed by session. The ceiling belongs
 # to the *preview*, not to the FFmpeg process behind it: scrubbing rebuilds that
@@ -360,8 +364,19 @@ def _preview_seconds_remaining(key: str) -> float:
 
 
 def _is_loopback_caller(request: Request) -> bool:
+    """Whether this looks like our own FFmpeg rather than someone else.
+
+    The peer address is the primary check, but it is worth less than it looks:
+    a reverse proxy sharing this process's network namespace makes *every*
+    request arrive from 127.0.0.1, and the check stops distinguishing anything.
+    So a request carrying proxy headers is refused as well — FFmpeg does not
+    send them, and a proxy forwarding a request almost always adds them. That
+    is defence in depth, not a guarantee; see docs/adr for the stronger option.
+    """
     client = request.client
-    return client is not None and client.host in LOOPBACK_CLIENT_HOSTS
+    if client is None or client.host not in LOOPBACK_CLIENT_HOSTS:
+        return False
+    return not any(header in request.headers for header in PROXIED_REQUEST_HEADERS)
 
 
 def _loopback_port(request: Request) -> int:
