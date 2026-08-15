@@ -1,8 +1,9 @@
-"""Shared HTTP shape for the two HLS endpoints.
+"""Shared HTTP shape for the HLS endpoints.
 
 Downloads serve an HLS rendition of a finished recording; channels serve a
-Converted preview of a live provider stream. The sources differ, but what a
-player sees — the playlist, the segments, and the failure statuses — must not.
+Converted preview of a live provider stream; VOD serves one of a movie or
+episode. The sources differ, but what a player sees — the playlist, the
+segments, and the failure statuses — must not.
 """
 
 from fastapi import HTTPException
@@ -14,6 +15,7 @@ from services.hls_streamer import (
     HLSSession,
     HLSUnavailableError,
 )
+from services.preview_budget import PreviewLimitError, preview_budget
 
 # 429: the viewer can retry after closing another player.
 # 503: the server is missing FFmpeg, which no retry fixes.
@@ -22,6 +24,18 @@ _HLS_ERROR_STATUS = {
     HLSLimitError: 429,
     HLSUnavailableError: 503,
 }
+
+
+def acquire_preview_slot() -> None:
+    """Take one of the shared preview slots, or refuse the request with 429."""
+    try:
+        preview_budget.acquire()
+    except PreviewLimitError as exc:
+        raise HTTPException(status_code=429, detail=str(exc))
+
+
+def release_preview_slot() -> None:
+    preview_budget.release()
 
 
 def hls_http_error(exc: HLSError) -> HTTPException:

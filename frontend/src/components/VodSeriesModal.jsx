@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
+  ActionIcon,
   Modal,
   Stack,
   Text,
@@ -15,9 +16,10 @@ import {
 } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { IconVideo, IconListCheck } from '@tabler/icons-react'
+import { IconVideo, IconListCheck, IconEye } from '@tabler/icons-react'
 
 import { vodApi } from '../api'
+import VodPreviewModal from './VodPreviewModal'
 
 function normalizeEpisode(raw, seasonFallback = 0) {
   return {
@@ -38,6 +40,9 @@ function normalizeEpisode(raw, seasonFallback = 0) {
 export default function SeriesModal({ opened, onClose, series, accountId }) {
   const queryClient = useQueryClient()
   const [selectedIds, setSelectedIds] = useState(new Set())
+  // The preview belongs on the episode, not on the show: you check whether
+  // this episode is the thing you meant to download.
+  const [previewEpisode, setPreviewEpisode] = useState(null)
 
   const { data: seriesInfo, isLoading, error } = useQuery({
     queryKey: ['vod', 'series', accountId, series?.series_id],
@@ -49,6 +54,7 @@ export default function SeriesModal({ opened, onClose, series, accountId }) {
   useEffect(() => {
     if (opened) {
       setSelectedIds(new Set())
+      setPreviewEpisode(null)
     }
   }, [opened, series?.series_id])
 
@@ -158,6 +164,7 @@ export default function SeriesModal({ opened, onClose, series, accountId }) {
   if (!series) return null
 
   return (
+    <>
     <Modal opened={opened} onClose={onClose} title="On Demand Show" size="xl">
       <Stack>
         <Group gap="md" wrap="nowrap">
@@ -237,6 +244,14 @@ export default function SeriesModal({ opened, onClose, series, accountId }) {
                             <Text size="sm" style={{ flex: 1 }}>
                               {episode.title || 'Untitled Episode'}
                             </Text>
+                            <ActionIcon
+                              variant="subtle"
+                              color="gray"
+                              onClick={() => setPreviewEpisode(episode)}
+                              aria-label={`Preview S${episode.season.toString().padStart(2, '0')}E${episode.episode_num.toString().padStart(2, '0')}`}
+                            >
+                              <IconEye size={16} />
+                            </ActionIcon>
                           </Group>
                         ))}
                       </Stack>
@@ -268,5 +283,20 @@ export default function SeriesModal({ opened, onClose, series, accountId }) {
         </Group>
       </Stack>
     </Modal>
+
+      {/* A sibling, not a child: a modal nested inside another modal inherits
+          its stacking context and renders behind it. */}
+      <VodPreviewModal
+        opened={previewEpisode != null}
+        onClose={() => setPreviewEpisode(null)}
+        accountId={accountId}
+        kind="episode"
+        itemId={previewEpisode?.id}
+        seriesId={series.series_id?.toString()}
+        containerExtension={previewEpisode?.container_extension}
+        title={previewEpisode?.title || 'Untitled Episode'}
+        subtitle={`${series.name} — S${(previewEpisode?.season ?? 0).toString().padStart(2, '0')}E${(previewEpisode?.episode_num ?? 0).toString().padStart(2, '0')}`}
+      />
+    </>
   )
 }

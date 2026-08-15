@@ -20,7 +20,9 @@ from services.hls_streamer import (
     HLSStartError,
     HLSStreamer,
     PIPE_INPUT,
+    assert_loopback_url,
     preview_session_key,
+    vod_preview_session_key,
 )
 
 
@@ -700,3 +702,180 @@ class WaitForPlaylistTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+LOOPBACK_SOURCE = "http://127.0.0.1:4177/api/vod/preview/source/tok3n"
+
+
+class LoopbackUrlGuardTests(unittest.TestCase):
+    """The URL source shape is only safe because of this check: it is what
+    stops a credentialed provider URL from ever reaching FFmpeg's argv."""
+
+    def test_loopback_urls_are_accepted(self):
+        for url in [
+            LOOPBACK_SOURCE,
+            "http://localhost:9/x",
+            "http://[::1]:4177/api/vod/preview/source/t",
+        ]:
+            assert_loopback_url(url)
+
+    def test_provider_urls_are_refused(self):
+        for url in [
+            "http://provider.example:8080/movie/user/pw/1.mkv",
+            "https://127.0.0.1/x",
+            "http://127.0.0.1.evil.example/x",
+            "file:///etc/passwd",
+            "http://74.119.149.10/live/play/token/1",
+        ]:
+            with self.assertRaises(HLSStartError, msg=url):
+                assert_loopback_url(url)
+
+    def test_build_command_refuses_a_provider_url(self):
+        with self.assertRaises(HLSStartError):
+            HLSStreamer.build_ffmpeg_command(
+                "ffmpeg", "http://provider.example/movie/u/p/1.mkv", "h264", "ac3"
+            )
+
+
+class VodFfmpegCommandTests(unittest.TestCase):
+    """VOD preview: FFmpeg opens the loopback relay itself, so it can seek."""
+
+    def _cmd(self, video="h264", audio="ac3", profile=None, start=0.0):
+        return HLSStreamer.build_ffmpeg_command(
+            "ffmpeg", LOOPBACK_SOURCE, video, audio, profile,
+            start_offset=start, realtime=True,
+        )
+
+    def test_input_is_the_loopback_relay_with_no_credentials(self):
+        cmd = self._cmd()
+        self.assertEqual(cmd[cmd.index("-i") + 1], LOOPBACK_SOURCE)
+        joined = " ".join(cmd)
+        for leak in ("username=", "password=", "provider.example", "/movie/"):
+            self.assertNotIn(leak, joined)
+
+    def test_realtime_pacing_bounds_what_a_preview_writes(self):
+        """Without -re FFmpeg would race through a two-hour film as fast as the
+        provider serves it, filling the temp dir with unwatched segments."""
+        cmd = self._cmd()
+        self.assertIn("-re", cmd)
+        self.assertLess(cmd.index("-re"), cmd.index("-i"))
+
+    def test_seek_lands_before_the_input(self):
+        cmd = self._cmd(start=3600.0)
+        self.assertEqual(cmd[cmd.index("-ss") + 1], "3600.000")
+        self.assertLess(cmd.index("-ss"), cmd.index("-i"))
+
+    def test_short_segments_for_fast_startup(self):
+        self.assertEqual(self._cmd()[self._cmd().index("-hls_time") + 1], "2")
+
+    def test_ac3_audio_is_reencoded_and_h264_video_copied(self):
+        cmd = self._cmd("h264", "ac3")
+        self.assertEqual(cmd[cmd.index("-c:v") + 1], "copy")
+        self.assertEqual(cmd[cmd.index("-c:a") + 1], "aac")
+
+
+class UrlSessionTests(unittest.IsolatedAsyncioTestCase):
+    """VOD preview sessions: FFmpeg reads a seekable loopback URL."""
+
+    async def _start(self, streamer, key=None, url=LOOPBACK_SOURCE,
+                     fingerprint="movie:1:mkv:0.000", start_offset=0.0,
+                     probe=("h264", "ac3", None, None), max_seconds=900.0, on_close=None):
+        key = key or vod_preview_session_key(1, "movie", "42")
+        process = FakeProcess()
+
+        async def fake_spawn(session, cmd, stdin_pipe=False):
+            self.spawned_cmd = cmd
+            return process
+
+        with (
+            patch.object(streamer, "_spawn_ffmpeg", fake_spawn),
+            patch.object(streamer, "_probe_media", AsyncMock(return_value=probe)),
+            patch("services.hls_streamer.post_processor") as mock_pp,
+        ):
+            mock_pp.get_ffmpeg_path.return_value = "/usr/bin/ffmpeg"
+            mock_pp.get_ffprobe_path.return_value = "/usr/bin/ffprobe"
+            session = await streamer.get_or_create_url(
+                key, url, fingerprint, max_seconds,
+                start_offset=start_offset, on_close=on_close,
+            )
+        return session, process
+
+    async def test_session_starts_and_is_registered(self):
+        streamer = HLSStreamer()
+        session, _ = await self._start(streamer)
+        self.assertIs(streamer.get_active(session.key), session)
+        # Holds a preview slot and a provider connection, so it is reaped on
+        # the same short schedule as a live preview.
+        self.assertTrue(session.live)
+        self.assertEqual(session.idle_ttl, hls_module.LIVE_IDLE_TTL_SECONDS)
+        await streamer.shutdown()
+
+    async def test_a_provider_url_is_refused_outright(self):
+        streamer = HLSStreamer()
+        with self.assertRaises(HLSStartError):
+            await self._start(streamer, url="http://provider.example/movie/u/p/1.mkv")
+        self.assertEqual(streamer._sessions, {})
+        await streamer.shutdown()
+
+    async def test_start_offset_reaches_ffmpeg(self):
+        streamer = HLSStreamer()
+        await self._start(streamer, fingerprint="movie:1:mkv:3600.000", start_offset=3600.0)
+        self.assertEqual(self.spawned_cmd[self.spawned_cmd.index("-ss") + 1], "3600.000")
+        await streamer.shutdown()
+
+    async def test_seeking_to_a_new_offset_rebuilds_the_session(self):
+        """Scrubbing an hour in must restart FFmpeg there, not replay the
+        session that is already sitting at zero."""
+        streamer = HLSStreamer()
+        first, first_process = await self._start(streamer)
+        second, _ = await self._start(
+            streamer, fingerprint="movie:1:mkv:3600.000", start_offset=3600.0
+        )
+        self.assertIsNot(second, first)
+        self.assertTrue(first_process.terminated)
+        self.assertFalse(first.directory.exists())
+        await streamer.shutdown()
+
+    async def test_same_offset_reuses_the_session_and_returns_the_budget(self):
+        streamer = HLSStreamer()
+        first, _ = await self._start(streamer)
+        returned = []
+        second, _ = await self._start(streamer, on_close=lambda: returned.append(1))
+        self.assertIs(second, first)
+        self.assertEqual(returned, [1], "The caller that lost the race kept its slot.")
+        await streamer.shutdown()
+
+    async def test_no_video_track_fails_and_releases_the_slot(self):
+        streamer = HLSStreamer()
+        released = []
+        with self.assertRaises(HLSStartError):
+            await self._start(
+                streamer, probe=(None, "aac", "LC", None), on_close=lambda: released.append(1)
+            )
+        self.assertEqual(streamer._sessions, {})
+        self.assertEqual(len(released), 1)
+        await streamer.shutdown()
+
+    async def test_wall_clock_ceiling_retires_the_session(self):
+        """A preview you can scrub through has no natural end, so the ceiling
+        is the only thing that ever stops it."""
+        streamer = HLSStreamer()
+        closed = []
+        session, process = await self._start(
+            streamer, max_seconds=0.05, on_close=lambda: closed.append(1)
+        )
+        self.assertIsNotNone(session.deadline)
+        await asyncio.sleep(0.2)
+        self.assertIsNone(streamer.get_active(session.key))
+        self.assertTrue(process.terminated)
+        self.assertEqual(closed, [1])
+        await streamer.shutdown()
+
+    async def test_teardown_cancels_the_ceiling(self):
+        streamer = HLSStreamer()
+        session, _ = await self._start(streamer, max_seconds=600.0)
+        deadline = session.deadline
+        await streamer.close_session(session)
+        await asyncio.sleep(0)  # let the cancellation land
+        self.assertTrue(deadline.cancelled())
+        await streamer.shutdown()

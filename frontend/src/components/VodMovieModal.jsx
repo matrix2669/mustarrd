@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import {
   Modal,
   Stack,
@@ -12,9 +12,10 @@ import {
 } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { IconPlayerPlay, IconCalendar } from '@tabler/icons-react'
+import { IconPlayerPlay, IconCalendar, IconEye } from '@tabler/icons-react'
 
 import { vodApi } from '../api'
+import VodPreviewModal from './VodPreviewModal'
 
 function extractReleaseDate(info) {
   return (
@@ -30,6 +31,7 @@ function extractReleaseDate(info) {
 
 export default function MovieModal({ opened, onClose, movie, accountId }) {
   const queryClient = useQueryClient()
+  const [previewOpen, setPreviewOpen] = useState(false)
 
   const { data: movieInfo, isLoading, error } = useQuery({
     queryKey: ['vod', 'movie', accountId, movie?.stream_id],
@@ -75,6 +77,7 @@ export default function MovieModal({ opened, onClose, movie, accountId }) {
   if (!movie) return null
 
   return (
+    <>
     <Modal opened={opened} onClose={onClose} title="On Demand Movie" size="lg">
       <Stack>
         <Group gap="md" wrap="nowrap">
@@ -127,6 +130,13 @@ export default function MovieModal({ opened, onClose, movie, accountId }) {
             Close
           </Button>
           <Button
+            variant="light"
+            leftSection={<IconEye size={16} />}
+            onClick={() => setPreviewOpen(true)}
+          >
+            Preview
+          </Button>
+          <Button
             leftSection={<IconPlayerPlay size={16} />}
             onClick={handleDownload}
             loading={downloadMutation.isPending}
@@ -136,5 +146,18 @@ export default function MovieModal({ opened, onClose, movie, accountId }) {
         </Group>
       </Stack>
     </Modal>
+
+      {/* A sibling, not a child: a modal nested inside another modal inherits
+          its stacking context and renders behind it. */}
+      <VodPreviewModal
+        opened={previewOpen}
+        onClose={() => setPreviewOpen(false)}
+        accountId={accountId}
+        kind="movie"
+        itemId={movie.stream_id?.toString()}
+        containerExtension={movie.container_extension}
+        title={movie.name}
+      />
+    </>
   )
 }

@@ -6,6 +6,16 @@ All notable changes to Mustarrd are listed here. Most recent changes are at the 
 
 ## 2026-08-15
 
+### Added: Preview a movie or an episode before you download it
+
+**What you would notice:** On Demand movies and shows now have a **Preview** button — on the movie itself, and on each individual episode of a show. It opens a player with a scrub bar showing the film's full length, so you can jump to the one-hour mark and check you've got the right thing before committing to a several-gigabyte download. Previews take a few seconds to start (there is a "This title needs converting, one moment" spinner) and stop by themselves after fifteen minutes — it's a way to check a title, not a way to watch it. Previews share the same two-at-a-time limit as live and catchup previews, so a third one is politely refused. **Downloads are not affected in any way**: movies and episodes are still saved exactly as your provider sends them.
+
+**What changed:** There is no "play it directly" path for On Demand, because there is nothing to play directly: a survey of the live catalogues found movies are 94% MKV and episodes 99.8% MKV, and every single MP4 sampled had AC-3 audio — so no browser can decode any of it. Every On Demand preview is converted on the server, copying the video through and re-encoding only the audio. The new part is seeking. FFmpeg can only jump to the one-hour mark if it can ask the source for bytes in the middle of the file, and it cannot be given the provider URL to ask with, because that URL contains your username and password and anything on FFmpeg's command line is readable by anyone else on the machine. So Mustarrd serves the file to FFmpeg through a relay of its own on 127.0.0.1, guarded by a short-lived random token, refusing anyone who isn't on the same machine, and passing byte ranges through in both directions. FFmpeg's command line contains `127.0.0.1` and a token; your credentials never leave the app. The preview also reads the running time from your provider's own listings, which is why the scrub bar is the length of the film from the first frame rather than growing as the conversion catches up.
+
+---
+
+## 2026-08-15
+
 ### Added: Preview now works on channels your browser can't play, and on iPhones and iPads
 
 **What you would notice:** Preview used to fail on some channels — you would get silent video, or a black box, and an unhelpful "your browser cannot decode this" message. That happened on channels whose audio is AC-3 (Dolby Digital) or HE-AAC, which no browser plays, and it happened on every channel in Safari on iPhone and iPad, which has no way to play these streams at all. Now Mustarrd notices within a few seconds and converts the stream on the fly instead: you see a brief "This channel needs converting, one moment" spinner, then picture **and** sound. On an iPhone or iPad it skips the doomed first attempt entirely. Your browser also remembers which channels needed converting, so opening one again starts converting straight away instead of failing first. Channels that already worked are untouched — they still play directly, with no extra work on the server. **Downloads are not affected in any way**: recordings are still saved exactly as your provider sends them.

@@ -142,6 +142,12 @@ class Settings(BaseSettings):
     default_completed_folder: str = _default_completed_folder()
     max_concurrent_downloads: int = 2
 
+    # VOD preview: the port FFmpeg dials back on for the loopback source relay.
+    # Normally read from the socket the request arrived on, which is right even
+    # behind a reverse proxy; set this only if the app is bound somewhere that
+    # cannot be reached again at 127.0.0.1 on that port.
+    loopback_port: Optional[int] = None
+
     # EPG Cache
     epg_cache_ttl: int = 3600  # 1 hour in seconds
     epg_refresh_interval_hours: int = 8
