@@ -375,6 +375,28 @@ class VodPreviewHlsTests(_AccountDbTest):
         self.assertNotIn(SECRET_PASSWORD, fingerprint)
         self.assertNotIn(SECRET_USERNAME, fingerprint)
 
+    async def test_works_behind_a_reverse_proxy(self):
+        """The common deployment. The relay URL must name the port this process
+        is actually bound to — read off the socket the request arrived on —
+        rather than anything the proxy put in the Host header, and the playlist
+        request itself must not be refused for carrying proxy headers (only the
+        FFmpeg-facing relay checks for those)."""
+        streamer = self._streamer(self._make_hls_session())
+        proxied = _make_request(
+            headers={
+                "host": "mustarrd.example.com",
+                "x-forwarded-for": "203.0.113.9",
+                "x-forwarded-proto": "https",
+            },
+            port=4177,
+        )
+
+        await self._call(streamer=streamer, request=proxied)
+
+        url = streamer.get_or_create_url.await_args.args[1]
+        self.assertEqual(url.split("/api/")[0], "http://127.0.0.1:4177")
+        self.assertNotIn("mustarrd.example.com", url)
+
     async def test_playlist_response_has_no_credentials(self):
         response = await self._call(streamer=self._streamer(self._make_hls_session()))
         for name, value in response.headers.items():

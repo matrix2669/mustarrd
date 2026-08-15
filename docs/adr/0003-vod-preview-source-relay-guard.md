@@ -17,11 +17,14 @@ Today the relay is a route on the main FastAPI app, guarded by three things: an
 unguessable 256-bit token, a short TTL with revocation when the preview session
 closes, and a check that the caller's peer address is loopback.
 
-The peer-address check is worth less than it looks. Where a reverse proxy shares
-this process's network namespace — the same container, or a proxy on the same
-host forwarding to 127.0.0.1 — every request arrives from 127.0.0.1 and the
-check stops distinguishing anything. In that topology the token is the only
-guard.
+The peer-address check is worth less than it looks, though measurement narrowed
+how much. Uvicorn's proxy-headers middleware is on by default and rewrites
+`scope["client"]` from `X-Forwarded-For` when the immediate peer is trusted
+(127.0.0.1 by default), so behind a same-host reverse proxy a forwarded request
+arrives with the *real* client address, not 127.0.0.1, and is refused. Where the
+check does collapse is a proxy that forwards from loopback without setting any
+`X-Forwarded-*` header; there every request looks local. In that topology the
+token is the only guard.
 
 ## Decision
 
@@ -48,8 +51,16 @@ request almost always adds them.
 
 ## Consequences
 
-- Behind a namespace-sharing reverse proxy, the effective guard is the token
-  plus the proxy-header check.
+- Behind a reverse proxy that sets `X-Forwarded-*` (the normal case for nginx,
+  Caddy and Traefik), forwarded requests are refused twice over: uvicorn
+  rewrites the peer address, and the header check catches what it does not.
+  Where a proxy forwards from loopback setting no headers at all, the effective
+  guard is the token.
+- The relay URL names the port read off the socket the request arrived on, so it
+  is correct behind a proxy on a different public port. It is wrong only if the
+  app is bound to a non-loopback address exclusively (`--host 192.168.x.x`),
+  where 127.0.0.1 is not listening at all; Docker, the desktop build and
+  `main.py` all bind 0.0.0.0 or 127.0.0.1.
 - The token itself is in FFmpeg's argv, so a local user on the host can read it
   from `ps` and fetch the bytes. This is inherent to the design and accepted:
   the token is worth one title for at most fifteen minutes, whereas the
