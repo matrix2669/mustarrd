@@ -6,6 +6,8 @@ episode. The sources differ, but what a player sees — the playlist, the
 segments, and the failure statuses — must not.
 """
 
+import asyncio
+
 from fastapi import HTTPException
 from fastapi.responses import FileResponse
 
@@ -24,6 +26,34 @@ _HLS_ERROR_STATUS = {
     HLSLimitError: 429,
     HLSUnavailableError: 503,
 }
+
+
+# Strong refs to in-flight cleanup tasks: the event loop only holds weak
+# references to tasks, so an unanchored one could be collected before it runs.
+_pending_cleanups: set = set()
+
+
+def detach_cleanup(coro) -> None:
+    """Run a cleanup coroutine without awaiting it.
+
+    Preview teardown routinely runs with a CancelledError pending — a client
+    that disconnects cancels the streaming task — and the first await in that
+    state re-raises, skipping everything after it. Detaching the awaitable part
+    lets the caller's cleanup stay await-free and therefore uninterruptible.
+    """
+    task = asyncio.ensure_future(coro)
+    _pending_cleanups.add(task)
+    task.add_done_callback(_pending_cleanups.discard)
+
+
+async def close_provider_connection(provider_response, http_session) -> None:
+    """Close a provider response and its session, tolerating partial setup."""
+    try:
+        if provider_response is not None:
+            provider_response.close()
+    finally:
+        if http_session is not None and not http_session.closed:
+            await http_session.close()
 
 
 def acquire_preview_slot() -> None:

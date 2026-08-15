@@ -57,7 +57,9 @@ PIPE_INPUT = "pipe:0"
 
 # The only hosts a URL source may name. Anything else could be a provider URL
 # with credentials in it, which is the one thing argv must never carry.
-LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+# Numeric only, and deliberately: "localhost" is whatever /etc/hosts says it is,
+# and it is the same set the relay endpoint checks its callers against.
+LOOPBACK_HOSTS = {"127.0.0.1", "::1"}
 
 IDLE_TTL_SECONDS = 120
 # Live sessions hold a shared preview slot and an FFmpeg process that never

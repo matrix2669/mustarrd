@@ -69,6 +69,7 @@ def _make_request(client_host="127.0.0.1", headers=None, port=LOOPBACK_PORT):
 class _AccountDbTest(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         preview_budget.active = 0
+        vod_api._preview_ceilings.clear()
         self.engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
         async with self.engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
@@ -90,6 +91,7 @@ class _AccountDbTest(unittest.IsolatedAsyncioTestCase):
 
     async def asyncTearDown(self):
         preview_budget.active = 0
+        vod_api._preview_ceilings.clear()
         await self.engine.dispose()
 
 
@@ -368,9 +370,60 @@ class VodPreviewHlsTests(_AccountDbTest):
         past the first five minutes of a film."""
         streamer = self._streamer(self._make_hls_session())
         await self._call(streamer=streamer)
-        self.assertEqual(streamer.get_or_create_url.await_args.args[3], VOD_PREVIEW_MAX_SECONDS)
+        self.assertAlmostEqual(
+            streamer.get_or_create_url.await_args.args[3], VOD_PREVIEW_MAX_SECONDS, delta=5
+        )
         self.assertEqual(VOD_PREVIEW_MAX_SECONDS, 900)
         self.assertEqual(channels_api.PREVIEW_MAX_SECONDS, 300, "Live/catchup cap changed")
+
+    async def test_scrubbing_does_not_restart_the_ceiling(self):
+        """The ceiling belongs to the preview, not to the FFmpeg process behind
+        it. Otherwise nudging the scrub bar every fourteen minutes would let
+        you watch a whole film through something that is not a player."""
+        streamer = self._streamer(self._make_hls_session())
+        await self._call(streamer=streamer)
+
+        key = "vodpreview:%s:movie:42" % self.account_id
+        # Pretend ten of the fifteen minutes have already gone.
+        vod_api._preview_ceilings[key] -= 600
+        await self._call(streamer=streamer, start=3600.0)
+
+        self.assertAlmostEqual(
+            streamer.get_or_create_url.await_args.args[3], 300, delta=5,
+            msg="Scrubbing handed the viewer a fresh ceiling.",
+        )
+
+    async def test_preview_is_refused_once_its_ceiling_has_passed(self):
+        streamer = self._streamer(self._make_hls_session())
+        await self._call(streamer=streamer)
+
+        key = "vodpreview:%s:movie:42" % self.account_id
+        vod_api._preview_ceilings[key] -= VOD_PREVIEW_MAX_SECONDS
+        streamer.get_or_create_url.reset_mock()
+
+        with self.assertRaises(HTTPException) as ctx:
+            await self._call(streamer=streamer, start=60.0)
+
+        self.assertEqual(ctx.exception.status_code, 429)
+        streamer.get_or_create_url.assert_not_awaited()
+        # Refused before the budget was touched: the first preview's slot is
+        # the only one outstanding.
+        self.assertEqual(preview_budget.active, 1)
+
+    async def test_a_stale_ceiling_eventually_lets_a_new_preview_start(self):
+        """The lockout is a stop, not a ban."""
+        streamer = self._streamer(self._make_hls_session())
+        await self._call(streamer=streamer)
+
+        key = "vodpreview:%s:movie:42" % self.account_id
+        vod_api._preview_ceilings[key] -= (
+            VOD_PREVIEW_MAX_SECONDS + vod_api.PREVIEW_CEILING_LOCKOUT_SECONDS + 1
+        )
+        await self._call(streamer=streamer, start=60.0)
+
+        self.assertAlmostEqual(
+            streamer.get_or_create_url.await_args.args[3], VOD_PREVIEW_MAX_SECONDS, delta=5
+        )
 
     async def test_start_offset_reaches_the_streamer(self):
         streamer = self._streamer(self._make_hls_session())
@@ -528,6 +581,19 @@ class VodPreviewDurationTests(_AccountDbTest):
         with self.assertRaises(HTTPException) as ctx:
             await self._call(kind="episode", item_id="907")
         self.assertEqual(ctx.exception.status_code, 400)
+
+    async def test_the_fallback_probe_spends_a_preview_slot(self):
+        """The probe opens a provider connection, so it comes out of the same
+        budget rather than sneaking past it."""
+        seen = []
+        probe = AsyncMock(side_effect=lambda _url: seen.append(preview_budget.active))
+        with (
+            patch("api.vod.hls_streamer.probe_duration", probe),
+            patch("api.vod.vod_preview_source_relay", VodPreviewSourceRelay()),
+        ):
+            await self._call(client=self._client(vod_info={"info": {}}))
+        self.assertEqual(seen, [1])
+        self.assertEqual(preview_budget.active, 0, "The probe leaked its slot.")
 
     async def test_falls_back_to_probing_over_the_loopback_relay(self):
         """When the provider has no duration, probe — but the probe must see

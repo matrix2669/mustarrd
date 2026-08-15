@@ -16,6 +16,8 @@ from models import StarredChannel, XtreamAccount
 from services.download_builder import _normalize_provider_start_token
 from api.hls_common import (
     acquire_preview_slot,
+    close_provider_connection,
+    detach_cleanup,
     hls_asset_response,
     hls_http_error,
     hls_playlist_response,
@@ -44,21 +46,6 @@ logger = logging.getLogger(__name__)
 PREVIEW_MAX_SECONDS = 300
 PREVIEW_CHUNK_SIZE = 64 * 1024
 PREVIEW_TIMEOUT = aiohttp.ClientTimeout(total=None, sock_connect=15, sock_read=60)
-
-# Strong refs to in-flight connection-close tasks: the event loop only keeps
-# weak references, so an unreferenced task could be garbage-collected mid-close.
-_pending_preview_closes: set = set()
-
-
-async def _close_preview_connection(provider_response, http_session) -> None:
-    """Close the provider response and its session, tolerating partial setup."""
-    try:
-        if provider_response is not None:
-            provider_response.close()
-    finally:
-        if http_session is not None and not http_session.closed:
-            await http_session.close()
-
 
 def _channel_has_tv_archive(ch: dict) -> bool:
     return int(ch.get("tv_archive", 0) or 0) == 1
@@ -153,7 +140,7 @@ class _ProviderStream:
     async def close(self) -> None:
         response, self._response = self._response, None
         http_session, self._http_session = self._http_session, None
-        await _close_preview_connection(response, http_session)
+        await close_provider_connection(response, http_session)
 
 
 @router.get("/logos")
@@ -428,11 +415,11 @@ async def preview_channel_stream(
                 detail=_provider_refused(provider_response.status),
             )
     except HTTPException:
-        await _close_preview_connection(provider_response, http_session)
+        await close_provider_connection(provider_response, http_session)
         release_preview_slot()
         raise
     except Exception:
-        await _close_preview_connection(provider_response, http_session)
+        await close_provider_connection(provider_response, http_session)
         release_preview_slot()
         logger.exception(
             "Preview stream failed account_id=%s channel_id=%s mode=%s",
@@ -465,22 +452,14 @@ async def preview_channel_stream(
             "Preview slot released account_id=%s channel_id=%s active=%s",
             account_id, channel_id, preview_budget.active,
         )
-        close_task = asyncio.ensure_future(
-            _close_preview_connection(provider_response, http_session)
-        )
-        _pending_preview_closes.add(close_task)
-        close_task.add_done_callback(_pending_preview_closes.discard)
+        detach_cleanup(close_provider_connection(provider_response, http_session))
 
     # Failsafe: if the consumer stops reading without disconnecting, the relay
     # generator can park on a yield forever, never reaching its finally — the
     # slot and provider connection would leak until restart. Force cleanup
     # shortly after the relay deadline regardless of consumer behavior.
     def _spawn_failsafe_cleanup():
-        # Keep a strong ref: the loop only weakly references tasks, so an
-        # unanchored cleanup task could in principle be collected before it runs.
-        task = asyncio.ensure_future(cleanup())
-        _pending_preview_closes.add(task)
-        task.add_done_callback(_pending_preview_closes.discard)
+        detach_cleanup(cleanup())
 
     failsafe = asyncio.get_running_loop().call_later(
         PREVIEW_MAX_SECONDS + 30,

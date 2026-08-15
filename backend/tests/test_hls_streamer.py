@@ -714,7 +714,6 @@ class LoopbackUrlGuardTests(unittest.TestCase):
     def test_loopback_urls_are_accepted(self):
         for url in [
             LOOPBACK_SOURCE,
-            "http://localhost:9/x",
             "http://[::1]:4177/api/vod/preview/source/t",
         ]:
             assert_loopback_url(url)
@@ -724,6 +723,8 @@ class LoopbackUrlGuardTests(unittest.TestCase):
             "http://provider.example:8080/movie/user/pw/1.mkv",
             "https://127.0.0.1/x",
             "http://127.0.0.1.evil.example/x",
+            # Whatever /etc/hosts says it is, so not trusted.
+            "http://localhost:9/x",
             "file:///etc/passwd",
             "http://74.119.149.10/live/play/token/1",
         ]:

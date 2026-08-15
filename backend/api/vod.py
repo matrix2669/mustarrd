@@ -1,11 +1,11 @@
-import asyncio
+import time
 from collections import Counter
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from typing import Annotated, Optional
+from typing import Annotated, Dict, Optional
 import aiohttp
 import logging
 import os
@@ -13,12 +13,13 @@ import os
 from auth import require_admin_or_download_user, AuthContext
 from api.hls_common import (
     acquire_preview_slot,
+    close_provider_connection,
+    detach_cleanup,
     hls_asset_response,
     hls_http_error,
     hls_playlist_response,
     release_preview_slot,
 )
-from config import settings
 from database import get_session
 from models import XtreamAccount
 from services.account_credentials import resolve_account_password_with_migration
@@ -44,6 +45,10 @@ logger = logging.getLogger(__name__)
 # here is wall-clock on the whole session instead: enough to sample four points
 # across a two-hour film, not enough to be a player.
 VOD_PREVIEW_MAX_SECONDS = 15 * 60
+# How long after its ceiling a preview stays refused. Long enough that the cap
+# is a real stop rather than something a player's own retry sails through,
+# short enough that a viewer who genuinely wants another look is not locked out.
+PREVIEW_CEILING_LOCKOUT_SECONDS = 60
 
 # Provider ids are numeric on every provider seen so far; the pattern keeps a
 # hostile id out of the URL FFmpeg is pointed at and out of the session key.
@@ -57,9 +62,12 @@ SOURCE_RELAY_CHUNK_SIZE = 256 * 1024
 SOURCE_RELAY_TIMEOUT = aiohttp.ClientTimeout(total=None, sock_connect=15, sock_read=60)
 LOOPBACK_CLIENT_HOSTS = {"127.0.0.1", "::1", "::ffff:127.0.0.1"}
 
-# Strong refs to in-flight connection-close tasks: the event loop only keeps
-# weak references, so an unreferenced task could be collected mid-close.
-_pending_relay_closes: set = set()
+# When each preview's ceiling falls due, keyed by session. The ceiling belongs
+# to the *preview*, not to the FFmpeg process behind it: scrubbing rebuilds that
+# process, and a per-process ceiling would restart the clock every time the
+# viewer moved the scrub bar — which is exactly how you would watch a whole film
+# through something that is not supposed to be a player.
+_preview_ceilings: Dict[str, float] = {}
 
 
 class MovieDownloadRequest(BaseModel):
@@ -338,6 +346,19 @@ async def download_series(
 # provider URL cannot simply be handed over instead.
 
 
+def _preview_seconds_remaining(key: str) -> float:
+    """Seconds left on this preview's ceiling, starting the clock on first use."""
+    now = time.monotonic()
+    for stale_key, deadline in list(_preview_ceilings.items()):
+        if now > deadline + PREVIEW_CEILING_LOCKOUT_SECONDS:
+            del _preview_ceilings[stale_key]
+    deadline = _preview_ceilings.get(key)
+    if deadline is None:
+        deadline = now + VOD_PREVIEW_MAX_SECONDS
+        _preview_ceilings[key] = deadline
+    return deadline - now
+
+
 def _is_loopback_caller(request: Request) -> bool:
     client = request.client
     return client is not None and client.host in LOOPBACK_CLIENT_HOSTS
@@ -350,8 +371,6 @@ def _loopback_port(request: Request) -> int:
     setting: it is the address this process is genuinely bound to, which is
     still true behind a reverse proxy that fronts us on a different port.
     """
-    if settings.loopback_port:
-        return int(settings.loopback_port)
     server = request.scope.get("server")
     if not server or not server[1]:
         raise HTTPException(
@@ -359,26 +378,6 @@ def _loopback_port(request: Request) -> int:
             detail="Preview is unavailable: the server port could not be determined",
         )
     return int(server[1])
-
-
-def _detach_relay_close(provider_response, http_session) -> None:
-    """Close a relay connection without awaiting it.
-
-    Deliberately not awaited: a disconnecting client cancels the streaming
-    task, so an await here would re-raise the CancelledError and leak the
-    provider connection.
-    """
-    async def close():
-        try:
-            if provider_response is not None:
-                provider_response.close()
-        finally:
-            if http_session is not None and not http_session.closed:
-                await http_session.close()
-
-    task = asyncio.ensure_future(close())
-    _pending_relay_closes.add(task)
-    task.add_done_callback(_pending_relay_closes.discard)
 
 
 async def _resolve_vod_preview_url(
@@ -494,12 +493,12 @@ async def vod_preview_source(token: str, request: Request):
 
     if provider.status == 416:
         headers = {"Content-Range": provider.headers.get("Content-Range", "bytes */*")}
-        _detach_relay_close(provider, http_session)
+        detach_cleanup(close_provider_connection(provider, http_session))
         return Response(status_code=416, headers=headers)
 
     if provider.status not in (200, 206):
         status = provider.status
-        _detach_relay_close(provider, http_session)
+        detach_cleanup(close_provider_connection(provider, http_session))
         # Never echo the URL: it carries credentials.
         raise HTTPException(
             status_code=502, detail=f"Provider refused the source (HTTP {status})"
@@ -516,7 +515,7 @@ async def vod_preview_source(token: str, request: Request):
             async for chunk in provider.content.iter_chunked(SOURCE_RELAY_CHUNK_SIZE):
                 yield chunk
         finally:
-            _detach_relay_close(provider, http_session)
+            detach_cleanup(close_provider_connection(provider, http_session))
 
     return StreamingResponse(
         relay(),
@@ -573,6 +572,10 @@ async def vod_preview_duration(
     stream_url = await _resolve_vod_preview_url(
         session, account_id, kind, item_id, container_extension
     )
+    # The probe reaches the provider, so it spends a slot like any other
+    # preview connection would — the budget exists to bound connections, not
+    # players.
+    acquire_preview_slot()
     token = vod_preview_source_relay.mint(stream_url)
     try:
         duration = await hls_streamer.probe_duration(
@@ -580,6 +583,7 @@ async def vod_preview_duration(
         )
     finally:
         vod_preview_source_relay.revoke(token)
+        release_preview_slot()
     return {"duration": duration}
 
 
@@ -625,6 +629,13 @@ async def vod_preview_hls_asset(
     )
     port = _loopback_port(request)
 
+    remaining = _preview_seconds_remaining(key)
+    if remaining <= 0:
+        raise HTTPException(
+            status_code=429,
+            detail="This preview has reached its time limit. Previews stop after 15 minutes.",
+        )
+
     acquire_preview_slot()
     token = vod_preview_source_relay.mint(stream_url)
     released = False
@@ -657,7 +668,7 @@ async def vod_preview_hls_asset(
             key,
             loopback_source_url(port, token),
             fingerprint,
-            VOD_PREVIEW_MAX_SECONDS,
+            remaining,
             start_offset=start,
             on_close=release,
         )
