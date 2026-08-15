@@ -83,7 +83,7 @@ class HLSPlaylistTests(unittest.IsolatedAsyncioTestCase):
             Path(source).write_bytes(b"fake")
             hls_dir = Path(tempfile.mkdtemp())
             self.addCleanup(lambda: __import__("shutil").rmtree(hls_dir, ignore_errors=True))
-            hls_session = HLSSession(download_id=1, source_path=Path(source), directory=hls_dir)
+            hls_session = HLSSession(key="download:1", source_path=Path(source), directory=hls_dir)
             hls_session.playlist_path.write_text("#EXTM3U\nseg00000.m4s\n")
 
             session = _session_for(_make_download(source), folder)
@@ -111,7 +111,7 @@ class HLSPlaylistTests(unittest.IsolatedAsyncioTestCase):
             hls_dir = Path(tempfile.mkdtemp())
             self.addCleanup(lambda: __import__("shutil").rmtree(hls_dir, ignore_errors=True))
             hls_session = HLSSession(
-                download_id=1, source_path=Path(source), directory=hls_dir, start_offset=300.0
+                key="download:1", source_path=Path(source), directory=hls_dir, start_offset=300.0
             )
             hls_session.playlist_path.write_text("#EXTM3U\nseg00000.m4s\n")
 
@@ -167,7 +167,7 @@ class HLSSegmentTests(unittest.IsolatedAsyncioTestCase):
             Path(source).write_bytes(b"fake")
             hls_dir = Path(tempfile.mkdtemp())
             self.addCleanup(lambda: __import__("shutil").rmtree(hls_dir, ignore_errors=True))
-            hls_session = HLSSession(download_id=1, source_path=Path(source), directory=hls_dir)
+            hls_session = HLSSession(key="download:1", source_path=Path(source), directory=hls_dir)
             (hls_dir / "seg00000.m4s").write_bytes(b"segment")
 
             session = _session_for(_make_download(source), folder)
@@ -189,7 +189,7 @@ class HLSSegmentTests(unittest.IsolatedAsyncioTestCase):
             Path(source).write_bytes(b"fake")
             hls_dir = Path(tempfile.mkdtemp())
             self.addCleanup(lambda: __import__("shutil").rmtree(hls_dir, ignore_errors=True))
-            hls_session = HLSSession(download_id=1, source_path=Path(source), directory=hls_dir)
+            hls_session = HLSSession(key="download:1", source_path=Path(source), directory=hls_dir)
 
             session = _session_for(_make_download(source), folder)
             with patch("api.downloads.settings") as mock_cfg, \
