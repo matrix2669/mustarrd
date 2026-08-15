@@ -53,10 +53,10 @@ class VaapiDriverResolutionTests(unittest.TestCase):
 
         return device, sysfs_class_dir
 
-    def test_render_device_environment_override(self):
+    def _load_with_render_device_env(self, value):
         with patch.dict(
             os.environ,
-            {"CATCHUP_VAAPI_RENDER_DEVICE": "/dev/dri/renderD129"},
+            {"CATCHUP_VAAPI_RENDER_DEVICE": value},
             clear=False,
         ):
             spec = importlib.util.spec_from_file_location(
@@ -67,10 +67,25 @@ class VaapiDriverResolutionTests(unittest.TestCase):
             assert spec and spec.loader
             spec.loader.exec_module(module)
 
+        return module
+
+    def test_render_device_environment_override(self):
+        module = self._load_with_render_device_env("/dev/dri/renderD129")
+
         self.assertEqual(
             module.PostProcessor.VAAPI_RENDER_DEVICE,
             Path("/dev/dri/renderD129"),
         )
+
+    def test_blank_render_device_environment_falls_back_to_default(self):
+        for value in ("", "   "):
+            with self.subTest(value=value):
+                module = self._load_with_render_device_env(value)
+
+                self.assertEqual(
+                    module.PostProcessor.VAAPI_RENDER_DEVICE,
+                    Path("/dev/dri/renderD128"),
+                )
 
     def test_env_override_wins(self):
         with patch.object(POST_PROCESSOR_MODULE.platform, "system", return_value="Linux"):

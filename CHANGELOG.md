@@ -4,6 +4,16 @@ All notable changes to Mustarrd are listed here. Most recent changes are at the 
 
 ---
 
+## 2026-08-15
+
+### Improved: VA-API can use a non-default render device
+
+**What you would notice:** If your Intel or AMD GPU is exposed as a DRM render node other than `/dev/dri/renderD128` (for example `/dev/dri/renderD129`), you can now point Mustarrd at that device with `CATCHUP_VAAPI_RENDER_DEVICE`. Docker startup permissions follow the same device, and Unraid users can set it from the advanced container settings. Existing setups keep using `/dev/dri/renderD128` by default.
+
+**What changed:** VA-API diagnostics and every FFmpeg encoding/retry path now use the configurable render node instead of a hard-coded device. The Docker entrypoint derives the render group from that same configured node so the application user has permission to open it. The override is documented in the README and Docker Compose example and exposed in the Unraid template. Regression coverage verifies both a `renderD129` override and the default fallback for blank values.
+
+---
+
 ## 2026-06-23
 
 ### Added: Commercial Skip can now mark ad breaks instead of cutting them

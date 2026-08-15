@@ -1234,7 +1234,7 @@ class PostProcessor:
         Remove commercials from video using EDL file.
 
         Args:
-            input_path: Path to input file
+            input_path: Path to video file
             edl_path: Path to EDL file from Comskip
             output_format: Output format
             hw_accel: Hardware acceleration method
