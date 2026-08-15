@@ -453,14 +453,12 @@ class ConvertedPreviewTests(unittest.IsolatedAsyncioTestCase):
         streamer.get_active.return_value = active
 
         async def start(_key, _source, _fingerprint, _max_seconds, on_close=None):
-            # The real streamer stores the callback on the session it creates;
-            # the handler uses that to tell "mine" from "someone else's".
             hls_session.on_close = on_close
             return hls_session
 
         streamer.get_or_create_stream = AsyncMock(side_effect=start)
         streamer.wait_for_playlist = AsyncMock()
-        streamer.close = AsyncMock()
+        streamer.close_session = AsyncMock()
         return streamer
 
     def test_converted_preview_requires_authentication(self):
@@ -545,10 +543,16 @@ class ConvertedPreviewTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_losing_the_start_race_gives_the_slot_back(self):
         """Two players opening the same channel at once both reserve a slot,
-        but only one session exists — the loser must not keep its reservation."""
+        but only one session exists. The streamer hands the loser's callback
+        straight back, and the handler must not sit on the reservation."""
         hls_session = self._make_hls_session(on_close=lambda: None)
         streamer = self._streamer(hls_session)
-        streamer.get_or_create_stream = AsyncMock(return_value=hls_session)
+
+        async def reuse(_key, _source, _fingerprint, _max_seconds, on_close=None):
+            on_close()  # not adopted: an equivalent session already existed
+            return hls_session
+
+        streamer.get_or_create_stream = AsyncMock(side_effect=reuse)
 
         await self._call(streamer=streamer)
 
@@ -565,7 +569,9 @@ class ConvertedPreviewTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             channels_api._active_preview_count, 0, "A failed Converted preview leaked its slot."
         )
-        streamer.close.assert_awaited_once()
+        # The streamer already tore down the session it failed to start;
+        # there is nothing for the handler to close.
+        streamer.close_session.assert_not_awaited()
 
     async def test_ffmpeg_missing_returns_503(self):
         streamer = self._streamer(None)
@@ -587,7 +593,35 @@ class ConvertedPreviewTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(ctx.exception.status_code, 502)
         self.assertEqual(channels_api._active_preview_count, 0)
-        streamer.close.assert_awaited_once()
+        streamer.close_session.assert_awaited_once_with(hls_session)
+
+    async def test_abandon_tears_down_its_own_session_not_the_key(self):
+        """A request whose playlist never arrived must not kill the healthy
+        replacement session a later request already started on that channel —
+        that would 404 someone else's player mid-playback."""
+        mine = self._make_hls_session()
+        streamer = self._streamer(mine)
+        streamer.wait_for_playlist = AsyncMock(side_effect=HLSStartError("timed out"))
+
+        with self.assertRaises(HTTPException):
+            await self._call(streamer=streamer)
+
+        # Torn down by identity, so a session that replaced it is untouched.
+        streamer.close_session.assert_awaited_once_with(mine)
+
+    async def test_abandon_tears_down_its_own_session_not_the_key(self):
+        """A request whose playlist never arrived must not kill the healthy
+        replacement session a later request already started on that channel —
+        that would 404 someone else's player mid-playback."""
+        mine = self._make_hls_session()
+        streamer = self._streamer(mine)
+        streamer.wait_for_playlist = AsyncMock(side_effect=HLSStartError("timed out"))
+
+        with self.assertRaises(HTTPException):
+            await self._call(streamer=streamer)
+
+        # Torn down by identity, so a session that replaced it is untouched.
+        streamer.close_session.assert_awaited_once_with(mine)
 
     async def test_catchup_without_timestamps_400(self):
         streamer = self._streamer(self._make_hls_session())

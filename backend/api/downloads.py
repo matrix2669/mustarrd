@@ -587,7 +587,7 @@ async def get_download_hls_asset(
 
     if asset == "playlist.m3u8":
         try:
-            hls_session = await hls_streamer.get_or_create(key, file_path, start)
+            hls_session = await hls_streamer.get_or_create_file(key, file_path, start)
             await hls_streamer.wait_for_playlist(hls_session)
         except HLSError as exc:
             raise hls_http_error(exc)

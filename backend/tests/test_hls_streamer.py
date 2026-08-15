@@ -215,7 +215,7 @@ class SessionLifecycleTests(unittest.IsolatedAsyncioTestCase):
     async def test_get_or_create_reuses_matching_session(self):
         streamer = HLSStreamer()
         session = self._make_session(streamer, 1, "/media/a.ts")
-        result = await streamer.get_or_create(download_session_key(1), Path("/media/a.ts"))
+        result = await streamer.get_or_create_file(download_session_key(1), Path("/media/a.ts"))
         self.assertIs(result, session)
         self.assertTrue(session.directory.exists())
         await streamer.shutdown()
@@ -229,7 +229,7 @@ class SessionLifecycleTests(unittest.IsolatedAsyncioTestCase):
             mock_pp.get_ffmpeg_path.return_value = None
             mock_pp.get_ffprobe_path.return_value = None
             with self.assertRaises(hls_module.HLSUnavailableError):
-                await streamer.get_or_create(download_session_key(1), Path("/media/a.ts"), start_offset=120.0)
+                await streamer.get_or_create_file(download_session_key(1), Path("/media/a.ts"), start_offset=120.0)
         self.assertNotIn(download_session_key(1), streamer._sessions)
         self.assertFalse(session.directory.exists())
         await streamer.shutdown()
@@ -242,7 +242,7 @@ class SessionLifecycleTests(unittest.IsolatedAsyncioTestCase):
             mock_pp.get_ffmpeg_path.return_value = None
             mock_pp.get_ffprobe_path.return_value = None
             with self.assertRaises(hls_module.HLSUnavailableError):
-                await streamer.get_or_create(download_session_key(1), Path("/media/a.ts"))
+                await streamer.get_or_create_file(download_session_key(1), Path("/media/a.ts"))
         # Stale failed session was torn down, including its directory.
         self.assertNotIn(download_session_key(1), streamer._sessions)
         self.assertFalse(session.directory.exists())
@@ -261,7 +261,7 @@ class SessionLifecycleTests(unittest.IsolatedAsyncioTestCase):
             mock_pp.get_ffmpeg_path.return_value = None
             mock_pp.get_ffprobe_path.return_value = None
             with self.assertRaises(hls_module.HLSUnavailableError):
-                await streamer.get_or_create(download_session_key(1), Path("/media/a.ts"))
+                await streamer.get_or_create_file(download_session_key(1), Path("/media/a.ts"))
         self.assertNotIn(download_session_key(1), streamer._sessions)
         self.assertFalse(session.directory.exists())
         await streamer.shutdown()
@@ -271,7 +271,7 @@ class SessionLifecycleTests(unittest.IsolatedAsyncioTestCase):
         for i in range(hls_module.MAX_SESSIONS):
             self._make_session(streamer, i + 1, f"/media/{i}.ts")
         with self.assertRaises(HLSLimitError):
-            await streamer.get_or_create(download_session_key(99), Path("/media/new.ts"))
+            await streamer.get_or_create_file(download_session_key(99), Path("/media/new.ts"))
         await streamer.shutdown()
 
     async def test_idle_sessions_are_reaped(self):
@@ -338,7 +338,7 @@ class SessionLifecycleTests(unittest.IsolatedAsyncioTestCase):
             mock_pp.get_ffmpeg_path.return_value = "/usr/bin/ffmpeg"
             mock_pp.get_ffprobe_path.return_value = "/usr/bin/ffprobe"
             with self.assertRaises(asyncio.CancelledError):
-                await streamer.get_or_create(download_session_key(1), Path("/media/a.ts"))
+                await streamer.get_or_create_file(download_session_key(1), Path("/media/a.ts"))
 
         self.assertEqual(len(created_dirs), 1)
         self.assertFalse(created_dirs[0].exists(), "session temp dir leaked")
@@ -408,7 +408,7 @@ class StreamSessionTests(unittest.IsolatedAsyncioTestCase):
     """Converted preview sessions: FFmpeg fed from a caller-owned byte stream."""
 
     async def _start(self, streamer, source, key="preview:1:55", fingerprint="live:None:None:None",
-                     on_close=None, probe=("h264", "ac3", None, None)):
+                     on_close=None, probe=("h264", "ac3", None, None), max_seconds=300.0):
         process = FakeProcess()
 
         async def fake_spawn(session, cmd, stdin_pipe=False):
@@ -424,7 +424,7 @@ class StreamSessionTests(unittest.IsolatedAsyncioTestCase):
             mock_pp.get_ffmpeg_path.return_value = "/usr/bin/ffmpeg"
             mock_pp.get_ffprobe_path.return_value = "/usr/bin/ffprobe"
             session = await streamer.get_or_create_stream(
-                key, source, fingerprint, 300.0, on_close=on_close
+                key, source, fingerprint, max_seconds, on_close=on_close
             )
         return session, process
 
@@ -466,8 +466,9 @@ class StreamSessionTests(unittest.IsolatedAsyncioTestCase):
         key = preview_session_key(1, "55")
         await self._start(streamer, FakeStreamSource(), key=key, on_close=lambda: calls.append(1))
 
-        await streamer.close(key)
-        await streamer.close(key)
+        session = streamer.get_active(key)
+        await streamer.close_session(session)
+        await streamer.close_session(session)
         await streamer.shutdown()
         self.assertEqual(calls, [1])
 
@@ -489,6 +490,43 @@ class StreamSessionTests(unittest.IsolatedAsyncioTestCase):
         streamer = HLSStreamer()
         with self.assertRaises(HLSStartError):
             await self._start(streamer, FakeStreamSource(chunks=[]))
+        await streamer.shutdown()
+
+    async def test_reused_session_hands_the_callers_budget_straight_back(self):
+        """The caller reserved a preview slot before calling; if an equivalent
+        session already existed it never became one, so the streamer returns
+        the reservation rather than making callers detect the race."""
+        streamer = HLSStreamer()
+        key = preview_session_key(1, "55")
+        await self._start(streamer, FakeStreamSource(), key=key)
+
+        calls = []
+        second, _ = await self._start(
+            streamer, FakeStreamSource(), key=key, on_close=lambda: calls.append(1)
+        )
+
+        self.assertEqual(calls, [1], "the losing caller's slot was never released")
+        # ...and the winner's own callback is untouched, so tearing the
+        # session down later still releases exactly its own slot.
+        await streamer.close_session(second)
+        self.assertEqual(calls, [1])
+        await streamer.shutdown()
+
+    async def test_close_session_ignores_a_replaced_session(self):
+        """Closing by key would let a failed request kill the healthy session
+        a later request started on the same channel."""
+        streamer = HLSStreamer()
+        key = preview_session_key(1, "55")
+        stale, _ = await self._start(streamer, FakeStreamSource(), key=key,
+                                     fingerprint="catchup:1:2:None")
+        replacement, _ = await self._start(streamer, FakeStreamSource(), key=key,
+                                           fingerprint="catchup:9:10:None")
+        self.assertIsNot(replacement, stale)
+
+        await streamer.close_session(stale)
+
+        self.assertIs(streamer.get_active(key), replacement)
+        self.assertTrue(replacement.directory.exists())
         await streamer.shutdown()
 
     async def test_matching_session_is_reused_without_a_second_ffmpeg(self):
@@ -521,6 +559,46 @@ class StreamSessionTests(unittest.IsolatedAsyncioTestCase):
         process.returncode = 0
         second, _ = await self._start(streamer, FakeStreamSource(), key=key)
         self.assertIsNot(second, first)
+        await streamer.shutdown()
+
+    async def test_silent_provider_still_hits_the_time_cap(self):
+        """The cap is a deadline on the whole feed: a provider that goes quiet
+        must not be able to hold a preview slot open past it by sending
+        nothing at all."""
+        streamer = HLSStreamer()
+
+        async def silent():
+            # Enough to satisfy the probe, then nothing ever again.
+            yield b"\x47" * hls_module.PROBE_SAMPLE_BYTES
+            await asyncio.sleep(3600)
+
+        source = FakeStreamSource()
+        source.open = AsyncMock(return_value=silent())
+        session, process = await self._start(streamer, source, max_seconds=0.2)
+
+        await asyncio.wait_for(session.feeder, timeout=2)
+        self.assertTrue(process.stdin.closed)
+        await streamer.shutdown()
+
+    async def test_finished_feed_retires_the_session_after_a_grace_period(self):
+        """Nothing more will ever be written, so the slot must not wait out
+        the idle timer — but the player still gets to drain what is on disk."""
+        streamer = HLSStreamer()
+        key = preview_session_key(1, "55")
+        calls = []
+        session, _ = await self._start(
+            streamer, FakeStreamSource(), key=key, on_close=lambda: calls.append(1)
+        )
+        await asyncio.wait_for(session.feeder, timeout=2)
+
+        # Still servable immediately after the feed ends.
+        self.assertIs(streamer.get_active(key), session)
+
+        with patch.object(hls_module, "FEED_END_GRACE_SECONDS", 0):
+            await streamer._retire_after_grace(session)
+
+        self.assertIsNone(streamer.get_active(key))
+        self.assertEqual(calls, [1], "the preview slot was not released")
         await streamer.shutdown()
 
     async def test_feed_stops_at_the_time_cap(self):

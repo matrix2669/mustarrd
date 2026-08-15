@@ -91,7 +91,7 @@ class HLSPlaylistTests(unittest.IsolatedAsyncioTestCase):
                     patch("api.downloads.hls_streamer") as mock_streamer:
                 mock_cfg.default_download_folder = folder
                 mock_cfg.default_completed_folder = folder
-                mock_streamer.get_or_create = AsyncMock(return_value=hls_session)
+                mock_streamer.get_or_create_file = AsyncMock(return_value=hls_session)
                 mock_streamer.wait_for_playlist = AsyncMock()
 
                 result = await get_download_hls_asset(
@@ -100,9 +100,9 @@ class HLSPlaylistTests(unittest.IsolatedAsyncioTestCase):
 
             self.assertIsInstance(result, FileResponse)
             self.assertEqual(result.media_type, "application/vnd.apple.mpegurl")
-            mock_streamer.get_or_create.assert_awaited_once()
+            mock_streamer.get_or_create_file.assert_awaited_once()
             # No explicit start: session begins at the top of the file.
-            self.assertEqual(mock_streamer.get_or_create.await_args.args[2], 0.0)
+            self.assertEqual(mock_streamer.get_or_create_file.await_args.args[2], 0.0)
 
     async def test_playlist_passes_start_offset_to_session(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -120,14 +120,14 @@ class HLSPlaylistTests(unittest.IsolatedAsyncioTestCase):
                     patch("api.downloads.hls_streamer") as mock_streamer:
                 mock_cfg.default_download_folder = folder
                 mock_cfg.default_completed_folder = folder
-                mock_streamer.get_or_create = AsyncMock(return_value=hls_session)
+                mock_streamer.get_or_create_file = AsyncMock(return_value=hls_session)
                 mock_streamer.wait_for_playlist = AsyncMock()
 
                 await get_download_hls_asset(
                     1, "playlist.m3u8", start=300.0, auth=ADMIN, session=session
                 )
 
-            self.assertEqual(mock_streamer.get_or_create.await_args.args[2], 300.0)
+            self.assertEqual(mock_streamer.get_or_create_file.await_args.args[2], 300.0)
 
     async def test_ffmpeg_failure_maps_to_502(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -138,7 +138,7 @@ class HLSPlaylistTests(unittest.IsolatedAsyncioTestCase):
                     patch("api.downloads.hls_streamer") as mock_streamer:
                 mock_cfg.default_download_folder = folder
                 mock_cfg.default_completed_folder = folder
-                mock_streamer.get_or_create = AsyncMock(side_effect=HLSStartError("FFmpeg failed"))
+                mock_streamer.get_or_create_file = AsyncMock(side_effect=HLSStartError("FFmpeg failed"))
 
                 with self.assertRaises(HTTPException) as ctx:
                     await get_download_hls_asset(1, "playlist.m3u8", auth=ADMIN, session=session)

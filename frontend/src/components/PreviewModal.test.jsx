@@ -119,7 +119,6 @@ describe('PreviewModal', () => {
     render()
     await waitFor(() => expect(attachMpegts).toHaveBeenCalled())
 
-    const videoEl = attachMpegts.mock.calls[0][0]
     // jsdom leaves readyState at 0: nothing ever decoded.
     await act(async () => {
       vi.advanceTimersByTime(6000)

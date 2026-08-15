@@ -51,8 +51,13 @@ PIPE_INPUT = "pipe:0"
 IDLE_TTL_SECONDS = 120
 # Live sessions hold a shared preview slot and an FFmpeg process that never
 # ends on its own, so they are reaped far sooner than file sessions. A player
-# on an event playlist keeps polling, which keeps the session touched.
+# on an event playlist keeps polling, which keeps the session touched. This
+# only covers a viewer who walked away: a session whose feed has ended is
+# retired directly, on FEED_END_GRACE_SECONDS.
 LIVE_IDLE_TTL_SECONDS = 45
+# How long a finished live session stays servable so the player can drain the
+# segments already on disk before the directory goes away.
+FEED_END_GRACE_SECONDS = 15
 MAX_SESSIONS = 4
 PLAYLIST_WAIT_SECONDS = 20.0
 PROBE_TIMEOUT_SECONDS = 60.0
@@ -318,7 +323,7 @@ class HLSStreamer:
                 stderr=stderr_file,
             )
 
-    async def get_or_create(
+    async def get_or_create_file(
         self, key: str, source_path: Path, start_offset: float = 0.0
     ) -> HLSSession:
         """Repackage a file on disk. FFmpeg opens the file itself."""
@@ -412,14 +417,17 @@ class HLSStreamer:
         """Repackage a caller-supplied byte stream (Converted preview).
 
         The returned session may still be starting up; callers wait on
-        `wait_for_playlist`. `on_close` fires once when the session is torn
-        down — but only for a session this call created, so a caller that
-        loses the race to an equivalent session can release its own budget by
-        checking `session.on_close is not its own callback`.
+        `wait_for_playlist`. `on_close` is invoked exactly once either way:
+        when the session this call created is torn down, or immediately if an
+        equivalent session already existed — so a caller that loses the race
+        gets its budget back without having to detect the race itself.
         """
         async with self._lock:
             reused = await self._reuse_or_clear_locked(key, fingerprint)
             if reused is not None:
+                # This call reserved budget for a session it did not create.
+                if on_close is not None:
+                    on_close()
                 return reused
 
             ffmpeg, ffprobe = await self._reserve_slot_locked()
@@ -524,18 +532,13 @@ class HLSStreamer:
         stdin = process.stdin if process is not None else None
         if stdin is None:
             return
-        loop = asyncio.get_running_loop()
-        deadline = loop.time() + max_seconds
         try:
-            for offset in range(0, len(head), STREAM_WRITE_CHUNK):
-                stdin.write(head[offset:offset + STREAM_WRITE_CHUNK])
-                await stdin.drain()
-            async for chunk in chunks:
-                stdin.write(chunk)
-                await stdin.drain()
-                if loop.time() >= deadline:
-                    logger.info("Converted preview hit its time cap key=%s", session.key)
-                    break
+            # The cap is a wall-clock deadline on the whole feed, not a check
+            # between chunks: a provider that goes quiet must not be able to
+            # hold the stream open past it by simply sending nothing.
+            await asyncio.wait_for(self._pump(stdin, chunks, head), max_seconds)
+        except asyncio.TimeoutError:
+            logger.info("Converted preview hit its time cap key=%s", session.key)
         except (BrokenPipeError, ConnectionResetError):
             # FFmpeg exited (session torn down, or it gave up on the input).
             pass
@@ -552,6 +555,26 @@ class HLSStreamer:
             # (session teardown), and the first await would re-raise before
             # the provider connection was released.
             self._detach(source.close())
+            # The feed is over, so this session will never produce another
+            # segment. Retire it on a short grace period — long enough for the
+            # player to drain what was already written, short enough that the
+            # preview slot is not held on an idle timer's schedule.
+            self._detach(self._retire_after_grace(session))
+
+    @staticmethod
+    async def _pump(stdin, chunks: AsyncIterator[bytes], head: bytes) -> None:
+        # The probe sample is the start of the stream, so it is replayed
+        # rather than dropped.
+        for offset in range(0, len(head), STREAM_WRITE_CHUNK):
+            stdin.write(head[offset:offset + STREAM_WRITE_CHUNK])
+            await stdin.drain()
+        async for chunk in chunks:
+            stdin.write(chunk)
+            await stdin.drain()
+
+    async def _retire_after_grace(self, session: HLSSession) -> None:
+        await asyncio.sleep(FEED_END_GRACE_SECONDS)
+        await self.close_session(session)
 
     def _detach(self, coro) -> None:
         """Run a cleanup coroutine without awaiting it, keeping a strong ref.
@@ -645,11 +668,15 @@ class HLSStreamer:
         if session.on_close is not None:
             session.on_close()
 
-    async def close(self, key: str) -> None:
-        """Tear down one session by key, if it still exists."""
+    async def close_session(self, session: HLSSession) -> None:
+        """Tear down this exact session, if it is still the one under its key.
+
+        Identity-checked, not key-checked: a failed request must not kill the
+        replacement session a later request has already started under the same
+        key, which would 404 a healthy player mid-playback.
+        """
         async with self._lock:
-            session = self._sessions.get(key)
-            if session is not None:
+            if self._sessions.get(session.key) is session:
                 await self._destroy_locked(session)
 
     async def shutdown(self) -> None:

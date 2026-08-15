@@ -5,7 +5,7 @@ from typing import Optional
 
 import aiohttp
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import FileResponse, Response, StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from starlette.background import BackgroundTask
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -43,6 +43,22 @@ _active_preview_count = 0
 # Strong refs to in-flight connection-close tasks: the event loop only keeps
 # weak references, so an unreferenced task could be garbage-collected mid-close.
 _pending_preview_closes: set = set()
+
+
+def _acquire_preview_slot() -> None:
+    """Take one of the shared preview slots, or refuse the request.
+
+    Direct and Converted previews draw on the same budget: a Converted preview
+    is still a preview, and one viewer holding both would be two provider
+    connections for one person.
+    """
+    global _active_preview_count
+    if _active_preview_count >= PREVIEW_MAX_CONCURRENT:
+        raise HTTPException(
+            status_code=429,
+            detail="Preview limit reached. Close another preview and try again.",
+        )
+    _active_preview_count += 1
 
 
 def _release_preview_slot() -> None:
@@ -111,6 +127,23 @@ async def _resolve_preview_stream_url(
     )
 
 
+def _preview_fingerprint(
+    mode: str,
+    start_timestamp: Optional[int],
+    stop_timestamp: Optional[int],
+    provider_start: Optional[str],
+) -> str:
+    """Identify *what* a preview session is showing, so a request for a
+    different program on the same channel rebuilds it. Derived only from
+    request parameters, never from the credentialed URL."""
+    return f"{mode}:{start_timestamp}:{stop_timestamp}:{provider_start}"
+
+
+def _provider_refused(status: int) -> str:
+    # Never echo the provider URL: it carries credentials.
+    return f"Provider refused the preview stream (HTTP {status})"
+
+
 class _ProviderStream:
     """A provider URL presented to HLSStreamer as a plain byte source.
 
@@ -130,8 +163,7 @@ class _ProviderStream:
         if self._response.status != 200:
             status = self._response.status
             await self.close()
-            # Never echo the provider URL: it carries credentials.
-            raise HLSStartError(f"Provider refused the preview stream (HTTP {status})")
+            raise HLSStartError(_provider_refused(status))
         return self._response.content.iter_chunked(PREVIEW_CHUNK_SIZE)
 
     async def close(self) -> None:
@@ -401,12 +433,7 @@ async def preview_channel_stream(
         session, account_id, channel_id, mode, start_timestamp, stop_timestamp, provider_start
     )
 
-    if _active_preview_count >= PREVIEW_MAX_CONCURRENT:
-        raise HTTPException(
-            status_code=429,
-            detail="Preview limit reached. Close another preview and try again.",
-        )
-    _active_preview_count += 1
+    _acquire_preview_slot()
 
     http_session = None
     provider_response = None
@@ -414,10 +441,9 @@ async def preview_channel_stream(
         http_session = aiohttp.ClientSession(timeout=PREVIEW_TIMEOUT)
         provider_response = await http_session.get(stream_url)
         if provider_response.status != 200:
-            # Never echo the provider URL: it carries credentials.
             raise HTTPException(
                 status_code=502,
-                detail=f"Provider refused the preview stream (HTTP {provider_response.status})",
+                detail=_provider_refused(provider_response.status),
             )
     except HTTPException:
         await _close_preview_connection(provider_response, http_session)
@@ -550,20 +576,14 @@ async def preview_channel_hls_asset(
     stream_url = await _resolve_preview_stream_url(
         session, account_id, channel_id, mode, start_timestamp, stop_timestamp, provider_start
     )
-    # Reused verbatim on segment requests, so it must not depend on the URL.
-    fingerprint = f"{mode}:{start_timestamp}:{stop_timestamp}:{provider_start}"
+    fingerprint = _preview_fingerprint(mode, start_timestamp, stop_timestamp, provider_start)
 
     existing = hls_streamer.get_active(key)
     if existing is not None and existing.fingerprint == fingerprint:
         hls_streamer.touch(existing)
         return hls_playlist_response(existing)
 
-    if _active_preview_count >= PREVIEW_MAX_CONCURRENT:
-        raise HTTPException(
-            status_code=429,
-            detail="Preview limit reached. Close another preview and try again.",
-        )
-    _active_preview_count += 1
+    _acquire_preview_slot()
     released = False
 
     def release_slot():
@@ -579,13 +599,16 @@ async def preview_channel_hls_asset(
             account_id, channel_id, _active_preview_count,
         )
 
+    hls_session = None
+
     async def abandon():
         # wait_for_playlist can fail on a session that is still running, so
         # tear it down rather than just dropping the slot: otherwise FFmpeg
         # would keep the stream open with nothing accounting for it.
         # Release first — under cancellation the await below never returns.
         release_slot()
-        await hls_streamer.close(key)
+        if hls_session is not None:
+            await hls_streamer.close_session(hls_session)
 
     try:
         hls_session = await hls_streamer.get_or_create_stream(
@@ -595,10 +618,6 @@ async def preview_channel_hls_asset(
             PREVIEW_MAX_SECONDS,
             on_close=release_slot,
         )
-        if hls_session.on_close is not release_slot:
-            # Lost the race to an equivalent session; that one owns a slot
-            # already, so give this one back rather than leaking it.
-            release_slot()
         await hls_streamer.wait_for_playlist(hls_session)
     except HLSError as exc:
         await abandon()
