@@ -14,7 +14,15 @@ from auth import require_admin_or_download_user, AuthContext
 from database import get_session
 from models import StarredChannel, XtreamAccount
 from services.download_builder import _normalize_provider_start_token
-from api.hls_common import hls_asset_response, hls_http_error, hls_playlist_response
+from api.hls_common import (
+    acquire_preview_slot,
+    close_provider_connection,
+    detach_cleanup,
+    hls_asset_response,
+    hls_http_error,
+    hls_playlist_response,
+    release_preview_slot,
+)
 from services.epg_service import epg_service, NoCatchupSupportError
 from services.hls_streamer import (
     HLS_ASSET_PATTERN,
@@ -25,6 +33,7 @@ from services.hls_streamer import (
 )
 from services.account_credentials import resolve_account_password_with_migration
 from services.logo_cache import logo_cache
+from services.preview_budget import PREVIEW_MAX_CONCURRENT, preview_budget
 from services.xtream_client import XtreamClient
 
 
@@ -33,48 +42,10 @@ logger = logging.getLogger(__name__)
 
 # Stream-preview proxy limits: previews relay provider bytes through the
 # backend so credentials embedded in provider URLs never reach the browser.
-PREVIEW_MAX_CONCURRENT = 2
+# The concurrency budget is shared with VOD previews; see services/preview_budget.
 PREVIEW_MAX_SECONDS = 300
 PREVIEW_CHUNK_SIZE = 64 * 1024
 PREVIEW_TIMEOUT = aiohttp.ClientTimeout(total=None, sock_connect=15, sock_read=60)
-
-_active_preview_count = 0
-
-# Strong refs to in-flight connection-close tasks: the event loop only keeps
-# weak references, so an unreferenced task could be garbage-collected mid-close.
-_pending_preview_closes: set = set()
-
-
-def _acquire_preview_slot() -> None:
-    """Take one of the shared preview slots, or refuse the request.
-
-    Direct and Converted previews draw on the same budget: a Converted preview
-    is still a preview, and one viewer holding both would be two provider
-    connections for one person.
-    """
-    global _active_preview_count
-    if _active_preview_count >= PREVIEW_MAX_CONCURRENT:
-        raise HTTPException(
-            status_code=429,
-            detail="Preview limit reached. Close another preview and try again.",
-        )
-    _active_preview_count += 1
-
-
-def _release_preview_slot() -> None:
-    global _active_preview_count
-    _active_preview_count = max(0, _active_preview_count - 1)
-
-
-async def _close_preview_connection(provider_response, http_session) -> None:
-    """Close the provider response and its session, tolerating partial setup."""
-    try:
-        if provider_response is not None:
-            provider_response.close()
-    finally:
-        if http_session is not None and not http_session.closed:
-            await http_session.close()
-
 
 def _channel_has_tv_archive(ch: dict) -> bool:
     return int(ch.get("tv_archive", 0) or 0) == 1
@@ -169,7 +140,7 @@ class _ProviderStream:
     async def close(self) -> None:
         response, self._response = self._response, None
         http_session, self._http_session = self._http_session, None
-        await _close_preview_connection(response, http_session)
+        await close_provider_connection(response, http_session)
 
 
 @router.get("/logos")
@@ -427,13 +398,11 @@ async def preview_channel_stream(
     backend: the stream is opened server-side and bytes are proxied to the
     authenticated browser session.
     """
-    global _active_preview_count
-
     stream_url = await _resolve_preview_stream_url(
         session, account_id, channel_id, mode, start_timestamp, stop_timestamp, provider_start
     )
 
-    _acquire_preview_slot()
+    acquire_preview_slot()
 
     http_session = None
     provider_response = None
@@ -446,12 +415,12 @@ async def preview_channel_stream(
                 detail=_provider_refused(provider_response.status),
             )
     except HTTPException:
-        await _close_preview_connection(provider_response, http_session)
-        _release_preview_slot()
+        await close_provider_connection(provider_response, http_session)
+        release_preview_slot()
         raise
     except Exception:
-        await _close_preview_connection(provider_response, http_session)
-        _release_preview_slot()
+        await close_provider_connection(provider_response, http_session)
+        release_preview_slot()
         logger.exception(
             "Preview stream failed account_id=%s channel_id=%s mode=%s",
             account_id,
@@ -478,27 +447,19 @@ async def preview_channel_stream(
             return
         cleanup_done = True
         failsafe.cancel()
-        _release_preview_slot()
+        release_preview_slot()
         logger.info(
             "Preview slot released account_id=%s channel_id=%s active=%s",
-            account_id, channel_id, _active_preview_count,
+            account_id, channel_id, preview_budget.active,
         )
-        close_task = asyncio.ensure_future(
-            _close_preview_connection(provider_response, http_session)
-        )
-        _pending_preview_closes.add(close_task)
-        close_task.add_done_callback(_pending_preview_closes.discard)
+        detach_cleanup(close_provider_connection(provider_response, http_session))
 
     # Failsafe: if the consumer stops reading without disconnecting, the relay
     # generator can park on a yield forever, never reaching its finally — the
     # slot and provider connection would leak until restart. Force cleanup
     # shortly after the relay deadline regardless of consumer behavior.
     def _spawn_failsafe_cleanup():
-        # Keep a strong ref: the loop only weakly references tasks, so an
-        # unanchored cleanup task could in principle be collected before it runs.
-        task = asyncio.ensure_future(cleanup())
-        _pending_preview_closes.add(task)
-        task.add_done_callback(_pending_preview_closes.discard)
+        detach_cleanup(cleanup())
 
     failsafe = asyncio.get_running_loop().call_later(
         PREVIEW_MAX_SECONDS + 30,
@@ -506,7 +467,7 @@ async def preview_channel_stream(
     )
     logger.info(
         "Preview slot acquired account_id=%s channel_id=%s mode=%s active=%s",
-        account_id, channel_id, mode, _active_preview_count,
+        account_id, channel_id, mode, preview_budget.active,
     )
 
     async def relay():
@@ -559,8 +520,6 @@ async def preview_channel_hls_asset(
     A Converted preview is still a preview: it takes a slot from the same
     budget as the Direct path and stops at the same time cap.
     """
-    global _active_preview_count
-
     if not HLS_ASSET_PATTERN.match(asset):
         raise HTTPException(status_code=404, detail="Unknown stream asset")
 
@@ -583,7 +542,7 @@ async def preview_channel_hls_asset(
         hls_streamer.touch(existing)
         return hls_playlist_response(existing)
 
-    _acquire_preview_slot()
+    acquire_preview_slot()
     released = False
 
     def release_slot():
@@ -593,10 +552,10 @@ async def preview_channel_hls_asset(
         if released:
             return
         released = True
-        _release_preview_slot()
+        release_preview_slot()
         logger.info(
             "Converted preview slot released account_id=%s channel_id=%s active=%s",
-            account_id, channel_id, _active_preview_count,
+            account_id, channel_id, preview_budget.active,
         )
 
     hls_session = None
@@ -628,7 +587,7 @@ async def preview_channel_hls_asset(
 
     logger.info(
         "Converted preview started account_id=%s channel_id=%s mode=%s active=%s",
-        account_id, channel_id, mode, _active_preview_count,
+        account_id, channel_id, mode, preview_budget.active,
     )
     return hls_playlist_response(hls_session)
 
