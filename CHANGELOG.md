@@ -14,6 +14,16 @@ All notable changes to Mustarrd are listed here. Most recent changes are at the 
 
 ---
 
+## 2026-08-15
+
+### Added: Preview now works on channels your browser can't play, and on iPhones and iPads
+
+**What you would notice:** Preview used to fail on some channels — you would get silent video, or a black box, and an unhelpful "your browser cannot decode this" message. That happened on channels whose audio is AC-3 (Dolby Digital) or HE-AAC, which no browser plays, and it happened on every channel in Safari on iPhone and iPad, which has no way to play these streams at all. Now Mustarrd notices within a few seconds and converts the stream on the fly instead: you see a brief "This channel needs converting, one moment" spinner, then picture **and** sound. On an iPhone or iPad it skips the doomed first attempt entirely. Your browser also remembers which channels needed converting, so opening one again starts converting straight away instead of failing first. Channels that already worked are untouched — they still play directly, with no extra work on the server. **Downloads are not affected in any way**: recordings are still saved exactly as your provider sends them.
+
+**What changed:** The on-the-fly HLS repackager that already existed for playing finished recordings now also accepts a live provider stream. It copies the video through untouched (an ffprobe survey of 28 channels across two providers found every working channel was H.264, so all the variance is in audio) and re-encodes only the audio to AAC-LC, which costs almost nothing and runs comfortably in real time. Converted previews share the existing two-at-a-time preview limit and the same five-minute cap, so one viewer can't hold a direct slot and a converted slot at once, and a live encode can't run forever. Security-wise, the provider URL — which embeds your username and password — is never handed to FFmpeg as a command-line argument, where anyone on the same machine could read it out of `ps`: Mustarrd opens the connection itself and pipes the bytes to FFmpeg over stdin, so the URL never leaves the app.
+
+---
+
 ## 2026-06-23
 
 ### Added: Commercial Skip can now mark ad breaks instead of cutting them

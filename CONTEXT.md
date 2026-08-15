@@ -36,3 +36,26 @@ The `.edl` (Edit Decision List) file Comskip emits, named to match the finished
 video and placed alongside it, listing commercial segments so players can skip
 them. Produced only in Mark mode.
 _Avoid_: cutlist, skip file, chapters
+
+### Preview
+
+**Preview**:
+Watching a provider stream in the browser before or instead of downloading it,
+to answer "is this the right thing?". Applies to live channels, catchup
+programs, and VOD. Time-limited and concurrency-limited by design: it is not a
+TV client.
+_Avoid_: playback (that's watching a finished recording), streaming, watch
+
+**Direct preview** (mode):
+A preview where the browser receives the provider's original broadcast stream
+and decodes it itself. Cheap for the server, but only works when the browser
+can handle both the container and the codecs.
+_Avoid_: raw preview, passthrough, TS preview
+
+**Converted preview** (mode):
+A preview where the backend re-packages the provider stream into a format the
+browser can decode before sending it. Used when a Direct preview is impossible
+or has failed. Costs the server real work, so it is entered by fallback rather
+than by default.
+_Avoid_: transcoded preview (it usually only converts the audio), compatibility
+mode (that's the user-facing wording, not the concept), server-side preview
