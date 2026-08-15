@@ -36,7 +36,7 @@ def _tmdb_tags(value) -> str:
     tmdb_id = _numeric_tmdb_id(value)
     if not tmdb_id:
         return ""
-    return f"{{tmdb-{tmdb_id}}} [tmdbid={tmdb_id}]"
+    return f"{{tmdb-{tmdb_id}}} [tmdbid-{tmdb_id}]"
 
 
 def _render_relative_template(template: str, context: dict) -> list[str]:

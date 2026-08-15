@@ -114,7 +114,7 @@ class VodMovieTemplateMetadataTests(unittest.TestCase):
         )
         self.assertEqual(
             result,
-            "/downloads/Movies/Dune Part Two (2024) {tmdb-693134} [tmdbid=693134]/"
+            "/downloads/Movies/Dune Part Two (2024) {tmdb-693134} [tmdbid-693134]/"
             "Dune Part Two (2024).mkv",
         )
 
@@ -129,7 +129,7 @@ class VodMovieTemplateMetadataTests(unittest.TestCase):
             release_date="2024-03-01",
             tmdb_id="https://www.themoviedb.org/movie/693134",
         )
-        self.assertIn("{tmdb-693134} [tmdbid=693134]", result)
+        self.assertIn("{tmdb-693134} [tmdbid-693134]", result)
         self.assertTrue(result.endswith("/Dune Part Two (2024).mp4"), result)
 
     def test_missing_tmdb_id_collapses_cleanly(self):
@@ -167,7 +167,7 @@ class VodSeriesTemplateMetadataTests(unittest.TestCase):
         )
         self.assertEqual(
             result,
-            "/downloads/TV Shows/The Wire {tmdb-1438} [tmdbid=1438]/Season 02/"
+            "/downloads/TV Shows/The Wire {tmdb-1438} [tmdbid-1438]/Season 02/"
             "The Wire - S02E05 - Stray Rounds.mkv",
         )
 
