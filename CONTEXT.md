@@ -6,6 +6,25 @@ re-encoding before the finished file lands in the completed folder.
 
 ## Language
 
+### Recording
+
+**Time slot**:
+A recording the user defines by hand as a channel plus a start and end time,
+rather than by picking a program out of the guide. For when the guide has no
+entry for what you want, or when you only want part of a much longer airing.
+Always fetched from the provider's catchup archive: a time slot whose end is
+still in the future waits until the airing has landed in the archive and is
+then fetched like any other. It never captures the live stream.
+_Avoid_: manual recording (collides with "manual download"), custom recording,
+time range
+
+**Ad-hoc download**:
+A recording the user starts on the spot from a program already in the guide, as
+opposed to one that waits on a schedule. Both are fetched from the catchup
+archive.
+_Avoid_: manual download (ambiguous now that [[time slot]] recording exists),
+instant download
+
 ### Commercial Skip
 
 **Commercial Skip**:

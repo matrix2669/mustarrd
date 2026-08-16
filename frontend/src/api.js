@@ -147,6 +147,11 @@ export const schedulesApi = {
   importDoc: (doc) => request('/schedules/import', { method: 'POST', body: doc }),
 }
 
+// Time slots (hand-picked channel + start + end, no EPG program)
+export const timeSlotsApi = {
+  create: (data) => request('/time-slots', { method: 'POST', body: data }),
+}
+
 // VOD (On Demand)
 function vodPreviewPath(accountId, kind, itemId, suffix, params = {}) {
   const query = new URLSearchParams(
