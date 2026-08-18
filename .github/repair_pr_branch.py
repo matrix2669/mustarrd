@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -19,7 +18,12 @@ REPAIRS = {
 
 
 def run(*args, check=True):
-    return subprocess.run(args, check=check, text=True, capture_output=not check)
+    result = subprocess.run(args, check=False, text=True, capture_output=True)
+    if check and result.returncode != 0:
+        raise RuntimeError(
+            f"Command failed ({result.returncode}): {' '.join(args)}\n{result.stdout}\n{result.stderr}"
+        )
+    return result
 
 
 def git(*args, check=True):
@@ -41,11 +45,7 @@ def insert_after(text: str, marker: str, insertion: str) -> str:
 
 
 def merge_upstream():
-    result = subprocess.run(
-        ["git", "merge", "--no-ff", "--no-commit", "upstream/main"],
-        text=True,
-        capture_output=True,
-    )
+    result = git("merge", "--no-ff", "--no-commit", "upstream/main", check=False)
     if result.returncode == 0:
         return
     conflicts = git("diff", "--name-only", "--diff-filter=U").stdout.strip().splitlines()
@@ -147,9 +147,6 @@ def prepare(head_ref: str):
         repair_407()
     git("add", "-A")
     git("diff", "--check")
-    Path("/tmp/mustarrd-repair-target").write_text(cfg["target"])
-    Path("/tmp/mustarrd-repair-original").write_text(cfg["original"])
-    Path("/tmp/mustarrd-repair-message").write_text(cfg["message"])
 
 
 def publish(head_ref: str):
