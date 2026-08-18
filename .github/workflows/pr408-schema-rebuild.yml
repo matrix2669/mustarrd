@@ -1,0 +1,57 @@
+name: Rebuild PR 408 schema
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  rebuild:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'automation/rebuild-pr408-schema'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Preserve builder fixtures
+        run: |
+          cp .github/build_pr408_schema_v2.py /tmp/build_pr408_schema.py
+          cp .github/pr408/epg_metadata.py /tmp/pr408-epg_metadata.py
+          cp .github/pr408/test_structured_epg_ingest.py /tmp/pr408-test_structured_epg_ingest.py
+
+      - name: Prepare focused schema and enrichment branch
+        run: python /tmp/build_pr408_schema.py prepare
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install backend dependencies
+        run: pip install -r backend/requirements.txt
+
+      - name: Run backend tests
+        run: python -m unittest discover -s tests
+        working-directory: backend
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Run frontend tests
+        run: npm test
+        working-directory: frontend
+
+      - name: Publish tested focused branch
+        run: python /tmp/build_pr408_schema.py publish
