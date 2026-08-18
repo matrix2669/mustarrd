@@ -1,3 +1,4 @@
+# Triggered after workflow creation so the push hook is already registered.
 name: Resync PR 405
 
 on:
