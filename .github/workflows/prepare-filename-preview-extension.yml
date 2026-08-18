@@ -1,0 +1,157 @@
+name: Prepare filename preview extension fix
+
+on:
+  push:
+    branches:
+      - fix/filename-preview-extension
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Apply focused fix and regression coverage
+        shell: bash
+        run: |
+          set -euo pipefail
+          trigger_head="$(git rev-parse HEAD)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git reset --hard HEAD^
+
+          python - <<'PY'
+          from pathlib import Path
+
+          for filename in (
+              "frontend/src/components/DownloadModal.jsx",
+              "frontend/src/components/ScheduleModal.jsx",
+          ):
+              path = Path(filename)
+              text = path.read_text()
+              old = "data.filename.replace('.ts', '')"
+              new = "data.filename.replace(/\\.ts$/, '')"
+              if text.count(old) != 1:
+                  raise SystemExit(f"Expected one preview suffix pattern in {filename}")
+              path.write_text(text.replace(old, new))
+
+          test_path = Path("frontend/src/components/FilenamePreviewExtension.test.jsx")
+          test_path.write_text(r'''import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { screen } from '@testing-library/react'
+import { renderWithQuery } from '../test/renderWithProviders'
+
+const previewFilename = vi.fn()
+
+vi.mock('../api', () => ({
+  downloadsApi: {
+    previewFilename: (...args) => previewFilename(...args),
+    create: vi.fn(),
+  },
+  schedulesApi: {
+    create: vi.fn(),
+  },
+  settingsApi: {
+    getPublic: vi.fn().mockResolvedValue({
+      default_pre_padding_minutes: 1,
+      default_post_padding_minutes: 5,
+    }),
+  },
+}))
+
+vi.mock('@mantine/notifications', () => ({
+  notifications: { show: vi.fn() },
+}))
+
+const DownloadModal = (await import('./DownloadModal')).default
+const ScheduleModal = (await import('./ScheduleModal')).default
+
+const program = {
+  title: 'Breaking Bad S02E05 - Breakage',
+  description: '',
+  duration_minutes: 60,
+  start_time: '2026-08-18T20:00:00Z',
+  end_time: '2026-08-18T21:00:00Z',
+}
+const channel = { stream_id: 42, name: 'AMC' }
+
+beforeEach(() => {
+  previewFilename.mockReset()
+  previewFilename.mockResolvedValue({
+    filename: 'TV.ts/Breaking Bad/Episode.ts',
+    detected_type: 'tv_show',
+  })
+})
+
+describe('recording filename previews', () => {
+  it('removes only the final .ts suffix in DownloadModal', async () => {
+    renderWithQuery(
+      <DownloadModal opened onClose={() => {}} program={program} channel={channel} accountId="1" />
+    )
+
+    expect(await screen.findByDisplayValue('TV.ts/Breaking Bad/Episode')).toBeTruthy()
+  })
+
+  it('removes only the final .ts suffix in ScheduleModal', async () => {
+    renderWithQuery(
+      <ScheduleModal opened onClose={() => {}} program={program} channel={channel} accountId="1" />
+    )
+
+    expect(await screen.findByDisplayValue('TV.ts/Breaking Bad/Episode')).toBeTruthy()
+  })
+})
+''')
+
+          changelog = Path("CHANGELOG.md")
+          text = changelog.read_text()
+          anchor = "## 2026-08-18\n\n"
+          entry = """## 2026-08-18\n\n### Fixed: Recording filename previews keep `.ts` inside folder names\n\n**What you would notice:** If a filename template creates a folder whose name contains `.ts`, the Download and Schedule dialogs now leave that folder name alone while hiding only the recording's final `.ts` extension. Previously the first `.ts` anywhere in the path was removed, which could alter a folder name and leave the real extension in the editable field.\n\n**What changed:** Both recording dialogs now strip `.ts` only when it appears at the end of the generated preview path. Regression tests cover a nested path containing `.ts` in a folder name for both immediate downloads and scheduled recordings.\n\n"""
+          if text.count(anchor) != 1:
+              raise SystemExit("Expected one current CHANGELOG date heading")
+          changelog.write_text(text.replace(anchor, entry, 1))
+          PY
+
+          echo "TRIGGER_HEAD=$trigger_head" >> "$GITHUB_ENV"
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install backend dependencies
+        run: pip install -r backend/requirements.txt
+
+      - name: Run full backend suite
+        run: python -m unittest discover -s tests
+        working-directory: backend
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Run full frontend suite
+        run: npm test
+        working-directory: frontend
+
+      - name: Commit validated branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add CHANGELOG.md \
+            frontend/src/components/DownloadModal.jsx \
+            frontend/src/components/ScheduleModal.jsx \
+            frontend/src/components/FilenamePreviewExtension.test.jsx
+          git commit -m "Fix recording filename preview suffix"
+          git push --force-with-lease=refs/heads/fix/filename-preview-extension:${TRIGGER_HEAD} origin HEAD:refs/heads/fix/filename-preview-extension
