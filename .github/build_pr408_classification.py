@@ -95,12 +95,15 @@ def prepare():
             re.IGNORECASE,
         )
         event_words = re.search(
-            r"\\b(?:football|baseball|basketball|soccer|hockey|tennis|golf|boxing|mma|wrestling|rugby|cricket|race|racing|cup|tournament|championship|playoffs?)\\b",
+            r"\\b(?:nba|wnba|nfl|mlb|nhl|ncaa|ufc|football|baseball|basketball|soccer|hockey|tennis|golf|boxing|mma|wrestling|rugby|cricket|race|racing|cup|tournament|championship|finals?|playoffs?)\\b",
             f"{title} {subtitle}",
             re.IGNORECASE,
         )
         sports_metadata = has_category("sports", "sport")
-        if sports_metadata and (matchup or event_words):
+        # A strong event/league word is sufficient on its own (preserving the
+        # existing NBA/NFL/etc. title heuristics). A generic matchup needs a
+        # Sports category so ordinary prose cannot become a game by accident.
+        if event_words or (sports_metadata and matchup):
             return "sports"
 
         # External series identifiers are useful for sparse non-event rows, but
@@ -144,7 +147,7 @@ def prepare():
 
 **What you would notice:** Series-style sports programmes such as `30 for 30` and `MLB Tonight` can be treated as TV shows when the guide identifies them as a series, while actual matchups remain sports. Sparse programmes on sports channels still fall back to sports unless they are known filler such as Paid Programming, To Be Announced or Off Air. Titles such as `Henry V` are no longer mistaken for a sports matchup.
 
-**What changed:** Programme classification now considers all supplied categories, structured season/episode fields and external series identifiers before falling back to title/channel heuristics. Sports matchup detection requires words on both sides of `vs`, `at` or `@`, and movie/news/series signals take precedence over a generic sports-channel fallback.
+**What changed:** Programme classification now considers all supplied categories, structured season/episode fields and external series identifiers before falling back to title/channel heuristics. Sports matchup detection requires words on both sides of `vs`, `at` or `@`, while established league/event title keywords remain sports signals; movie/news/series signals take precedence over a generic sports-channel fallback.
 
 ---
 
