@@ -157,6 +157,7 @@ Most users never need to touch these. Set them in `docker-compose.yml` or a `bac
 | `CATCHUP_FFMPEG_PATH` | Path to ffmpeg binary | *(auto-detected)* |
 | `CATCHUP_FFPROBE_PATH` | Path to ffprobe binary (required for commercial removal) | *(auto-detected)* |
 | `CATCHUP_COMSKIP_PATH` | Path to comskip binary | *(auto-detected)* |
+| `CATCHUP_VAAPI_RENDER_DEVICE` | DRM render node used for VA-API hardware encoding; set this when your GPU is not the first render node | `/dev/dri/renderD128` |
 | `CATCHUP_DATABASE_URL` | SQLite database URL | `sqlite+aiosqlite:////app/config/catchup_dvr.db` |
 | `CATCHUP_DEBUG` | Enable debug logging | `false` |
 

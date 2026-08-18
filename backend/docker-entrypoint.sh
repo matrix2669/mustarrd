@@ -65,8 +65,14 @@ else
   usermod -u "${PUID}" -g "${PGID}" "${APP_USER}"
 fi
 
-if [[ -e /dev/dri/renderD128 ]]; then
-  RENDER_GID="$(stat -c '%g' /dev/dri/renderD128)"
+# Keep container permissions aligned with the render node PostProcessor gives
+# to ffmpeg. Trim surrounding whitespace to match the Python environment parsing.
+RENDER_DEVICE="${CATCHUP_VAAPI_RENDER_DEVICE:-}"
+RENDER_DEVICE="${RENDER_DEVICE#"${RENDER_DEVICE%%[![:space:]]*}"}"
+RENDER_DEVICE="${RENDER_DEVICE%"${RENDER_DEVICE##*[![:space:]]}"}"
+RENDER_DEVICE="${RENDER_DEVICE:-/dev/dri/renderD128}"
+if [[ -e "${RENDER_DEVICE}" ]]; then
+  RENDER_GID="$(stat -c '%g' "${RENDER_DEVICE}")"
   ensure_group "render" "${RENDER_GID}"
   usermod -aG render "${APP_USER}"
 fi

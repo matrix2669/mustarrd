@@ -59,7 +59,10 @@ ENCODER_MAP = {
 class PostProcessor:
     """Handles transcoding and commercial detection/removal."""
 
-    VAAPI_RENDER_DEVICE = Path("/dev/dri/renderD128")
+    VAAPI_RENDER_DEVICE = Path(
+        (os.environ.get("CATCHUP_VAAPI_RENDER_DEVICE") or "").strip()
+        or "/dev/dri/renderD128"
+    )
     VAAPI_SYSFS_DRM_CLASS = Path("/sys/class/drm")
     # Corrupt input can make ffprobe hang forever; cap how long we wait for it.
     FFPROBE_TIMEOUT_SECONDS = 60.0
@@ -857,7 +860,7 @@ class PostProcessor:
         # Build ffmpeg command
         cmd = [self._ffmpeg_path]
         if hw_accel == HardwareAccel.VAAPI:
-            cmd.extend(["-vaapi_device", "/dev/dri/renderD128"])
+            cmd.extend(["-vaapi_device", str(self.VAAPI_RENDER_DEVICE)])
         cmd.extend([
             "-i", str(input_path),
             "-y",  # Overwrite output
@@ -935,7 +938,7 @@ class PostProcessor:
                             pass
                     retry_cmd = [self._ffmpeg_path]
                     if hw_accel == HardwareAccel.VAAPI:
-                        retry_cmd.extend(["-vaapi_device", "/dev/dri/renderD128"])
+                        retry_cmd.extend(["-vaapi_device", str(self.VAAPI_RENDER_DEVICE)])
                     retry_cmd.extend([
                         "-i", str(input_path),
                         "-y",
@@ -1382,7 +1385,7 @@ class PostProcessor:
             # Concat and encode
             cmd = [self._ffmpeg_path]
             if hw_accel == HardwareAccel.VAAPI:
-                cmd.extend(["-vaapi_device", "/dev/dri/renderD128"])
+                cmd.extend(["-vaapi_device", str(self.VAAPI_RENDER_DEVICE)])
             cmd.extend([
                 "-f", "concat",
                 "-safe", "0",
@@ -1447,7 +1450,7 @@ class PostProcessor:
                             pass
                     retry_cmd = [self._ffmpeg_path]
                     if hw_accel == HardwareAccel.VAAPI:
-                        retry_cmd.extend(["-vaapi_device", "/dev/dri/renderD128"])
+                        retry_cmd.extend(["-vaapi_device", str(self.VAAPI_RENDER_DEVICE)])
                     retry_cmd.extend([
                         "-f", "concat",
                         "-safe", "0",
