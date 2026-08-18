@@ -58,22 +58,29 @@ class FileNamer:
 
         # Map separators to a dash rather than a space: they almost always join
         # two real words ("AC/DC" reads better as "AC-DC" than "AC DC"), and a
-        # colon usually introduces a subtitle ("Star Wars: A New Hope").
-        name = name.replace('/', '-').replace('\\', '-')
-        name = re.sub(r'\s*:\s*', ' - ', name)
-        # These are illegal on Windows and never carry meaning, so drop them
-        # outright instead of leaving a gap behind ("Who?" -> "Who").
-        sanitized = re.sub(r'["<>|?*]', '', name)
+        # colon usually introduces a subtitle ("Star Wars: A New Hope"). A pipe
+        # is a common EPG field separator, so it joins two words too.
+        name = re.sub(r'[/\\|]', '-', name)
+        # An adjacent dash is absorbed so "Show - : The Movie" doesn't end up
+        # with two separators in a row.
+        name = re.sub(r'\s*-?\s*:\s*', ' - ', name)
+        # These are illegal on Windows and sit inside a word rather than
+        # between two, so drop them with no gap left ("Who?" -> "Who").
+        sanitized = re.sub(r'["<>?*]', '', name)
         # Null bytes and control chars are corruption sitting between two real
         # words, so they become a space rather than fusing the words together.
         sanitized = re.sub(r'[\x00-\x1f]', ' ', sanitized)
         # Remove multiple spaces
         sanitized = re.sub(r'\s+', ' ', sanitized)
-        # Collapse any dash runs the substitutions above created
+        # Collapse dash runs the separator mapping above created ("Show//Name")
         sanitized = re.sub(r'-{2,}', '-', sanitized)
-        sanitized = re.sub(r'(?:-\s*){2,}', '- ', sanitized)
-        # Remove leading/trailing spaces, dots and dashes
-        sanitized = sanitized.strip(' .-') or "unknown-program"
+        # Drop a dangling separator dash left by a trailing/leading colon or
+        # slash. Only dashes detached by whitespace count, so a title that is
+        # genuinely dashed ("-30-") keeps its own.
+        sanitized = re.sub(r'^\s*-+\s+|\s+-+\s*$', '', sanitized)
+        # Remove leading/trailing spaces and dots. Dashes are otherwise left
+        # alone: only dots and spaces are a problem for Windows.
+        sanitized = sanitized.strip(' .') or "unknown-program"
         # Limit to 200 UTF-8 bytes so CJK/Arabic titles don't exceed Linux
         # NAME_MAX (255 bytes) when combined with an extension.
         encoded = sanitized.encode("utf-8")
@@ -109,6 +116,15 @@ class FileNamer:
         are folded into the component itself rather than becoming separators.
         """
         return cls._join_path_components(path.split('/'))
+
+    @classmethod
+    def sanitize_custom_filename(cls, name: str) -> str:
+        """Sanitize a user-supplied recording path, always ending in ``.ts``.
+
+        The extension is stripped before sanitizing so the dot doesn't get
+        treated as part of the final path component, then re-added.
+        """
+        return cls.sanitize_relative_path(name.removesuffix(".ts")) + ".ts"
 
     @classmethod
     def render_template_path(cls, template: str, context: dict) -> str:

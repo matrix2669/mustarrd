@@ -26,11 +26,34 @@ class SeparatorMappingTests(unittest.TestCase):
     def test_colon_without_trailing_space_still_reads_as_subtitle(self):
         self.assertEqual(file_namer.sanitize_filename("Alien:Romulus"), "Alien - Romulus")
 
+    def test_pipe_becomes_dash_because_it_separates_words(self):
+        self.assertEqual(file_namer.sanitize_filename("News|Weather"), "News-Weather")
+
     def test_dash_runs_collapse(self):
         self.assertEqual(file_namer.sanitize_filename("Show//Name"), "Show-Name")
 
     def test_trailing_separator_is_stripped(self):
         self.assertEqual(file_namer.sanitize_filename("Episode Title:"), "Episode Title")
+
+
+class LeadingAndTrailingDashTests(unittest.TestCase):
+    """Dashes are legal on every filesystem, so real titles keep theirs."""
+
+    def test_title_that_is_entirely_dashed_survives(self):
+        self.assertEqual(file_namer.sanitize_filename("-30-"), "-30-")
+
+    def test_dashed_title_after_a_template_separator_survives(self):
+        self.assertEqual(
+            file_namer.sanitize_filename("Sports Night - -30-"),
+            "Sports Night - -30-",
+        )
+
+    def test_colon_absorbs_an_adjacent_separator(self):
+        self.assertEqual(file_namer.sanitize_filename("Show - : The Movie"), "Show - The Movie")
+
+    def test_real_hyphens_in_a_title_are_untouched(self):
+        self.assertEqual(file_namer.sanitize_filename("9-1-1: Lone Star"), "9-1-1 - Lone Star")
+        self.assertEqual(file_namer.sanitize_filename("Spider-Man"), "Spider-Man")
 
 
 class DeletedCharacterTests(unittest.TestCase):
@@ -43,8 +66,8 @@ class DeletedCharacterTests(unittest.TestCase):
             "The Best Show Ever",
         )
 
-    def test_pipe_and_asterisk_deleted(self):
-        self.assertEqual(file_namer.sanitize_filename("News|Update*"), "NewsUpdate")
+    def test_asterisk_deleted(self):
+        self.assertEqual(file_namer.sanitize_filename("M*A*S*H"), "MASH")
 
     def test_control_chars_become_a_space_not_a_fusion(self):
         self.assertEqual(file_namer.sanitize_filename("Show\x00Name"), "Show Name")

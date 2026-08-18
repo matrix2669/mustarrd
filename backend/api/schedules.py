@@ -109,10 +109,7 @@ def _parse_program(program: dict) -> tuple[datetime, datetime, int, int, int, st
 def _sanitize_custom_path(name: Optional[str]) -> Optional[str]:
     if not name:
         return None
-    filename = name
-    if not filename.endswith(".ts"):
-        filename += ".ts"
-    return file_namer.sanitize_relative_path(filename.removesuffix(".ts")) + ".ts"
+    return file_namer.sanitize_custom_filename(name)
 
 
 def _map_download_status(status: str) -> str:

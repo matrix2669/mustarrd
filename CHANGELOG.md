@@ -24,6 +24,10 @@ Slashes that come from a show or episode name are *not* treated as folders. A ba
 
 Two problems are also fixed. A programme titled with a Windows device name — `Con`, `Aux`, `Nul`, `Com1` and friends — produced a file that couldn't be created on Windows or written to an SMB share; those now get an underscore added. And accented titles are now stored in one consistent form, so `Amélie` no longer sometimes arrives as an unaccented `Amelie` plus a separate accent mark, which looked fine but broke exact-name lookups and behaved differently on Linux and macOS.
 
+This applies to downloaded movies and series too, not just recordings — including the show and season folders series episodes are filed under. A series called "Aux" previously produced a folder Windows flatly refuses to create, which broke the whole show.
+
+Runs of dashes are also collapsed, so `Spider-Man -- Origins` becomes `Spider-Man - Origins`. Dashes that are part of a real title are left alone: `9-1-1: Lone Star` keeps its numbers, and an episode genuinely titled `-30-` stays `-30-`.
+
 Existing files are left alone, so a library that's been running a while will have a mix of the old and new spellings. Plex re-matches either without complaint.
 
 **What changed:** Filename templates are now split on `/` and each level formatted and sanitized independently, so metadata containing a slash stays inside its own path component. `.` and `..` components are dropped outright and a leading `/` is ignored, so no template or hand-edited filename can write outside the configured recording folder. `sanitize_filename` gained an NFC normalization pass, a per-character mapping table in place of the previous blanket space substitution, and a guard for reserved Windows device stems.
