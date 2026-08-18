@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useContext, useMemo, useRef } from 'react'
+import { Fragment, useState, useEffect, useCallback, useContext, useMemo, useRef } from 'react'
 import { UNSAFE_NavigationContext, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Title,
@@ -154,6 +154,23 @@ function renderTemplateExample(template, sample) {
   })
 }
 
+// Renders a preview as a path: folder levels are tinted and separators dimmed,
+// so a template containing "/" visibly produces directories.
+function PreviewPath({ text, ext }) {
+  const segments = text.split('/')
+  return (
+    <span>
+      {segments.map((seg, i) => (
+        <Fragment key={i}>
+          {i > 0 && <span className={classes.templatePreviewSep}>/</span>}
+          <span className={i < segments.length - 1 ? classes.templatePreviewDir : undefined}>{seg}</span>
+        </Fragment>
+      ))}
+      <span className={classes.templatePreviewExt}>{ext}</span>
+    </span>
+  )
+}
+
 function TemplateBlock({ label, template, variables, sample, ext, onChange }) {
   const inputRef = useRef(null)
 
@@ -199,10 +216,7 @@ function TemplateBlock({ label, template, variables, sample, ext, onChange }) {
       </Group>
       <div className={classes.templatePreview}>
         <span className={classes.templatePreviewArrow}>→</span>
-        <span>
-          {renderTemplateExample(template, sample)}
-          <span className={classes.templatePreviewExt}>{ext}</span>
-        </span>
+        <PreviewPath text={renderTemplateExample(template, sample)} ext={ext} />
       </div>
     </SubGroup>
   )
@@ -1182,7 +1196,10 @@ export default function Settings() {
 
         <Alert color="blue" variant="light" icon={<IconAlertCircle size={16} />}>
           The file extension ({ext}, from your Post-Processing format) is added automatically — don&apos;t include
-          one in templates.
+          one in templates. Use <Code>/</Code> to sort recordings into folders, for example{' '}
+          <Code>{'{show}/Season {season:02d}/{title}'}</Code>. Folders are created under your download folder.
+          Slashes inside a show or episode name (like &quot;AC/DC&quot;) become a dash instead, so they never
+          make a folder.
         </Alert>
 
         {templateInfo?.tv_show && (

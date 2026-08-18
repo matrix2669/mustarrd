@@ -81,12 +81,12 @@ class TemplateWiringTests(unittest.TestCase):
         result = FileNamer().generate_filename(
             _prog("AC/DC Live"), _channel("HBO/West"), "other", settings
         )
-        self.assertEqual(result, "HBO West/AC DC Live.ts")
+        self.assertEqual(result, "HBO-West/AC-DC Live.ts")
 
     def test_template_cannot_escape_with_parent_segments(self):
         settings = {"default_template": "../../{title}"}
         result = FileNamer().generate_filename(_prog("The Wire"), _channel(), "other", settings)
-        self.assertEqual(result, "unknown-program/unknown-program/The Wire.ts")
+        self.assertEqual(result, "The Wire.ts")
         self.assertNotIn("..", result)
         self.assertFalse(result.startswith("/"))
 

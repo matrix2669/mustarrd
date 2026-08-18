@@ -188,7 +188,7 @@ class CatchupAssemblyTests(unittest.TestCase):
         download = asyncio.run(run())
         self.assertEqual(
             download.output_path,
-            "/recordings/unknown-program/unknown-program/Escape.ts",
+            "/recordings/Escape.ts",
         )
 
     def test_catchup_custom_filename_leading_slash_remains_relative(self):
