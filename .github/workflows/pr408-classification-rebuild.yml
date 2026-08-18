@@ -1,0 +1,56 @@
+name: Rebuild PR 408 classification
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  rebuild:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'automation/rebuild-pr408-classification'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Preserve builder fixtures
+        run: |
+          cp .github/build_pr408_classification.py /tmp/build_pr408_classification.py
+          cp .github/pr408/test_structured_epg_classification.py /tmp/pr408-test_structured_epg_classification.py
+
+      - name: Prepare focused classification branch
+        run: python /tmp/build_pr408_classification.py prepare
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install backend dependencies
+        run: pip install -r backend/requirements.txt
+
+      - name: Run backend tests
+        run: python -m unittest discover -s tests
+        working-directory: backend
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Run frontend tests
+        run: npm test
+        working-directory: frontend
+
+      - name: Publish tested focused branch
+        run: python /tmp/build_pr408_classification.py publish
