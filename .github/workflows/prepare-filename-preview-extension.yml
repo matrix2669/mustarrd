@@ -1,9 +1,8 @@
 name: Prepare filename preview extension fix
 
 on:
-  push:
-    branches:
-      - fix/filename-preview-extension
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: write
@@ -15,6 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: fix/filename-preview-extension
           fetch-depth: 0
 
       - name: Apply focused fix and regression coverage
@@ -93,7 +93,6 @@ describe('recording filename previews', () => {
     renderWithQuery(
       <DownloadModal opened onClose={() => {}} program={program} channel={channel} accountId="1" />
     )
-
     expect(await screen.findByDisplayValue('TV.ts/Breaking Bad/Episode')).toBeTruthy()
   })
 
@@ -101,7 +100,6 @@ describe('recording filename previews', () => {
     renderWithQuery(
       <ScheduleModal opened onClose={() => {}} program={program} channel={channel} accountId="1" />
     )
-
     expect(await screen.findByDisplayValue('TV.ts/Breaking Bad/Episode')).toBeTruthy()
   })
 })
