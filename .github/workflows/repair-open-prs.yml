@@ -1,0 +1,161 @@
+name: Repair open PR branches
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      (github.head_ref == 'automation/pr405-resync' || github.head_ref == 'automation/pr407-repair')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Repair branch
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          set -euo pipefail
+          git config user.name "matrix2669"
+          git config user.email "jarred@jdscomputing.com"
+          git remote add upstream https://github.com/razzamatazm/mustarrd.git || true
+          git fetch upstream main
+
+          if [[ "$HEAD_REF" == "automation/pr405-resync" ]]; then
+            ORIGINAL_HEAD=e5e3bef1c77b5dc643e23175afa6af5e436960ba
+            TARGET_BRANCH=agent/vaapi-render-device-env
+            git reset --hard "$ORIGINAL_HEAD"
+            if ! git merge --no-ff --no-commit upstream/main; then
+              conflicts="$(git diff --name-only --diff-filter=U)"
+              if [[ "$conflicts" != "CHANGELOG.md" ]]; then
+                echo "Unexpected merge conflicts:"
+                printf '%s\n' "$conflicts"
+                exit 1
+              fi
+              git checkout --theirs CHANGELOG.md
+              git add CHANGELOG.md
+            fi
+            python - <<'PY'
+          from pathlib import Path
+          path = Path('CHANGELOG.md')
+          text = path.read_text()
+          title = '### Improved: VA-API can use a non-default render device'
+          if title not in text:
+              marker = '## 2026-08-15\n\n'
+              if marker not in text:
+                  raise SystemExit('2026-08-15 CHANGELOG section not found')
+              entry = '''### Improved: VA-API can use a non-default render device
+
+**What you would notice:** If your Intel or AMD GPU is exposed as a DRM render node other than `/dev/dri/renderD128` (for example `/dev/dri/renderD129`), you can now point Mustarrd at that device with `CATCHUP_VAAPI_RENDER_DEVICE`. Docker startup permissions follow the same device, and Unraid users can set it from the advanced container settings. Existing setups keep using `/dev/dri/renderD128` by default.
+
+**What changed:** Mustarrd now reads `CATCHUP_VAAPI_RENDER_DEVICE` for VA-API diagnostics and every FFmpeg hardware-encode path, with blank values falling back to `/dev/dri/renderD128`. Docker startup uses the same configured render node when assigning GPU permissions, and the setting is documented for Docker Compose and Unraid.
+
+'''
+              pos = text.index(marker) + len(marker)
+              path.write_text(text[:pos] + entry + text[pos:])
+          PY
+            git add CHANGELOG.md
+            COMMIT_MESSAGE="Sync VA-API branch with upstream"
+          else
+            ORIGINAL_HEAD=6dba68be7b3395d57e0ad2ff71bcf5de56d7c9df
+            TARGET_BRANCH=agent/template-subdirectories
+            git reset --hard "$ORIGINAL_HEAD"
+            git merge --no-ff --no-commit upstream/main
+            python - <<'PY'
+          from pathlib import Path
+          for name in ('frontend/src/components/DownloadModal.jsx', 'frontend/src/components/ScheduleModal.jsx'):
+              path = Path(name)
+              text = path.read_text()
+              old = "setFilename(data.filename.replace('.ts', ''))"
+              new = r"setFilename(data.filename.replace(/\.ts$/, ''))"
+              if old not in text:
+                  raise SystemExit(f'expected suffix replacement not found in {name}')
+              path.write_text(text.replace(old, new, 1))
+
+          settings = Path('frontend/src/pages/Settings.jsx')
+          text = settings.read_text()
+          anchor = '''        <Alert color="blue" variant="light" icon={<IconAlertCircle size={16} />}>
+          The file extension ({ext}, from your Post-Processing format) is added automatically — don&apos;t include
+          one in templates.
+        </Alert>
+'''
+          addition = anchor + '''
+        <Alert color="blue" variant="light" icon={<IconAlertCircle size={16} />}>
+          A forward slash in a template creates a folder. For example{' '}
+          <Code>{'TV Shows/{show}/Season {season:02d}/{show} - S{season:02d}E{episode:02d}'}</Code> files the
+          recording into nested folders inside your completed folder. Slashes that come from the guide itself
+          (a show called &quot;AC/DC&quot;, say) stay part of the name and don&apos;t create folders.
+        </Alert>
+'''
+          if anchor not in text:
+              raise SystemExit('Settings filename-extension alert anchor not found')
+          settings.write_text(text.replace(anchor, addition, 1))
+
+          changelog = Path('CHANGELOG.md')
+          text = changelog.read_text()
+          if '### Changed: Filename templates can create folders' not in text:
+              marker = '---\n\n'
+              pos = text.index(marker) + len(marker)
+              entry = '''## 2026-08-17
+
+### Changed: Filename templates can create folders
+
+**What you would notice:** A forward slash (`/`) in a recording filename template now creates a real subfolder inside your recording folders instead of being flattened into a space. For example, `TV Shows/{show}/Season {season:02d}/{show} - S{season:02d}E{episode:02d}` files an episode under its show and season automatically. This is a behavior change for any existing template that already contains `/`: after upgrading, those slashes create folders. Slashes that come from guide metadata, such as a show named `AC/DC`, are still sanitized as part of that name and do not create extra levels. Edited filenames in the Download and Schedule dialogs preserve the same safe relative hierarchy.
+
+**What changed:** Template rendering now splits only literal slashes from the saved template, formats and sanitizes each path component independently, and keeps the result relative to the configured recording folder. Client-supplied recording names use the same component-by-component sanitizer, so absolute paths and `..` traversal cannot escape the recording root. Scheduled recordings and completed-folder moves preserve the generated hierarchy. The Download and Schedule dialogs also strip only the final `.ts` suffix from filename previews, so a folder whose name contains `.ts` is not mangled or given a double extension.
+
+---
+
+'''
+              changelog.write_text(text[:pos] + entry + text[pos:])
+          PY
+            git add -A
+            COMMIT_MESSAGE="Address template path review feedback"
+          fi
+
+          git diff --check
+          echo "ORIGINAL_HEAD=$ORIGINAL_HEAD" >> "$GITHUB_ENV"
+          echo "TARGET_BRANCH=$TARGET_BRANCH" >> "$GITHUB_ENV"
+          echo "COMMIT_MESSAGE=$COMMIT_MESSAGE" >> "$GITHUB_ENV"
+
+      - name: Install backend dependencies
+        run: pip install -r backend/requirements.txt
+
+      - name: Run backend tests
+        run: python -m unittest discover -s tests
+        working-directory: backend
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Run frontend tests
+        run: npm test
+        working-directory: frontend
+
+      - name: Push tested branch
+        run: |
+          set -euo pipefail
+          git add -A
+          git commit -m "$COMMIT_MESSAGE"
+          git push origin "HEAD:refs/heads/$TARGET_BRANCH" --force-with-lease="refs/heads/$TARGET_BRANCH:$ORIGINAL_HEAD"
