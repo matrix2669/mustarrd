@@ -72,7 +72,7 @@ class OutputPath:
             filename = custom_filename
             if not filename.endswith(".ts"):
                 filename += ".ts"
-            filename = file_namer.sanitize_filename(filename.removesuffix(".ts")) + ".ts"
+            filename = file_namer.sanitize_relative_path(filename.removesuffix(".ts")) + ".ts"
         else:
             filename = file_namer.generate_filename(
                 program, channel, program_type, _settings_dict(settings)
