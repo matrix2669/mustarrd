@@ -134,6 +134,36 @@ describe('Settings page', () => {
     expect(screen.getByText('412 GB free on recording drive')).toBeInTheDocument()
   })
 
+  it('previews template slashes as folder levels', async () => {
+    renderSettings()
+    await screen.findByText('Connections')
+
+    fireEvent.change(screen.getByLabelText('Search settings'), { target: { value: 'naming' } })
+    fireEvent.click((await screen.findAllByText('File Naming'))[0])
+
+    const input = await screen.findByLabelText('TV shows template')
+    fireEvent.change(input, { target: { value: '{show}/Season {season:02d}/{title}' } })
+
+    const preview = await waitFor(() => {
+      const match = [...document.querySelectorAll('[class*="templatePreview_"]')]
+        .find((el) => el.textContent.includes('Breaking Bad'))
+      expect(match).toBeTruthy()
+      return match
+    })
+    expect(preview.textContent).toContain('Breaking Bad/Season 01/Gray Matter')
+    expect(preview.querySelectorAll('[class*="templatePreviewDir"]').length).toBe(2)
+  })
+
+  it('tells the user that a slash makes a folder', async () => {
+    renderSettings()
+    await screen.findByText('Connections')
+
+    fireEvent.change(screen.getByLabelText('Search settings'), { target: { value: 'naming' } })
+    fireEvent.click((await screen.findAllByText('File Naming'))[0])
+
+    expect(await screen.findByText(/sort recordings into folders/)).toBeInTheDocument()
+  })
+
   it('navigates via settings search', async () => {
     renderSettings()
     await screen.findByText('Connections')

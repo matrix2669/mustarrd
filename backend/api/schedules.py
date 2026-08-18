@@ -106,13 +106,10 @@ def _parse_program(program: dict) -> tuple[datetime, datetime, int, int, int, st
     return start_time, end_time, start_ts, stop_ts, duration_minutes, provider_start, provider_stop
 
 
-def _sanitize_filename(name: Optional[str]) -> Optional[str]:
+def _sanitize_custom_path(name: Optional[str]) -> Optional[str]:
     if not name:
         return None
-    filename = name
-    if not filename.endswith(".ts"):
-        filename += ".ts"
-    return file_namer.sanitize_filename(filename.removesuffix(".ts")) + ".ts"
+    return file_namer.sanitize_custom_filename(name)
 
 
 def _map_download_status(status: str) -> str:
@@ -236,7 +233,7 @@ async def _create_schedule_record(
             )
         raise HTTPException(status_code=409, detail="This program is already scheduled")
 
-    custom_filename = _sanitize_filename(data.custom_filename)
+    custom_filename = _sanitize_custom_path(data.custom_filename)
 
     channel_category_name = (
         data.program.get("category") or data.program.get("category_name") or None

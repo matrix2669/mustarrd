@@ -69,10 +69,7 @@ class OutputPath:
         """Completed-file path for a catchup/timeshift program."""
         folder = _download_folder(settings)
         if custom_filename:
-            filename = custom_filename
-            if not filename.endswith(".ts"):
-                filename += ".ts"
-            filename = file_namer.sanitize_filename(filename.removesuffix(".ts")) + ".ts"
+            filename = file_namer.sanitize_custom_filename(custom_filename)
         else:
             filename = file_namer.generate_filename(
                 program, channel, program_type, _settings_dict(settings)

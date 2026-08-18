@@ -6,6 +6,32 @@ All notable changes to Mustarrd are listed here. Most recent changes are at the 
 
 ## 2026-08-18
 
+### Added: Templates can sort recordings into folders
+
+**What you would notice:** A `/` in a filename template now makes a folder. Setting your TV template to `{show}/Season {season:02d}/{show} - S{season:02d}E{episode:02d} - {title}` files recordings as `Breaking Bad/Season 02/Breaking Bad - S02E05 - Breakage.ts` instead of dumping everything in one directory. The folders are created for you under your download folder, and the same structure is kept when the recording moves to the completed folder. It works for immediate downloads, scheduled recordings and time slots alike.
+
+The template editor in **Settings > File Naming** shows you the result as you type, with folder levels tinted so you can see the shape of what you'll get.
+
+Slashes that come from a show or episode name are *not* treated as folders. A band called "AC/DC" gives you a file called `AC-DC`, not a folder called `AC` — only slashes you type into the template yourself create directories.
+
+### Changed: Cleaner handling of characters that can't go in a filename
+
+**What you would notice:** Characters that aren't legal in a filename are now swapped for something that reads better, rather than all becoming spaces:
+
+- `/` and `\` become a dash, so `AC/DC` is `AC-DC` rather than `AC DC`
+- `:` becomes ` - `, so `Star Wars: A New Hope` is `Star Wars - A New Hope`, which is the form Plex expects
+- `" < > | ? *` are dropped with no gap left behind, so `Who?` is `Who` rather than `Who `
+
+Two problems are also fixed. A programme titled with a Windows device name — `Con`, `Aux`, `Nul`, `Com1` and friends — produced a file that couldn't be created on Windows or written to an SMB share; those now get an underscore added. And accented titles are now stored in one consistent form, so `Amélie` no longer sometimes arrives as an unaccented `Amelie` plus a separate accent mark, which looked fine but broke exact-name lookups and behaved differently on Linux and macOS.
+
+This applies to downloaded movies and series too, not just recordings — including the show and season folders series episodes are filed under. A series called "Aux" previously produced a folder Windows flatly refuses to create, which broke the whole show.
+
+Runs of dashes are also collapsed, so `Spider-Man -- Origins` becomes `Spider-Man - Origins`. Dashes that are part of a real title are left alone: `9-1-1: Lone Star` keeps its numbers, and an episode genuinely titled `-30-` stays `-30-`.
+
+Existing files are left alone, so a library that's been running a while will have a mix of the old and new spellings. Plex re-matches either without complaint.
+
+**What changed:** Filename templates are now split on `/` and each level formatted and sanitized independently, so metadata containing a slash stays inside its own path component. `.` and `..` components are dropped outright and a leading `/` is ignored, so no template or hand-edited filename can write outside the configured recording folder. `sanitize_filename` gained an NFC normalization pass, a per-character mapping table in place of the previous blanket space substitution, and a guard for reserved Windows device stems.
+
 ### Added: Pick which GPU does the encoding
 
 **What you would notice:** If your machine has more than one GPU, you can now choose which one Mustarrd encodes with. Under **Settings > Post-Processing**, turn on GPU hardware acceleration and a **GPU device** picker appears listing every graphics card the app can see, named where possible ("renderD129 — AMD") so you can tell them apart. Previously Mustarrd always used the first one it found, which meant that on a machine with, say, onboard Intel graphics plus a discrete AMD card, it might well pick the weaker of the two and there was nothing you could do about it from the app.

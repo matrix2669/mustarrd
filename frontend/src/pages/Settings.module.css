@@ -143,6 +143,15 @@
   color: var(--mantine-color-yellow-7);
 }
 
+.templatePreviewSep {
+  color: var(--mantine-color-dimmed);
+  margin: 0 1px;
+}
+
+.templatePreviewDir {
+  color: var(--mantine-color-blue-5);
+}
+
 /* Users list */
 .userRow {
   display: flex;

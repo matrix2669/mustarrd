@@ -68,6 +68,30 @@ class MoveToCompletedPrunesEmptyDirsTests(unittest.TestCase):
             "The configured download folder itself must never be removed.",
         )
 
+    def test_template_hierarchy_is_preserved_in_completed_folder(self):
+        episode = self._make_episode(
+            "TV Shows",
+            "Breaking Bad",
+            "Season 02",
+            "Breaking Bad - S02E05 - Breakage.ts",
+        )
+
+        dest = self.manager._move_to_completed(
+            str(episode), str(self.completed_dir), str(self.download_dir)
+        )
+
+        self.assertEqual(
+            dest,
+            str(
+                self.completed_dir
+                / "TV Shows"
+                / "Breaking Bad"
+                / "Season 02"
+                / "Breaking Bad - S02E05 - Breakage.ts"
+            ),
+        )
+        self.assertTrue(os.path.isfile(dest))
+
     def test_non_empty_dirs_are_kept(self):
         episode = self._make_episode("My Show", "Season 01", "My Show S01E01.ts")
         sibling = self._make_episode("My Show", "Season 01", "My Show S01E02.ts")

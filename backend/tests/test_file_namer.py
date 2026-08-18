@@ -223,7 +223,7 @@ class GenerateFilenameTests(unittest.TestCase):
             "start_time": "2026-06-10T17:30:00",
         }
         result = self.namer.generate_filename(program, self.channel, "sports")
-        self.assertEqual(result, "2026 NBA Finals San Antonio Spurs at New York Knicks - 2026-06-10.ts")
+        self.assertEqual(result, "2026 NBA Finals - San Antonio Spurs at New York Knicks - 2026-06-10.ts")
 
 
 if __name__ == "__main__":

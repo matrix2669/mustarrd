@@ -1,9 +1,15 @@
 import re
+import unicodedata
 from datetime import datetime
 from typing import Optional, Tuple
 
 
 class FileNamer:
+    # Device names Windows refuses to use as a filename stem. A program titled
+    # "Aux" or "Con" would otherwise produce a file that cannot be created on
+    # Windows or written to an SMB share.
+    RESERVED_STEMS = re.compile(r'^(con|prn|aux|nul|com[1-9]|lpt[1-9])$', re.IGNORECASE)
+
     # Shared season/episode patterns. Order matters: the S/E form is tried first
     # so "S54 E173" doesn't fall through to the looser NxNN form.
     # Covers: S01E01, S54 E173, S54.E173, S54-E173, S04, E12,
@@ -33,9 +39,9 @@ class FileNamer:
 
     SPORTS_CATEGORIES = ['sports', 'deportes', 'sport', 'esports']
 
-    @staticmethod
-    def sanitize_filename(name: str) -> str:
-        """Remove invalid characters for filesystem."""
+    @classmethod
+    def sanitize_filename(cls, name: str) -> str:
+        """Remove invalid characters for a single filesystem path component."""
         # Remove stylized "New" markers used in some EPG titles
         name = re.sub(r'[\[\(\-–—|:]*\s*ᴺᵉʷ\s*[\]\)]*\s*(?:-\s*)?', ' ', name)
         # Remove stylized "Live" markers frequently injected by providers
@@ -46,19 +52,93 @@ class FileNamer:
         # filenames display reversed in terminals and file managers.
         name = re.sub('[\u00ad\u200b\u200c\u200d\u200e\u200f\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069\ufeff]', '', name)
 
-        # Replace invalid filesystem chars with spaces (includes null byte and control chars)
-        invalid_chars = r'[<>:"/\\|?*\x00-\x1f]'
-        sanitized = re.sub(invalid_chars, ' ', name)
+        # Compose accents so "Amelie" + combining accent and a precomposed
+        # "Amélie" land on the same bytes across Linux and macOS.
+        name = unicodedata.normalize('NFC', name)
+
+        # Map separators to a dash rather than a space: they almost always join
+        # two real words ("AC/DC" reads better as "AC-DC" than "AC DC"), and a
+        # colon usually introduces a subtitle ("Star Wars: A New Hope"). A pipe
+        # is a common EPG field separator, so it joins two words too.
+        name = re.sub(r'[/\\|]', '-', name)
+        # An adjacent dash is absorbed so "Show - : The Movie" doesn't end up
+        # with two separators in a row.
+        name = re.sub(r'\s*-?\s*:\s*', ' - ', name)
+        # These are illegal on Windows and sit inside a word rather than
+        # between two, so drop them with no gap left ("Who?" -> "Who").
+        sanitized = re.sub(r'["<>?*]', '', name)
+        # Null bytes and control chars are corruption sitting between two real
+        # words, so they become a space rather than fusing the words together.
+        sanitized = re.sub(r'[\x00-\x1f]', ' ', sanitized)
         # Remove multiple spaces
         sanitized = re.sub(r'\s+', ' ', sanitized)
-        # Remove leading/trailing spaces and dots
+        # Collapse dash runs the separator mapping above created ("Show//Name")
+        sanitized = re.sub(r'-{2,}', '-', sanitized)
+        # Drop a dangling separator dash left by a trailing/leading colon or
+        # slash. Only dashes detached by whitespace count, so a title that is
+        # genuinely dashed ("-30-") keeps its own.
+        sanitized = re.sub(r'^\s*-+\s+|\s+-+\s*$', '', sanitized)
+        # Remove leading/trailing spaces and dots. Dashes are otherwise left
+        # alone: only dots and spaces are a problem for Windows.
         sanitized = sanitized.strip(' .') or "unknown-program"
         # Limit to 200 UTF-8 bytes so CJK/Arabic titles don't exceed Linux
         # NAME_MAX (255 bytes) when combined with an extension.
         encoded = sanitized.encode("utf-8")
         if len(encoded) > 200:
             sanitized = encoded[:200].decode("utf-8", errors="ignore").rstrip() or "unknown-program"
+        # Suffix reserved Windows device names so the file can still be created
+        if cls.RESERVED_STEMS.match(sanitized):
+            sanitized += '_'
         return sanitized
+
+    @classmethod
+    def _join_path_components(cls, components) -> str:
+        """Sanitize and join path levels, dropping anything that could escape.
+
+        Empty levels are skipped so a leading slash cannot make the result
+        absolute, and ``.``/``..`` are dropped entirely so a template or custom
+        filename can never traverse above the configured recording folder (nor
+        leave a trail of placeholder directories behind when it tries).
+        """
+        safe = []
+        for component in components:
+            component = component.strip()
+            if not component or component in ('.', '..'):
+                continue
+            safe.append(cls.sanitize_filename(component))
+        return '/'.join(safe) or "unknown-program"
+
+    @classmethod
+    def sanitize_relative_path(cls, path: str) -> str:
+        """Sanitize an already-rendered relative path while preserving ``/`` levels.
+
+        Each slash-delimited component is sanitized independently. Backslashes
+        are folded into the component itself rather than becoming separators.
+        """
+        return cls._join_path_components(path.split('/'))
+
+    @classmethod
+    def sanitize_custom_filename(cls, name: str) -> str:
+        """Sanitize a user-supplied recording path, always ending in ``.ts``.
+
+        The extension is stripped before sanitizing so the dot doesn't get
+        treated as part of the final path component, then re-added.
+        """
+        return cls.sanitize_relative_path(name.removesuffix(".ts")) + ".ts"
+
+    @classmethod
+    def render_template_path(cls, template: str, context: dict) -> str:
+        """Render a filename template as a safe relative path.
+
+        Forward slashes written literally in a saved template create directory
+        levels. Each level is formatted and sanitized independently so slashes
+        coming from provider metadata (for example a show named ``AC/DC``) stay
+        inside that component rather than becoming extra directories.
+        """
+        return cls._join_path_components(
+            component_template.format_map(context)
+            for component_template in template.split('/')
+        )
 
     @classmethod
     def extract_season_episode(cls, text: str) -> Optional[Tuple[int, int]]:
@@ -182,11 +262,11 @@ class FileNamer:
             template = s.get("default_template") or self._DEFAULT_TEMPLATES["default"]
 
         try:
-            filename = template.format_map(context)
+            filename = self.render_template_path(template, context)
         except (KeyError, ValueError, AttributeError):
-            filename = f"{title} - {date_str}"
+            filename = self.sanitize_filename(f"{title} - {date_str}")
 
-        return self.sanitize_filename(filename) + ".ts"
+        return filename + ".ts"
 
 
 # Global instance
