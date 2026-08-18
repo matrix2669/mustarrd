@@ -1,0 +1,100 @@
+name: Resync PR 405
+
+on:
+  push:
+    branches:
+      - automation/pr405-resync
+
+permissions:
+  contents: write
+
+jobs:
+  resync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Merge current upstream
+        env:
+          ORIGINAL_HEAD: e5e3bef1c77b5dc643e23175afa6af5e436960ba
+        run: |
+          set -euo pipefail
+          git config user.name "matrix2669"
+          git config user.email "jarred@jdscomputing.com"
+          git reset --hard "$ORIGINAL_HEAD"
+          git remote add upstream https://github.com/razzamatazm/mustarrd.git
+          git fetch upstream main
+
+          if ! git merge --no-ff --no-commit upstream/main; then
+            conflicts="$(git diff --name-only --diff-filter=U)"
+            if [[ "$conflicts" != "CHANGELOG.md" ]]; then
+              echo "Unexpected merge conflicts:"
+              printf '%s\n' "$conflicts"
+              exit 1
+            fi
+            git checkout --theirs CHANGELOG.md
+            git add CHANGELOG.md
+          fi
+
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("CHANGELOG.md")
+          text = path.read_text()
+          title = "### Improved: VA-API can use a non-default render device"
+          if title not in text:
+              marker = "## 2026-08-15\n\n"
+              if marker not in text:
+                  raise SystemExit("2026-08-15 CHANGELOG section not found")
+              entry = """### Improved: VA-API can use a non-default render device
+
+**What you would notice:** If your Intel or AMD GPU is exposed as a DRM render node other than `/dev/dri/renderD128` (for example `/dev/dri/renderD129`), you can now point Mustarrd at that device with `CATCHUP_VAAPI_RENDER_DEVICE`. Docker startup permissions follow the same device, and Unraid users can set it from the advanced container settings. Existing setups keep using `/dev/dri/renderD128` by default.
+
+**What changed:** Mustarrd now reads `CATCHUP_VAAPI_RENDER_DEVICE` for VA-API diagnostics and every FFmpeg hardware-encode path, with blank values falling back to `/dev/dri/renderD128`. Docker startup uses the same configured render node when assigning GPU permissions, and the setting is documented for Docker Compose and Unraid.
+
+"""
+              pos = text.index(marker) + len(marker)
+              path.write_text(text[:pos] + entry + text[pos:])
+          PY
+
+          git add CHANGELOG.md
+          git diff --check
+
+      - name: Install backend dependencies
+        run: pip install -r backend/requirements.txt
+
+      - name: Run backend tests
+        run: python -m unittest discover -s tests
+        working-directory: backend
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Run frontend tests
+        run: npm test
+        working-directory: frontend
+
+      - name: Commit and update PR branch
+        env:
+          ORIGINAL_HEAD: e5e3bef1c77b5dc643e23175afa6af5e436960ba
+          TARGET_BRANCH: agent/vaapi-render-device-env
+        run: |
+          set -euo pipefail
+          git add -A
+          git commit -m "Sync VA-API branch with upstream"
+          git push origin "HEAD:refs/heads/$TARGET_BRANCH" --force-with-lease="refs/heads/$TARGET_BRANCH:$ORIGINAL_HEAD"
