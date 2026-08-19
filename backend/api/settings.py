@@ -9,6 +9,7 @@ import errno
 import logging
 import os
 import re
+import stat
 import tempfile
 
 from auth import require_admin, require_authenticated, AuthContext
@@ -30,6 +31,50 @@ from services.post_processor import post_processor
 router = APIRouter()
 
 logger = logging.getLogger(__name__)
+
+
+def _validate_custom_comskip_ini_path(path: str) -> None:
+    """Require a readable regular file in Mustarrd's runtime filesystem."""
+    expanded_path = os.path.expanduser(path)
+    if not os.path.isabs(expanded_path):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Custom Comskip INI path must be an absolute path as seen by "
+                "Mustarrd (inside the container when using Docker)"
+            ),
+        )
+
+    try:
+        path_stat = os.stat(expanded_path)
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Custom Comskip INI file was not found: {path}",
+        )
+    except OSError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Custom Comskip INI path could not be checked: {exc.strerror or exc}",
+        )
+
+    if not stat.S_ISREG(path_stat.st_mode):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Custom Comskip INI path is not a regular file: {path}",
+        )
+
+    try:
+        with open(expanded_path, "rb") as handle:
+            handle.read(1)
+    except OSError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Custom Comskip INI file is not readable by Mustarrd: "
+                f"{exc.strerror or exc}"
+            ),
+        )
 
 
 def _probe_folder_writable(path: str) -> dict:
@@ -118,6 +163,7 @@ class SettingsUpdate(BaseModel):
     comskip_cut: Optional[bool] = None
     comskip_path: Optional[str] = None
     comskip_ini_path: Optional[str] = None
+    comskip_use_custom_ini: Optional[bool] = None
     comskip_custom_ini_path: Optional[str] = None
     comskip_detect_method: Optional[int] = Field(default=None, ge=0, le=255)
     comskip_max_commercialbreak: Optional[int] = Field(default=None, ge=0)
@@ -128,6 +174,8 @@ class SettingsUpdate(BaseModel):
     comskip_always_keep_last_seconds: Optional[int] = Field(default=None, ge=0)
     comskip_remove_before: Optional[int] = Field(default=None, ge=0)
     comskip_remove_after: Optional[int] = Field(default=None, ge=0)
+    comskip_connect_blocks_with_logo: Optional[int] = Field(default=None, ge=0, le=1)
+    comskip_dynamic_ticker_tape: Optional[bool] = None
     # Clamped to 1..16 in update_settings rather than rejected.
     comskip_thread_count: Optional[int] = None
     epg_offset_minutes: Optional[int] = None
@@ -157,6 +205,7 @@ NON_NULLABLE_FIELDS = {
     "integrity_check_enabled",
     "comskip_enabled",
     "comskip_cut",
+    "comskip_use_custom_ini",
     "comskip_detect_method",
     "comskip_max_commercialbreak",
     "comskip_min_commercialbreak",
@@ -166,6 +215,8 @@ NON_NULLABLE_FIELDS = {
     "comskip_always_keep_last_seconds",
     "comskip_remove_before",
     "comskip_remove_after",
+    "comskip_connect_blocks_with_logo",
+    "comskip_dynamic_ticker_tape",
     "comskip_thread_count",
     "epg_offset_minutes",
     "show_future_programs",
@@ -332,6 +383,15 @@ async def update_settings(
     # Cut is the valid "fast remux + skip commercials" profile from onboarding.
     if settings.comskip_enabled and settings.comskip_cut:
         settings.transcode_enabled = True
+
+    if settings.comskip_use_custom_ini:
+        custom_ini_path = (settings.comskip_custom_ini_path or "").strip()
+        if not custom_ini_path:
+            raise HTTPException(
+                status_code=400,
+                detail="A custom Comskip INI path is required when custom INI mode is enabled",
+            )
+        _validate_custom_comskip_ini_path(custom_ini_path)
 
     # Validate min<=max pairs on the final stored state so two separate PUT
     # requests cannot sneak an inverted range past per-request validation.
