@@ -8,7 +8,7 @@ class FileNamer:
     # Device names Windows refuses to use as a filename stem. A program titled
     # "Aux" or "Con" would otherwise produce a file that cannot be created on
     # Windows or written to an SMB share.
-    RESERVED_STEMS = re.compile(r'^(con|prn|aux|nul|com[1-9]|lpt[1-9])$', re.IGNORECASE)
+    RESERVED_STEMS = re.compile(r'^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?=\.|$)', re.IGNORECASE)
 
     # Shared season/episode patterns. Order matters: the S/E form is tried first
     # so "S54 E173" doesn't fall through to the looser NxNN form.
@@ -86,9 +86,12 @@ class FileNamer:
         encoded = sanitized.encode("utf-8")
         if len(encoded) > 200:
             sanitized = encoded[:200].decode("utf-8", errors="ignore").rstrip() or "unknown-program"
-        # Suffix reserved Windows device names so the file can still be created
-        if cls.RESERVED_STEMS.match(sanitized):
-            sanitized += '_'
+        # Suffix reserved Windows device stems, including when an extension
+        # follows (for example AUX.txt -> AUX_.txt).
+        reserved_match = cls.RESERVED_STEMS.match(sanitized)
+        if reserved_match:
+            stem_end = reserved_match.end()
+            sanitized = f"{sanitized[:stem_end]}_{sanitized[stem_end:]}"
         return sanitized
 
     @classmethod
