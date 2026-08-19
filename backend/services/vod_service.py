@@ -1,4 +1,5 @@
 from datetime import datetime
+import re
 from typing import Optional
 from urllib.parse import urlparse
 
@@ -12,10 +13,6 @@ from services.output_path import output_path as output_path_builder
 
 
 def _effective_port(parsed) -> Optional[int]:
-    """Resolve a parsed URL's port, applying scheme defaults (80/443).
-
-    Returns None for invalid ports or unknown schemes so callers fail closed.
-    """
     try:
         port = parsed.port
     except ValueError:
@@ -51,6 +48,41 @@ def _trusted_direct_source(direct_source: Optional[str], account_server_url: str
     return direct_source
 
 
+def _clean_episode_title(
+    episode_title: Optional[str],
+    season: int,
+    episode_num: int,
+) -> Optional[str]:
+    """
+    Strip provider-added show/episode prefixes from an episode title.
+
+    Some Xtream providers return titles such as
+    ``Bad Monkey - S01E01 - The Floating-Human-Body-Parts Capital of America``.
+    The TV template already renders show/season/episode, so keeping that prefix
+    duplicates the metadata in the final filename. Only strip when the matching
+    SxxExx marker is at the start or is preceded by a common title separator.
+    """
+    if not episode_title:
+        return episode_title
+
+    title = str(episode_title).strip()
+    marker = re.compile(
+        rf"\bS0*{int(season)}E0*{int(episode_num)}\b\s*(?:[-–—:]\s*)?",
+        re.IGNORECASE,
+    )
+    match = marker.search(title)
+    if not match:
+        return title
+
+    prefix = title[:match.start()].rstrip()
+    suffix = title[match.end():].strip()
+    if not suffix:
+        return title
+    if prefix and prefix[-1] not in "-–—:":
+        return title
+    return suffix
+
+
 async def build_movie_download(
     session: AsyncSession,
     account_id: int,
@@ -59,6 +91,7 @@ async def build_movie_download(
     container_extension: Optional[str],
     direct_source: Optional[str] = None,
     release_date: Optional[str] = None,
+    tmdb_id: Optional[str] = None,
     requested_by_user_id: Optional[int] = None,
     request_source: str = "admin",
 ) -> Download:
@@ -71,7 +104,11 @@ async def build_movie_download(
     settings = settings_result.scalar_one_or_none()
 
     output_path = output_path_builder.for_movie(
-        settings, title, container_extension, release_date=release_date
+        settings,
+        title,
+        container_extension,
+        release_date=release_date,
+        tmdb_id=tmdb_id,
     )
 
     trusted_direct_source = _trusted_direct_source(direct_source, account.server_url)
@@ -113,6 +150,7 @@ async def build_episode_download(
     container_extension: Optional[str],
     direct_source: Optional[str] = None,
     duration_minutes: Optional[int] = None,
+    tmdb_id: Optional[str] = None,
     requested_by_user_id: Optional[int] = None,
     request_source: str = "admin",
 ) -> Download:
@@ -124,14 +162,16 @@ async def build_episode_download(
     settings_result = await session.execute(select(AppSettings))
     settings = settings_result.scalar_one_or_none()
 
+    clean_episode_title = _clean_episode_title(episode_title, season, episode_num)
     output_path = output_path_builder.for_series_episode(
         settings,
         show_name,
         season,
         episode_num,
-        episode_title,
+        clean_episode_title,
         container_extension,
         episode_id=episode_id,
+        tmdb_id=tmdb_id,
     )
 
     trusted_direct_source = _trusted_direct_source(direct_source, account.server_url)
@@ -148,7 +188,7 @@ async def build_episode_download(
         account_id=account_id,
         channel_id=str(series_id),
         channel_name="On Demand Shows",
-        program_title=episode_title or show_name or "Unknown",
+        program_title=clean_episode_title or show_name or "Unknown",
         program_start=now,
         program_end=now,
         duration_minutes=int(duration_minutes or 0),
