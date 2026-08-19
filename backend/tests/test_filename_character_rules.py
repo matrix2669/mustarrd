@@ -88,6 +88,17 @@ class ReservedDeviceNameTests(unittest.TestCase):
     def test_reserved_match_is_case_insensitive(self):
         self.assertEqual(file_namer.sanitize_filename("Aux"), "Aux_")
 
+    def test_reserved_stem_with_extension_is_suffixed(self):
+        self.assertEqual(file_namer.sanitize_filename("AUX.txt"), "AUX_.txt")
+        self.assertEqual(file_namer.sanitize_filename("CON.log"), "CON_.log")
+        self.assertEqual(file_namer.sanitize_filename("Aux.txt"), "Aux_.txt")
+
+    def test_custom_ts_name_protects_reserved_stem_before_inner_extension(self):
+        self.assertEqual(
+            file_namer.sanitize_custom_filename("CON.log.ts"),
+            "CON_.log.ts",
+        )
+
     def test_reserved_word_inside_a_title_is_untouched(self):
         self.assertEqual(file_namer.sanitize_filename("Aux Cord"), "Aux Cord")
 
