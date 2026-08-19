@@ -889,6 +889,47 @@ class PostProcessor:
 
         return map_args
 
+    async def probe_video_dimensions(
+        self, input_path: str, log_callback: Optional[Callable[[str], None]] = None
+    ) -> Optional[tuple[int, int]]:
+        """Return the primary video dimensions, or None when ffprobe cannot resolve them."""
+        ffprobe = self._resolve_ffprobe_path()
+        if not ffprobe:
+            await self._notify_log(log_callback, "ffprobe unavailable; dynamic ticker exclusion skipped.")
+            return None
+        cmd = [
+            ffprobe, "-v", "error", "-select_streams", "v:0",
+            "-show_entries", "stream=width,height", "-of", "json", input_path,
+        ]
+        process = None
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(), timeout=self.FFPROBE_TIMEOUT_SECONDS
+            )
+        except (FileNotFoundError, asyncio.TimeoutError):
+            if process is not None and process.returncode is None:
+                await self._terminate_process(process)
+            await self._notify_log(log_callback, "ffprobe could not resolve video dimensions; dynamic ticker exclusion skipped.")
+            return None
+        except asyncio.CancelledError:
+            if process is not None:
+                await self._terminate_process(process)
+            raise
+        if process.returncode != 0:
+            detail = (stderr or b"").decode(errors="ignore").strip()
+            await self._notify_log(log_callback, f"ffprobe dimensions failed: {detail or 'unknown error'}")
+            return None
+        try:
+            streams = json.loads((stdout or b"{}").decode(errors="ignore")).get("streams", [])
+            width = int(streams[0]["width"])
+            height = int(streams[0]["height"])
+        except (ValueError, TypeError, KeyError, IndexError, json.JSONDecodeError):
+            return None
+        return (width, height) if width > 0 and height > 0 else None
+
     async def transcode(
         self,
         input_path: str,
@@ -1190,6 +1231,14 @@ class PostProcessor:
         temp_probe_file: Optional[Path] = None
 
         try:
+            no_commercials = "commercials were not found" in combined_output.lower()
+            if returncode == 1 and no_commercials:
+                await self._notify_log(
+                    log_callback,
+                    "Comskip completed successfully: commercials were not found."
+                )
+                return None
+
             if returncode != 0 and input_file.suffix.lower() == ".ts" and self.ffmpeg_available:
                 failed_excerpt = excerpt(combined_output, 600)
                 if failed_excerpt:
@@ -1244,6 +1293,12 @@ class PostProcessor:
                         str(temp_probe_file),
                         progress_prefix="Comskip retry"
                     )
+                    if returncode == 1 and "commercials were not found" in combined_output.lower():
+                        await self._notify_log(
+                            log_callback,
+                            "Comskip completed successfully: commercials were not found."
+                        )
+                        return None
                 else:
                     prep_excerpt = excerpt((prep_stderr or b"").decode(errors="ignore"), 400)
                     if prep_excerpt:

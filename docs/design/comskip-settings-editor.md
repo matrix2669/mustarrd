@@ -41,7 +41,7 @@ This lets users pre-configure settings before enabling Comskip.
 
 ## Settings to expose
 
-Nine settings, grouped into three subsections. All values stored in `app_settings` in the database. Comskip receives them via a generated `comskip.ini` written at runtime.
+Settings are stored in `app_settings`. Comskip receives them via a unique, per-run temporary `comskip.ini`; runtime values such as dynamic ticker exclusion override saved UI values, and the file is removed after Comskip exits.
 
 ### Commercial Detection
 
@@ -104,8 +104,8 @@ Appears at the bottom of the section, alongside the existing Save Settings butto
 Design:
 
 - Rename the existing hidden `comskip_ini_path` field to `comskip_auto_ini_path` (backend-managed, not shown in the UI). This stores the auto-detected default path.
-- Add a new `comskip_custom_ini_path` field (user-supplied, exposed in the UI as an optional text input at the bottom of the section). Label: "Custom Comskip INI path (optional)". Tooltip: "If set, this file overrides the generated settings above. Leave blank to use Comskip's built-in defaults plus the settings on this page."
-- Backend precedence at runtime: if `comskip_custom_ini_path` is non-empty, pass it to Comskip and skip generating an INI from stored settings. Otherwise, write a temporary INI from the stored settings (ignoring `comskip_auto_ini_path`).
+- Add `comskip_use_custom_ini` and `comskip_custom_ini_path` fields. The UI uses an explicit checkbox to enter custom mode, requires a path while it is enabled, and greys out Mustarrd-managed controls to make their precedence unambiguous. Existing saved custom paths are migrated to enabled custom mode.
+- Backend precedence at runtime: when `comskip_use_custom_ini` is true and `comskip_custom_ini_path` is non-empty, pass that file to Comskip and skip generation. Otherwise, write a unique per-run temporary INI from stored settings and runtime overrides.
 
 If the rename of `comskip_ini_path` is a bigger migration than the implementer wants, an alternative: add a `comskip_use_generated_ini` boolean (default true). When true, always generate from settings and ignore `comskip_ini_path`. When false (and `comskip_ini_path` is set), use the named file. The implementer should pick whichever is simpler given the current migration pattern.
 
@@ -113,10 +113,10 @@ If the rename of `comskip_ini_path` is a bigger migration than the implementer w
 
 ## Backend changes needed
 
-1. **`models/settings.py`**: add 9 new columns to `AppSettings` (detect_method, max/min_commercialbreak, max/min_commercial_size, always_keep_first/last_seconds, remove_before/after, thread_count), plus `comskip_custom_ini_path` (nullable string).
+1. **`models/settings.py`**: add the managed Comskip fields plus `comskip_use_custom_ini` and nullable `comskip_custom_ini_path` fields.
 2. **`backend/database.py`**: `ALTER TABLE` migration for all new columns on startup.
 3. **`api/settings.py`**: include all new fields in GET/PUT. Validate `min <= max` pairs and clamp `thread_count` to 1..16 before saving. Remove the auto-fill logic for `comskip_ini_path` (or guard it so it only applies when `comskip_custom_ini_path` is null and `comskip_use_generated_ini` is false).
-4. **`services/post_processor.py`**: when running Comskip, check `comskip_custom_ini_path` first. If set, pass it to Comskip. Otherwise, write a temporary `comskip.ini` from the stored settings.
+4. **`services/post_processor.py`**: when running Comskip, honor enabled custom mode first. Otherwise, write a per-run temporary `comskip.ini` from the stored and runtime settings.
 
 ---
 
@@ -129,4 +129,4 @@ If the rename of `comskip_ini_path` is a bigger migration than the implementer w
    - Tooltips via Mantine `Tooltip` on each label.
    - Inline validation errors if `min_commercialbreak > max_commercialbreak` or `min_commercial_size > max_commercial_size`.
    - "Reset to Defaults" button that calls `setFormData(prev => ({ ...prev, ...COMSKIP_DEFAULTS }))`.
-   - Optional text input for `comskip_custom_ini_path` at the bottom of the section.
+   - A custom-INI checkbox with a required path field; gray out managed controls while it is enabled.

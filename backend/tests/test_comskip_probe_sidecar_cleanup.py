@@ -33,13 +33,13 @@ PostProcessor = PP_MODULE.PostProcessor
 SIDECAR_SUFFIXES = (".txt", ".log", ".logo", ".csv", ".vdr", ".xml")
 
 
-def make_comskip_proc(returncode: int, on_finish=None):
+def make_comskip_proc(returncode: int, on_finish=None, output=b"comskip output\n"):
     """Fake comskip subprocess with empty streams and the given exit code."""
     proc = MagicMock()
     stdout = asyncio.StreamReader()
     stdout.feed_eof()
     stderr = asyncio.StreamReader()
-    stderr.feed_data(b"comskip output\n")
+    stderr.feed_data(output)
     stderr.feed_eof()
     proc.stdout = stdout
     proc.stderr = stderr
@@ -153,6 +153,21 @@ class ComskipProbeSidecarCleanupTests(unittest.IsolatedAsyncioTestCase):
             probe_path.with_suffix(".txt").exists(),
             "Probe .txt sidecar must be removed even when the retry succeeds.",
         )
+
+    async def test_exit_one_no_commercials_does_not_normalize_ts(self):
+        ts_path = Path(self.tmp) / "Show.ts"
+        ts_path.write_bytes(b"\x47" * 188)
+        processor = PostProcessor()
+        processor._comskip_path = "/usr/bin/comskip"
+        processor._ffmpeg_path = "/usr/bin/ffmpeg"
+        subprocesses = [
+            make_comskip_proc(1, output=b"Commercials were not found\n"),
+        ]
+
+        result = await self._run_detect(processor, ts_path, subprocesses)
+
+        self.assertIsNone(result)
+        self.assertEqual(len(subprocesses), 1, "TS normalization must not run for a no-commercials result.")
 
 
 if __name__ == "__main__":

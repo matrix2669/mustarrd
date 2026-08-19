@@ -7,7 +7,7 @@ tests pin the three load-bearing behaviours:
 1. render_comskip_ini replaces existing keys and appends missing ones while
    preserving unrelated lines — especially output_edl=1, which the
    post-processing pipeline requires to find the EDL file.
-2. generate_comskip_ini writes the file into the config dir.
+2. generate_comskip_ini writes a unique temporary file for each run.
 3. resolve_comskip_ini precedence: custom INI > generated INI > legacy
    comskip_ini_path fallback when generation fails.
 """
@@ -23,7 +23,6 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from models import AppSettings
 from services.comskip_ini import (
-    GENERATED_INI_NAME,
     generate_comskip_ini,
     render_comskip_ini,
     resolve_comskip_ini,
@@ -117,14 +116,28 @@ class GenerateAndResolveTests(unittest.TestCase):
             "services.comskip_ini.ensure_config_files", return_value=self.config_dir
         )
 
-    def test_generate_writes_overridden_ini(self):
+    def test_generate_writes_unique_temporary_ini(self):
         with self._patch_config():
             path = generate_comskip_ini(self.settings)
-        self.assertEqual(path, str(self.config_dir / GENERATED_INI_NAME))
-        content = Path(path).read_text(encoding="utf-8")
-        self.assertIn("detect_method=107", content.splitlines())
-        self.assertIn("thread_count=2", content.splitlines())
-        self.assertIn("output_edl=1", content.splitlines())
+            second_path = generate_comskip_ini(self.settings)
+        try:
+            self.assertNotEqual(path, second_path)
+            self.assertEqual(Path(path).suffix, ".ini")
+            content = Path(path).read_text(encoding="utf-8")
+            self.assertIn("detect_method=107", content.splitlines())
+            self.assertIn("thread_count=2", content.splitlines())
+            self.assertIn("output_edl=1", content.splitlines())
+        finally:
+            Path(path).unlink(missing_ok=True)
+            Path(second_path).unlink(missing_ok=True)
+
+    def test_runtime_overrides_take_precedence(self):
+        with self._patch_config():
+            path = generate_comskip_ini(self.settings, {"ticker_tape": 120})
+        try:
+            self.assertIn("ticker_tape=120", Path(path).read_text().splitlines())
+        finally:
+            Path(path).unlink(missing_ok=True)
 
     def test_generate_falls_back_to_minimal_base_with_edl(self):
         (self.config_dir / "comskip.ini").unlink()
@@ -134,19 +147,34 @@ class GenerateAndResolveTests(unittest.TestCase):
         content = Path(path).read_text(encoding="utf-8")
         self.assertIn("output_edl=1", content.splitlines())
         self.assertIn("detect_method=107", content.splitlines())
+        Path(path).unlink(missing_ok=True)
 
     def test_resolve_prefers_custom_ini_and_skips_generation(self):
+        self.settings.comskip_use_custom_ini = True
         self.settings.comskip_custom_ini_path = "/custom/comskip.ini"
         with patch("services.comskip_ini.generate_comskip_ini") as mock_generate:
             result = resolve_comskip_ini(self.settings)
         self.assertEqual(result, "/custom/comskip.ini")
         mock_generate.assert_not_called()
 
+    def test_resolve_ignores_saved_custom_path_when_custom_mode_is_off(self):
+        self.settings.comskip_use_custom_ini = False
+        self.settings.comskip_custom_ini_path = "/custom/comskip.ini"
+        with self._patch_config():
+            result = resolve_comskip_ini(self.settings)
+        try:
+            self.assertTrue(Path(result).name.startswith("mustarrd-comskip-"))
+        finally:
+            Path(result).unlink(missing_ok=True)
+
     def test_resolve_blank_custom_uses_generated(self):
         self.settings.comskip_custom_ini_path = "   "
         with self._patch_config():
             result = resolve_comskip_ini(self.settings)
-        self.assertEqual(result, str(self.config_dir / GENERATED_INI_NAME))
+        try:
+            self.assertTrue(Path(result).name.startswith("mustarrd-comskip-"))
+        finally:
+            Path(result).unlink(missing_ok=True)
 
     def test_resolve_falls_back_to_legacy_path_when_generation_fails(self):
         self.settings.comskip_custom_ini_path = None
