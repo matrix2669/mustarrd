@@ -63,6 +63,24 @@ async def _apply_lightweight_migrations(conn) -> None:
     if not await _column_exists(conn, "epg_programs", "provider_stop"):
         await conn.execute(text("ALTER TABLE epg_programs ADD COLUMN provider_stop VARCHAR(255)"))
 
+    structured_epg_columns = {
+        "subtitle": "VARCHAR(500)",
+        "categories_json": "TEXT",
+        "season_number": "INTEGER",
+        "episode_number": "INTEGER",
+        "episode_onscreen": "VARCHAR(100)",
+        "episode_xmltv_ns": "VARCHAR(100)",
+        "dd_progid": "VARCHAR(100)",
+        "tvdb_id": "VARCHAR(100)",
+        "tmdb_id": "VARCHAR(100)",
+        "imdb_id": "VARCHAR(100)",
+    }
+    for column_name, column_type in structured_epg_columns.items():
+        if not await _column_exists(conn, "epg_programs", column_name):
+            await conn.execute(
+                text(f"ALTER TABLE epg_programs ADD COLUMN {column_name} {column_type}")
+            )
+
     if not await _column_exists(conn, "xtream_accounts", "catchup_resolution_mode"):
         await conn.execute(
             text("ALTER TABLE xtream_accounts ADD COLUMN catchup_resolution_mode VARCHAR(32) DEFAULT 'auto'")

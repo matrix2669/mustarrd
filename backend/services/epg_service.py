@@ -8,6 +8,7 @@ from models import XtreamAccount, EPGProgram, AppSettings
 from services.account_credentials import resolve_account_password_with_migration
 from services.file_namer import FileNamer
 from services.xtream_client import XtreamClient
+from services.epg_metadata import decode_categories, metadata_from_live_entry
 from config import settings as app_settings
 
 
@@ -200,6 +201,9 @@ class EPGService:
             except Exception:
                 live_programs = []
             if live_programs:
+                live_programs = await self._enrich_live_from_stored(
+                    session, account_id, channel_id, live_programs, account, global_offset_minutes
+                )
                 self._cache[cache_key] = {
                     "data": live_programs,
                     "cached_at": datetime.utcnow()
@@ -277,14 +281,14 @@ class EPGService:
         if start_time and end_time:
             duration_minutes = int((end_time - start_time).total_seconds() / 60)
 
-        channel_id = str(entry.get("channel_id") or fallback_channel_id or "")
+        channel_id = str(entry.get("stream_id") or fallback_channel_id or entry.get("channel_id") or "")
         epg_id = entry.get("epg_id")
         if channel_id and start_timestamp and stop_timestamp:
             epg_id = f"{channel_id}:{start_timestamp}:{stop_timestamp}"
 
         raw_has_archive = entry.get("has_archive")
 
-        return {
+        result = {
             "id": entry.get("id"),
             "epg_id": epg_id,
             "title": title,
@@ -299,6 +303,8 @@ class EPGService:
             "has_archive": has_archive_fallback if raw_has_archive is None else (int(raw_has_archive or 0) == 1),
             "channel_id": channel_id or None,
         }
+        result.update(metadata_from_live_entry(entry))
+        return result
 
     async def get_past_programs(
         self,
@@ -369,8 +375,62 @@ class EPGService:
             "has_archive": row.has_archive,
             "channel_id": row.channel_id,
             "channel_name": row.channel_name,
-            "category": row.category,
+            "category": getattr(row, "category", None),
+            "categories": decode_categories(getattr(row, "categories_json", None)),
+            "subtitle": getattr(row, "subtitle", None),
+            "season_number": getattr(row, "season_number", None),
+            "episode_number": getattr(row, "episode_number", None),
+            "episode_onscreen": getattr(row, "episode_onscreen", None),
+            "episode_xmltv_ns": getattr(row, "episode_xmltv_ns", None),
+            "dd_progid": getattr(row, "dd_progid", None),
+            "tvdb_id": getattr(row, "tvdb_id", None),
+            "tmdb_id": getattr(row, "tmdb_id", None),
+            "imdb_id": getattr(row, "imdb_id", None),
         }
+
+    _STRUCTURED_ENRICH_FIELDS = (
+        "category", "categories", "subtitle", "season_number", "episode_number",
+        "episode_onscreen", "episode_xmltv_ns", "dd_progid", "tvdb_id", "tmdb_id", "imdb_id",
+    )
+
+    @classmethod
+    def _enrich_live_programs(cls, live_programs: list[dict], stored_programs: list[dict]) -> list[dict]:
+        stored_by_window = {
+            (str(item.get("channel_id") or ""), item.get("start_timestamp"), item.get("stop_timestamp")): item
+            for item in stored_programs
+        }
+        enriched = []
+        for live in live_programs:
+            key = (str(live.get("channel_id") or ""), live.get("start_timestamp"), live.get("stop_timestamp"))
+            stored = stored_by_window.get(key)
+            if not stored:
+                enriched.append(live)
+                continue
+            merged = dict(live)
+            for field in cls._STRUCTURED_ENRICH_FIELDS:
+                if merged.get(field) in (None, "", []):
+                    value = stored.get(field)
+                    if value not in (None, "", []):
+                        merged[field] = value
+            enriched.append(merged)
+        return enriched
+
+    async def _enrich_live_from_stored(
+        self, session: AsyncSession, account_id: int, channel_id: str,
+        live_programs: list[dict], account: Optional[XtreamAccount], global_offset_minutes: int,
+    ) -> list[dict]:
+        starts = [int(item["start_timestamp"]) for item in live_programs if item.get("start_timestamp") is not None]
+        if not starts:
+            return live_programs
+        db_result = await session.execute(
+            select(EPGProgram).where(
+                EPGProgram.account_id == account_id,
+                EPGProgram.channel_id == str(channel_id),
+                EPGProgram.start_timestamp.in_(starts),
+            )
+        )
+        stored = [self.serialize_program(row, account, global_offset_minutes) for row in db_result.scalars().all()]
+        return self._enrich_live_programs(live_programs, stored)
 
     def _filter_programs_by_cutoff(self, programs: list[dict], cutoff: datetime) -> list:
         filtered: list[dict] = []
