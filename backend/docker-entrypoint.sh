@@ -42,15 +42,21 @@ is_mountpoint_path() {
 ensure_group() {
   local name="$1"
   local gid="$2"
+  local existing_group
 
-  if getent group "${gid}" >/dev/null 2>&1; then
+  if existing_group="$(getent group "${gid}" 2>/dev/null)"; then
+    # The image may already know this numeric GID under a distro-specific name.
+    # Return that real name so callers do not pass a nonexistent alias to
+    # usermod (for example, asking for "render" when GID 107 is "renderhost").
+    printf '%s\n' "${existing_group%%:*}"
     return 0
   fi
   if getent group "${name}" >/dev/null 2>&1; then
     groupmod -g "${gid}" "${name}"
-    return 0
+  else
+    groupadd -g "${gid}" "${name}"
   fi
-  groupadd -g "${gid}" "${name}"
+  printf '%s\n' "${name}"
 }
 
 if ! getent group "${PGID}" >/dev/null 2>&1; then
@@ -81,7 +87,7 @@ grant_drm_access() {
     if [[ -n "${seen% ${gid}}" ]]; then
       group_name="${group_base}${gid}"
     fi
-    ensure_group "${group_name}" "${gid}"
+    group_name="$(ensure_group "${group_name}" "${gid}")"
     usermod -aG "${group_name}" "${APP_USER}"
   done
 }
