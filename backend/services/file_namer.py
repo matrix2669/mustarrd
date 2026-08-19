@@ -222,6 +222,16 @@ class FileNamer:
         "default": "{title} - {date}",
     }
 
+    @staticmethod
+    def _tmdb_hint(value) -> str:
+        """Render an existing guide TMDB ID for Plex and Jellyfin templates."""
+        raw = str(value or "").strip()
+        match = re.fullmatch(r"(?:(?:series|movie)/)?(\d+)", raw, re.IGNORECASE)
+        if not match:
+            return ""
+        tmdb_id = match.group(1)
+        return f"{{tmdb-{tmdb_id}}} [tmdbid-{tmdb_id}]"
+
     def generate_filename(
         self,
         program: dict,
@@ -244,6 +254,7 @@ class FileNamer:
 
         date_str = start_time.strftime("%Y-%m-%d")
         s = settings or {}
+        tmdb_hint = self._tmdb_hint(program.get("tmdb_id"))
 
         if program_type == "tv_show":
             full_text = f"{title} {description}"
@@ -257,6 +268,7 @@ class FileNamer:
                 context = {
                     "show": show_name, "season": season_ep[0], "episode": season_ep[1],
                     "title": episode_title, "date": date_str, "channel": channel_name,
+                    "tmdb": tmdb_hint,
                 }
                 custom = s.get("tv_template")
                 # A real season and episode is enough to honour the user's TV
@@ -269,18 +281,39 @@ class FileNamer:
                 else:
                     template = self._DEFAULT_TEMPLATES["tv_no_subtitle"]
             else:
-                context = {"title": title, "date": date_str, "channel": channel_name}
+                context = {
+                    "title": title,
+                    "date": date_str,
+                    "channel": channel_name,
+                    "tmdb": tmdb_hint,
+                }
                 template = s.get("default_template") or self._DEFAULT_TEMPLATES["default"]
         elif program_type == "sports":
-            context = {"title": title, "date": date_str, "channel": channel_name}
+            context = {
+                "title": title,
+                "date": date_str,
+                "channel": channel_name,
+                "tmdb": tmdb_hint,
+            }
             template = s.get("sports_template") or self._DEFAULT_TEMPLATES["sports"]
         elif program_type == "movie":
             year = self.extract_year(description) or self.extract_year(title) or start_time.year
             clean_title = re.sub(r'\s*\(\d{4}\)\s*', '', title).strip()
-            context = {"title": clean_title, "year": year, "date": date_str, "channel": channel_name}
+            context = {
+                "title": clean_title,
+                "year": year,
+                "date": date_str,
+                "channel": channel_name,
+                "tmdb": tmdb_hint,
+            }
             template = s.get("movie_template") or self._DEFAULT_TEMPLATES["movie"]
         else:
-            context = {"title": title, "date": date_str, "channel": channel_name}
+            context = {
+                "title": title,
+                "date": date_str,
+                "channel": channel_name,
+                "tmdb": tmdb_hint,
+            }
             template = s.get("default_template") or self._DEFAULT_TEMPLATES["default"]
 
         try:
