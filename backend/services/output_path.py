@@ -2,16 +2,9 @@
 
 Before this module, ``download_builder`` (catchup) and ``vod_service`` (VOD)
 each independently re-queried/read ``AppSettings``, re-resolved the download
-folder, and re-assembled the final ``output_path``.  The naming rules for
-catchup, movies, and series episodes are genuinely different (template-driven
-program naming vs. ``Movie (Year)`` vs. ``Show/Season NN/SnnExx`` subfolders),
-so those stay as distinct internals delegated to ``file_namer`` and
-``vod_namer``.  What the two callers *shared* — "resolve the download folder
-from settings, then join it with a filename" — now lives here, once.
-
-Callers pass the loaded ``AppSettings`` row (or ``None``); folder resolution
-and final-path assembly happen inside, so the interface a caller sees is just
-"give me the path for this thing".
+folder, and re-assembled the final ``output_path``.  What callers share —
+"resolve the download folder from settings, then render the configured naming
+policy" — lives here.
 """
 import os
 from typing import Optional
@@ -34,11 +27,6 @@ def _settings_dict(settings) -> Optional[dict]:
 
 
 def _download_folder(settings) -> str:
-    """Resolve the download folder from settings, falling back to the configured default.
-
-    Both download_builder and vod_service used to do this independently.
-    Works whether ``settings`` is an AppSettings row or a plain dict.
-    """
     folder = None
     if settings is not None:
         if isinstance(settings, dict):
@@ -51,12 +39,7 @@ def _download_folder(settings) -> str:
 
 
 class OutputPath:
-    """Builds completed-file paths for every kind of recording target.
-
-    One method per target kind.  Each one resolves the download folder and
-    returns a full path; callers no longer touch the folder or the filename
-    helpers themselves.
-    """
+    """Builds completed-file paths for every kind of recording target."""
 
     def for_program(
         self,
@@ -82,15 +65,20 @@ class OutputPath:
         title: str,
         extension: Optional[str],
         release_date: Optional[str] = None,
+        tmdb_id=None,
     ) -> str:
-        """Completed-file path for a VOD movie.
-
-        Year is taken from ``release_date`` if present, otherwise extracted from
-        the title — matching the previous vod_service behaviour.
-        """
+        """Completed-file path for a VOD movie using ``movie_template``."""
         folder = _download_folder(settings)
+        settings_dict = _settings_dict(settings) or {}
         year = file_namer.extract_year(release_date or "") or file_namer.extract_year(title or "")
-        return movie_output_path(folder, title, year, extension)
+        return movie_output_path(
+            folder,
+            title,
+            year,
+            extension,
+            template=settings_dict.get("movie_template"),
+            tmdb_id=tmdb_id,
+        )
 
     def for_series_episode(
         self,
@@ -101,9 +89,11 @@ class OutputPath:
         episode_title: Optional[str],
         extension: Optional[str],
         episode_id: Optional[str] = None,
+        tmdb_id=None,
     ) -> str:
-        """Completed-file path for a VOD series episode (with Show/Season folders)."""
+        """Completed-file path for a VOD episode using ``tv_template``."""
         folder = _download_folder(settings)
+        settings_dict = _settings_dict(settings) or {}
         return series_episode_output_path(
             folder,
             show_name,
@@ -112,8 +102,9 @@ class OutputPath:
             episode_title,
             extension,
             episode_id=episode_id,
+            template=settings_dict.get("tv_template"),
+            tmdb_id=tmdb_id,
         )
 
 
-# Global instance, mirroring the file_namer / vod_namer module-level singletons.
 output_path = OutputPath()
