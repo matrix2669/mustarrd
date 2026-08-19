@@ -6,6 +6,12 @@ All notable changes to Mustarrd are listed here. Most recent changes are at the 
 
 ## 2026-08-18
 
+### Fixed: Containers start when a GPU group already has another name
+
+**What you would notice:** Mustarrd no longer stops during container startup with `usermod: group 'render' does not exist` when a passed-through GPU device's numeric group ID already exists inside the image under a different name. This is particularly likely with nested Docker or LXC device mappings, but the fix applies to any Docker host with differing group names.
+
+**What changed:** The Docker entrypoint now resolves and returns the actual group name associated with each DRM device GID, then grants the app user access through that existing group. It creates the conventional `render` or `video` group only when the numeric GID is genuinely absent.
+
 ### Added: Templates can sort recordings into folders
 
 **What you would notice:** A `/` in a filename template now makes a folder. Setting your TV template to `{show}/Season {season:02d}/{show} - S{season:02d}E{episode:02d} - {title}` files recordings as `Breaking Bad/Season 02/Breaking Bad - S02E05 - Breakage.ts` instead of dumping everything in one directory. The folders are created for you under your download folder, and the same structure is kept when the recording moves to the completed folder. It works for immediate downloads, scheduled recordings and time slots alike.
