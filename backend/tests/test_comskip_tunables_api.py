@@ -6,8 +6,8 @@ Covers the validation contract from docs/design/comskip-settings-editor.md:
 - min<=max enforced for commercialbreak and commercial_size pairs on the
   FINAL stored state, so two separate PUT requests cannot create an
   inverted range
-- custom INI mode is explicit, requires a readable absolute file path, and
-  blank paths normalize to NULL
+- custom INI mode is explicit, requires a readable absolute file path, expands
+  user-home paths before saving, and blank paths normalize to NULL
 - GET /settings returns the new fields with their defaults
 """
 import sys
@@ -170,6 +170,21 @@ class ComskipTunablesUpdateTests(unittest.IsolatedAsyncioTestCase):
             )
             self.assertTrue(result["comskip_use_custom_ini"])
             self.assertEqual(result["comskip_custom_ini_path"], custom_ini.name)
+
+    async def test_custom_ini_mode_expands_home_path_before_saving(self):
+        await self._seed()
+        with tempfile.NamedTemporaryFile(suffix=".ini") as custom_ini:
+            custom_ini.write(b"output_edl=1\n")
+            custom_ini.flush()
+            with patch("api.settings.os.path.expanduser", return_value=custom_ini.name):
+                result = await self._update(
+                    comskip_use_custom_ini=True,
+                    comskip_custom_ini_path="~/custom-comskip.ini",
+                )
+            self.assertEqual(
+                result["comskip_custom_ini_path"],
+                str(Path(custom_ini.name).absolute()),
+            )
 
     async def test_custom_ini_mode_rejects_relative_path(self):
         await self._seed()
