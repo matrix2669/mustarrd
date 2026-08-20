@@ -6,6 +6,14 @@ All notable changes to Mustarrd are listed here. Most recent changes are at the 
 
 ## 2026-08-20
 
+### Fixed: Recordings are named with the season and episode your guide published
+
+**What you would notice:** When your provider's guide gives a program a season and episode number, your recording is now named with those numbers. Shows whose titles never spell out `S01E05` no longer fall back to a plain title-and-date name, so Plex and Jellyfin can match them to the right show. If you have set your own TV filename template, it is now used for these recordings too, even when the program has no episode subtitle — previously your template was quietly skipped for any show that does not publish subtitles.
+
+Nothing changes for programs whose guide entry has no season or episode: Mustarrd still reads the numbers out of the title and description exactly as before. A program whose guide gives only one of the two (a season but no episode, or the reverse) is treated as having no numbering at all, so you never get a file named `S03E00`.
+
+**What changed:** The naming step now asks the guide entry for its season and episode first, and only guesses from the title text when the guide did not supply both. Template selection follows: a real season and episode is enough to use your configured TV template, while the built-in no-subtitle name is unchanged when you have not set one.
+
 ### Fixed: Browse shows the same program details as search
 
 **What you would notice:** A program you open from Browse now shows the same details as the same program found through search: its category, its episode subtitle, its season and episode number, and any TVDB, TMDB, IMDb or Gracenote ID your provider published. Previously Browse often showed only the title and the times, because many providers answer the live guide request with nothing else.

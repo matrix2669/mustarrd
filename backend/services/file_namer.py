@@ -3,6 +3,8 @@ import unicodedata
 from datetime import datetime
 from typing import Optional, Tuple
 
+from guide_metadata import GuideMetadata
+
 
 class FileNamer:
     # Device names Windows refuses to use as a filename stem. A program titled
@@ -153,6 +155,23 @@ class FileNamer:
 
         return None
 
+    @staticmethod
+    def guide_season_episode(program: dict) -> Optional[Tuple[int, int]]:
+        """The season and episode the guide itself published, if it published both.
+
+        ``guide_metadata`` owns the field list and the parsing rules, so this
+        asks it rather than reading individual keys off the program: whether the
+        payload carries parsed numbers or only the provider's raw episode-num
+        strings, the answer is the same one the guide shows.
+
+        Only one of the two is not usable numbering — naming a file S03E00 is
+        worse than falling back to the title text — so it counts as neither.
+        """
+        meta = GuideMetadata.from_guide_entry(program)
+        if meta.season_number is None or meta.episode_number is None:
+            return None
+        return (meta.season_number, meta.episode_number)
+
     @classmethod
     def extract_show_name(cls, title: str) -> str:
         """Extract the show name from a title with season/episode info."""
@@ -234,7 +253,9 @@ class FileNamer:
 
         if program_type == "tv_show":
             full_text = f"{title} {description}"
-            season_ep = self.extract_season_episode(full_text)
+            # What the guide published beats what the title text looks like.
+            from_guide = self.guide_season_episode(program)
+            season_ep = from_guide or self.extract_season_episode(full_text)
             if season_ep:
                 show_name = self.extract_show_name(title)
                 episode_title = self.extract_episode_title(title)
@@ -243,7 +264,10 @@ class FileNamer:
                     "title": episode_title, "date": date_str, "channel": channel_name,
                 }
                 custom = s.get("tv_template")
-                if custom and episode_title:
+                # A real season and episode is enough to honour the user's TV
+                # template; a title-guessed number without a subtitle still
+                # takes the no-subtitle default it always has.
+                if custom and (episode_title or from_guide):
                     template = custom
                 elif episode_title:
                     template = self._DEFAULT_TEMPLATES["tv"]

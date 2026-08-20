@@ -192,6 +192,126 @@ class DetectSportsTests(unittest.TestCase):
         self.assertTrue(FileNamer.detect_sports("Some Broadcast", "US Sports"))
 
 
+class GuideSeasonEpisodeFilenameTests(unittest.TestCase):
+    """Season and episode carried on the guide program beat the title text."""
+
+    def setUp(self):
+        self.namer = FileNamer()
+        self.channel = {"name": "US CBS EAST"}
+
+    def test_guide_numbers_beat_title_text(self):
+        program = {
+            "title": "The Crown S09E99",
+            "description": "",
+            "start_time": "2026-06-10T20:00:00",
+            "season_number": 1,
+            "episode_number": 5,
+        }
+        result = self.namer.generate_filename(program, self.channel, "tv_show")
+        self.assertEqual(result, "The Crown - S01E05.ts")
+
+    def test_title_without_marker_still_numbered(self):
+        program = {
+            "title": "The Price Is Right",
+            "description": "Participants must guess the prices of different items.",
+            "start_time": "2026-06-10T08:00:00",
+            "season_number": 54,
+            "episode_number": 173,
+        }
+        result = self.namer.generate_filename(program, self.channel, "tv_show")
+        self.assertEqual(result, "The Price Is Right - S54E173.ts")
+
+    def test_custom_template_used_without_subtitle(self):
+        program = {
+            "title": "The Price Is Right",
+            "description": "",
+            "start_time": "2026-06-10T08:00:00",
+            "season_number": 54,
+            "episode_number": 173,
+        }
+        settings = {
+            "tv_template": "{show}/Season {season:02d}/{show} - S{season:02d}E{episode:02d}"
+        }
+        result = self.namer.generate_filename(program, self.channel, "tv_show", settings)
+        self.assertEqual(
+            result,
+            "The Price Is Right/Season 54/The Price Is Right - S54E173.ts",
+        )
+
+    def test_default_no_subtitle_template_when_no_custom_template(self):
+        program = {
+            "title": "The Price Is Right",
+            "description": "",
+            "start_time": "2026-06-10T08:00:00",
+            "season_number": 54,
+            "episode_number": 173,
+        }
+        result = self.namer.generate_filename(program, self.channel, "tv_show", {})
+        self.assertEqual(result, "The Price Is Right - S54E173.ts")
+
+    def test_falls_back_to_title_text_without_guide_numbers(self):
+        program = {
+            "title": "The Crown S01E01 - Hyde Park Corner",
+            "description": "",
+            "start_time": "2026-06-10T20:00:00",
+        }
+        result = self.namer.generate_filename(program, self.channel, "tv_show")
+        self.assertEqual(result, "The Crown - S01E01 - Hyde Park Corner.ts")
+
+    def test_season_without_episode_falls_through(self):
+        program = {
+            "title": "The Price Is Right",
+            "description": "",
+            "start_time": "2026-06-10T08:00:00",
+            "season_number": 3,
+        }
+        result = self.namer.generate_filename(program, self.channel, "tv_show")
+        self.assertEqual(result, "The Price Is Right - 2026-06-10.ts")
+
+    def test_episode_without_season_falls_through(self):
+        program = {
+            "title": "The Price Is Right",
+            "description": "",
+            "start_time": "2026-06-10T08:00:00",
+            "episode_number": 173,
+        }
+        result = self.namer.generate_filename(program, self.channel, "tv_show")
+        self.assertEqual(result, "The Price Is Right - 2026-06-10.ts")
+
+    def test_season_without_episode_still_uses_title_text(self):
+        program = {
+            "title": "The Crown S01E01 - Hyde Park Corner",
+            "description": "",
+            "start_time": "2026-06-10T20:00:00",
+            "season_number": 3,
+        }
+        result = self.namer.generate_filename(program, self.channel, "tv_show")
+        self.assertEqual(result, "The Crown - S01E01 - Hyde Park Corner.ts")
+
+    def test_raw_episode_num_string_is_used(self):
+        # A live guide entry can carry the provider's raw episode-num string
+        # without parsed numbers; guide_metadata parses it for us.
+        program = {
+            "title": "The Price Is Right",
+            "description": "",
+            "start_time": "2026-06-10T08:00:00",
+            "episode_num_onscreen": "S54E173",
+        }
+        result = self.namer.generate_filename(program, self.channel, "tv_show")
+        self.assertEqual(result, "The Price Is Right - S54E173.ts")
+
+    def test_specials_season_zero_is_a_real_season(self):
+        program = {
+            "title": "Doctor Who",
+            "description": "",
+            "start_time": "2026-06-10T20:00:00",
+            "season_number": 0,
+            "episode_number": 2,
+        }
+        result = self.namer.generate_filename(program, self.channel, "tv_show")
+        self.assertEqual(result, "Doctor Who - S00E02.ts")
+
+
 class GenerateFilenameTests(unittest.TestCase):
     def setUp(self):
         self.namer = FileNamer()
