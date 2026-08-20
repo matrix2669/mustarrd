@@ -214,8 +214,17 @@ class ScheduledManager:
                         "duration_minutes": snap["duration_minutes"],
                         "epg_id": snap["epg_id"],
                         "id": snap["program_id"],
+                        "channel_id": snap["channel_id"],
                         "category": snap["channel_category_name"] or "",
                     }
+
+                    # The snapshot saved when the schedule was created carries
+                    # no structured metadata, so the recording would be named
+                    # from title text alone. The stored guide entry for this
+                    # exact airing still has the season and episode.
+                    await epg_service.fill_gaps_from_stored(
+                        session, snap["account_id"], [program]
+                    )
 
                     download = await build_download_from_program(
                         session,

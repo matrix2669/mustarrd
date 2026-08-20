@@ -12,7 +12,9 @@ All notable changes to Mustarrd are listed here. Most recent changes are at the 
 
 Nothing changes for programs whose guide entry has no season or episode: Mustarrd still reads the numbers out of the title and description exactly as before. A program whose guide gives only one of the two (a season but no episode, or the reverse) is treated as having no numbering at all, so you never get a file named `S03E00`.
 
-**What changed:** The naming step now asks the guide entry for its season and episode first, and only guesses from the title text when the guide did not supply both. Template selection follows: a real season and episode is enough to use your configured TV template, while the built-in no-subtitle name is unchanged when you have not set one.
+This works for recordings you start straight away and for scheduled recordings alike.
+
+**What changed:** The naming step now asks the guide entry for its season and episode first, and only guesses from the title text when the guide did not supply both. Template selection follows: a real season and episode is enough to use your configured TV template, while the built-in no-subtitle name is unchanged when you have not set one. A scheduled recording saves only the title, description and times of its airing, so when it fires it now looks the rest up from the guide entry for that exact airing, the same way Browse does.
 
 ### Fixed: Browse shows the same program details as search
 

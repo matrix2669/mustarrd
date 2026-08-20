@@ -185,6 +185,25 @@ class GuideEntryParsingTests(unittest.TestCase):
         self.assertEqual(meta, GuideMetadata())
 
 
+class SeasonEpisodeTests(unittest.TestCase):
+    def test_both_numbers_present(self):
+        meta = GuideMetadata(season_number=54, episode_number=173)
+        self.assertEqual(meta.season_episode, (54, 173))
+
+    def test_season_zero_is_a_real_season(self):
+        meta = GuideMetadata(season_number=0, episode_number=2)
+        self.assertEqual(meta.season_episode, (0, 2))
+
+    def test_season_without_episode_is_nothing(self):
+        self.assertIsNone(GuideMetadata(season_number=3).season_episode)
+
+    def test_episode_without_season_is_nothing(self):
+        self.assertIsNone(GuideMetadata(episode_number=7).season_episode)
+
+    def test_neither_is_nothing(self):
+        self.assertIsNone(GuideMetadata().season_episode)
+
+
 class GapFillTests(unittest.TestCase):
     def test_missing_fields_taken_from_the_other_instance(self):
         live = GuideMetadata(subtitle="Pilot")

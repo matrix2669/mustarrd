@@ -192,7 +192,7 @@ class EPGService:
                 ]
                 filtered = self._filter_programs_by_cutoff(processed, cutoff)
                 deduped = self._dedupe_programs(filtered)
-                return await self._fill_live_gaps_from_stored(
+                return await self.fill_gaps_from_stored(
                     session, account_id, deduped
                 )
             finally:
@@ -290,7 +290,7 @@ class EPGService:
 
         # Whatever structured metadata the provider did send, in the same shape
         # the stored guide read uses. Usually nothing: this is the gap that
-        # _fill_live_gaps_from_stored fills from the stored entry.
+        # fill_gaps_from_stored fills from the stored entry.
         metadata = GuideMetadata.from_guide_entry(entry)
 
         return {
@@ -310,17 +310,19 @@ class EPGService:
             **metadata.to_api(),
         }
 
-    async def _fill_live_gaps_from_stored(
+    async def fill_gaps_from_stored(
         self,
         session: AsyncSession,
         account_id: int,
         programs: list[dict],
     ) -> list[dict]:
-        """Fill metadata a sparse live guide response left out from storage.
+        """Fill metadata a program dict is missing from the stored guide entry.
 
         Many providers answer the live guide endpoint with title and timing only,
         which made Browse show less than search for the very same airing. The
-        stored guide entry for that airing has the rest, so borrow it.
+        stored guide entry for that airing has the rest, so borrow it. A
+        scheduled recording, rebuilt from its own saved snapshot at fire time,
+        is thin in the same way and gets its metadata back from here too.
 
         A stored entry only counts when it is unambiguously the same airing:
         same account, same channel, same start, same stop. No match means the

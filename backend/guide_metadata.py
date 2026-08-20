@@ -235,6 +235,19 @@ class GuideMetadata:
     def primary_category(self) -> Optional[str]:
         return self.categories[0] if self.categories else None
 
+    @property
+    def season_episode(self) -> Optional[tuple[int, int]]:
+        """Both numbers, or nothing.
+
+        One without the other is not usable numbering: a filename reading
+        ``S03E00`` is worse than one with no numbering at all. Callers that
+        want a season and an episode ask for the pair, so the rule lives here
+        rather than being re-derived by each of them.
+        """
+        if self.season_number is None or self.episode_number is None:
+            return None
+        return (self.season_number, self.episode_number)
+
     # --- constructors -------------------------------------------------
 
     @classmethod
