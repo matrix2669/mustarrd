@@ -16,7 +16,7 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from guide_metadata import GuideMetadata
+from guide_metadata import GuideMetadata, GuideMetadataColumns
 
 
 def _programme(inner: str):
@@ -112,6 +112,23 @@ class XmltvParsingTests(unittest.TestCase):
         self.assertIsNone(meta.season_number)
         self.assertEqual(meta.episode_number, 5)
 
+    def test_specials_season_zero_is_kept(self):
+        """S00 is the specials season, not a failed parse."""
+        meta = GuideMetadata.from_xmltv_element(
+            _programme('<episode-num system="onscreen">S00E01</episode-num>')
+        )
+        self.assertEqual((meta.season_number, meta.episode_number), (0, 1))
+
+    def test_numbers_are_never_mixed_between_the_two_forms(self):
+        """A season from one system must not be paired with an episode from the other."""
+        meta = GuideMetadata.from_xmltv_element(
+            _programme(
+                '<episode-num system="onscreen">Season 3</episode-num>'
+                '<episode-num system="xmltv_ns">1 . 2 . 0/1</episode-num>'
+            )
+        )
+        self.assertEqual((meta.season_number, meta.episode_number), (2, 3))
+
     def test_raw_episode_number_strings_preserved(self):
         meta = GuideMetadata.from_xmltv_element(
             _programme('<episode-num system="onscreen">bananas</episode-num>')
@@ -189,6 +206,14 @@ class GapFillTests(unittest.TestCase):
         self.assertEqual(list(merged.categories), ["News"])
         self.assertEqual(merged.season_number, 4)
 
+    def test_season_zero_counts_as_present(self):
+        live = GuideMetadata(season_number=0, episode_number=1)
+        stored = GuideMetadata(season_number=9, episode_number=9)
+
+        merged = live.fill_gaps_from(stored)
+
+        self.assertEqual((merged.season_number, merged.episode_number), (0, 1))
+
     def test_filling_from_empty_metadata_changes_nothing(self):
         live = GuideMetadata(subtitle="Pilot", categories=("Series",))
         self.assertEqual(live.fill_gaps_from(GuideMetadata()), live)
@@ -239,6 +264,11 @@ class ProjectionTests(unittest.TestCase):
         self.assertEqual(payload["episode_number"], 2)
         self.assertEqual(payload["episode_num_onscreen"], "S01E02")
         self.assertIsNone(payload["tvdb_id"])
+
+    def test_declared_columns_match_the_field_list(self):
+        """The model columns and the field list cannot drift apart."""
+        declared = {name for name in vars(GuideMetadataColumns) if not name.startswith("_")}
+        self.assertEqual(declared, set(GuideMetadata.NEW_COLUMN_NAMES))
 
     def test_column_names_cover_every_declared_field(self):
         """The field list is the single source of truth for storage."""

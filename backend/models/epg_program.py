@@ -2,12 +2,12 @@ from datetime import datetime
 from sqlalchemy import String, Integer, DateTime, Text, Boolean, ForeignKey, Index
 from sqlalchemy.orm import Mapped, mapped_column
 from database import Base
-from guide_metadata import guide_metadata_mixin
+from guide_metadata import GuideMetadataColumns
 
 
 # Structured guide metadata (subtitle, categories, season/episode, external IDs)
 # is declared once in guide_metadata.py and mixed in here.
-class EPGProgram(guide_metadata_mixin(), Base):
+class EPGProgram(GuideMetadataColumns, Base):
     __tablename__ = "epg_programs"
     __table_args__ = (
         Index("ix_epg_programs_account_channel_start", "account_id", "channel_id", "start_time"),

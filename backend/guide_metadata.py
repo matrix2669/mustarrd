@@ -1,8 +1,9 @@
 """Structured metadata Mustarrd keeps for a guide program.
 
 This module owns the field list. Adding another structured field means editing
-this file only: the database columns, the startup migration, the model, the row
-projection and the API payload are all generated from ``_FIELDS`` below.
+this file only: declare the column on ``GuideMetadataColumns``, add a ``_Field``
+to ``_FIELDS``, and the startup migration, the row projection and the guide
+payload all pick it up.
 
 Nothing else should reach for an individual metadata field on an XMLTV element,
 a provider guide entry or a stored row. Ask this module instead:
@@ -21,40 +22,126 @@ The module lives at the backend root rather than under ``services/`` because
 import json
 import re
 from dataclasses import dataclass, field, replace
-from typing import Any, ClassVar, Optional
+from typing import Any, Callable, ClassVar, Optional
 
 from sqlalchemy import Integer, String, Text
-from sqlalchemy.orm import mapped_column
+from sqlalchemy.orm import Mapped, mapped_column
+
+
+class GuideMetadataColumns:
+    """The epg_programs columns holding structured guide metadata.
+
+    Mixed into the EPGProgram model. Every column here has a matching entry in
+    ``_FIELDS`` below; ``test_guide_metadata`` fails if the two drift apart.
+    """
+
+    subtitle: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    # The full category list as JSON. The first category also goes to the
+    # pre-existing "category" column, so everything reading it keeps working.
+    categories_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    season_number: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    episode_number: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    episode_num_onscreen: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    episode_num_xmltv: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    gracenote_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    tvdb_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    tmdb_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    imdb_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+
+
+def _clean_text(value: Any) -> Optional[str]:
+    """Blank and whitespace-only values are absent, not empty."""
+    if value is None:
+        return None
+    text_value = str(value).strip()
+    return text_value or None
+
+
+def _clean_int(value: Any) -> Optional[int]:
+    """Anything that is not a whole number is absent.
+
+    Zero is kept: an on-screen S00E01 is the specials season, not a bad parse.
+    Negatives are not: providers use -1 to mean "unknown".
+    """
+    if isinstance(value, bool) or value is None:
+        return None
+    try:
+        number = int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+    return number if number >= 0 else None
+
+
+def _dedupe_categories(values) -> tuple[str, ...]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values or ():
+        cleaned = _clean_text(value)
+        if not cleaned:
+            continue
+        key = cleaned.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(cleaned)
+    return tuple(result)
+
+
+def _decode_categories(raw) -> tuple[str, ...]:
+    if not raw:
+        return ()
+    if isinstance(raw, (list, tuple)):
+        return _dedupe_categories(raw)
+    try:
+        decoded = json.loads(raw)
+    except (TypeError, ValueError):
+        return _dedupe_categories([raw])
+    return _dedupe_categories(decoded if isinstance(decoded, list) else [decoded])
+
+
+@dataclass(frozen=True)
+class _Codec:
+    """How one kind of field crosses the storage and API boundaries."""
+
+    from_storage: Callable[[Any], Any]
+    to_storage: Callable[[Any], Any]
+    to_api: Callable[[Any], Any]
+
+
+_TEXT = _Codec(from_storage=_clean_text, to_storage=lambda v: v, to_api=lambda v: v)
+_INT = _Codec(from_storage=_clean_int, to_storage=lambda v: v, to_api=lambda v: v)
+_CATEGORY_LIST = _Codec(
+    from_storage=_decode_categories,
+    to_storage=lambda v: json.dumps(list(v)) if v else None,
+    to_api=list,
+)
 
 
 @dataclass(frozen=True)
 class _Field:
     """One structured metadata field and everything the app needs to know about it."""
 
-    name: str           # attribute on GuideMetadata and key in the API payload
-    column: str         # column on epg_programs
-    ddl: str            # column type for the startup ALTER TABLE migration
-    sa_type: Any        # column type for the model
-    kind: str           # "text", "int" or "categories"
-    new_column: bool = True  # False for columns that predate this module
+    name: str      # attribute on GuideMetadata and key in the guide payload
+    column: str    # column on epg_programs, declared in GuideMetadataColumns
+    ddl: str       # column type for the startup ALTER TABLE migration
+    codec: _Codec
 
 
 _FIELDS: tuple[_Field, ...] = (
-    _Field("subtitle", "subtitle", "VARCHAR(500)", String(500), "text"),
-    # The full category list is stored as JSON; the first category also goes to
-    # the pre-existing "category" column so everything reading it keeps working.
-    _Field("categories", "categories_json", "TEXT", Text, "categories"),
-    _Field("season_number", "season_number", "INTEGER", Integer, "int"),
-    _Field("episode_number", "episode_number", "INTEGER", Integer, "int"),
-    _Field("episode_num_onscreen", "episode_num_onscreen", "VARCHAR(255)", String(255), "text"),
-    _Field("episode_num_xmltv", "episode_num_xmltv", "VARCHAR(255)", String(255), "text"),
-    _Field("gracenote_id", "gracenote_id", "VARCHAR(128)", String(128), "text"),
-    _Field("tvdb_id", "tvdb_id", "VARCHAR(128)", String(128), "text"),
-    _Field("tmdb_id", "tmdb_id", "VARCHAR(128)", String(128), "text"),
-    _Field("imdb_id", "imdb_id", "VARCHAR(128)", String(128), "text"),
+    _Field("subtitle", "subtitle", "VARCHAR(500)", _TEXT),
+    _Field("categories", "categories_json", "TEXT", _CATEGORY_LIST),
+    _Field("season_number", "season_number", "INTEGER", _INT),
+    _Field("episode_number", "episode_number", "INTEGER", _INT),
+    _Field("episode_num_onscreen", "episode_num_onscreen", "VARCHAR(255)", _TEXT),
+    _Field("episode_num_xmltv", "episode_num_xmltv", "VARCHAR(255)", _TEXT),
+    _Field("gracenote_id", "gracenote_id", "VARCHAR(128)", _TEXT),
+    _Field("tvdb_id", "tvdb_id", "VARCHAR(128)", _TEXT),
+    _Field("tmdb_id", "tmdb_id", "VARCHAR(128)", _TEXT),
+    _Field("imdb_id", "imdb_id", "VARCHAR(128)", _TEXT),
 )
 
-# The pre-existing single-category column, kept in sync with categories[0].
+# The single-category column that predates this module, kept in sync with
+# categories[0] so nothing reading it has to change.
 _PRIMARY_CATEGORY_COLUMN = "category"
 
 # XMLTV episode-num systems that carry an external identifier rather than a
@@ -74,41 +161,6 @@ _ID_SYSTEMS = {
 
 _ONSCREEN_SE_RE = re.compile(r"s\s*(\d{1,4})\s*[.\-_ ]?\s*e\s*(\d{1,4})", re.IGNORECASE)
 _ONSCREEN_X_RE = re.compile(r"\b(\d{1,4})\s*x\s*(\d{1,4})\b", re.IGNORECASE)
-_ONSCREEN_EP_ONLY_RE = re.compile(r"^\s*(?:ep(?:isode)?\.?\s*)?(\d{1,4})\s*$", re.IGNORECASE)
-
-
-def _clean_text(value: Any) -> Optional[str]:
-    """Blank and whitespace-only values are absent, not empty."""
-    if value is None:
-        return None
-    text_value = str(value).strip()
-    return text_value or None
-
-
-def _clean_int(value: Any) -> Optional[int]:
-    """Anything that is not a positive integer is absent."""
-    if isinstance(value, bool) or value is None:
-        return None
-    try:
-        number = int(str(value).strip())
-    except (TypeError, ValueError):
-        return None
-    return number if number > 0 else None
-
-
-def _dedupe_categories(values) -> tuple[str, ...]:
-    seen: set[str] = set()
-    result: list[str] = []
-    for value in values or ():
-        cleaned = _clean_text(value)
-        if not cleaned:
-            continue
-        key = cleaned.casefold()
-        if key in seen:
-            continue
-        seen.add(key)
-        result.append(cleaned)
-    return tuple(result)
 
 
 def _parse_onscreen(raw: Optional[str]) -> tuple[Optional[int], Optional[int]]:
@@ -117,16 +169,13 @@ def _parse_onscreen(raw: Optional[str]) -> tuple[Optional[int], Optional[int]]:
     match = _ONSCREEN_SE_RE.search(raw) or _ONSCREEN_X_RE.search(raw)
     if match:
         return _clean_int(match.group(1)), _clean_int(match.group(2))
-    episode_only = _ONSCREEN_EP_ONLY_RE.match(raw)
-    if episode_only:
-        return None, _clean_int(episode_only.group(1))
     return None, None
 
 
 def _parse_xmltv_ns(raw: Optional[str]) -> tuple[Optional[int], Optional[int]]:
     """XMLTV's ``season.episode.part`` form is zero-based; convert to one-based.
 
-    A negative part (providers use -1 for "unknown") stays absent rather than
+    A negative value (providers use -1 for "unknown") stays absent rather than
     becoming season 0.
     """
     if not raw:
@@ -148,6 +197,18 @@ def _parse_xmltv_ns(raw: Optional[str]) -> tuple[Optional[int], Optional[int]]:
     return _one_based(0), _one_based(1)
 
 
+def _is_absent(value: Any) -> bool:
+    """Season 0 is a real season, so absence is not the same as falsiness."""
+    return value is None or value == ()
+
+
+def _first_present(entry: dict, *keys: str) -> Any:
+    for key in keys:
+        if key in entry:
+            return entry[key]
+    return None
+
+
 @dataclass(frozen=True)
 class GuideMetadata:
     """The structured metadata a provider published for one guide program."""
@@ -164,9 +225,11 @@ class GuideMetadata:
     imdb_id: Optional[str] = None
 
     # Every storage column this metadata owns, primary category included.
-    COLUMN_NAMES: ClassVar[tuple[str, ...]] = ()
-    # The columns added by this module, for the startup migration.
-    NEW_COLUMN_NAMES: ClassVar[tuple[str, ...]] = ()
+    COLUMN_NAMES: ClassVar[tuple[str, ...]] = (_PRIMARY_CATEGORY_COLUMN,) + tuple(
+        f.column for f in _FIELDS
+    )
+    # The columns this module added, for the startup migration.
+    NEW_COLUMN_NAMES: ClassVar[tuple[str, ...]] = tuple(f.column for f in _FIELDS)
 
     @property
     def primary_category(self) -> Optional[str]:
@@ -190,10 +253,8 @@ class GuideMetadata:
             elif tag == "category":
                 if value:
                     categories.append(value)
-            elif tag == "episode-num":
+            elif tag == "episode-num" and value:
                 system = (child.get("system") or "").strip().lower()
-                if not value:
-                    continue
                 id_attribute = _ID_SYSTEMS.get(system)
                 if id_attribute:
                     external_ids.setdefault(id_attribute, value)
@@ -218,25 +279,21 @@ class GuideMetadata:
 
     @classmethod
     def from_guide_entry(cls, entry: dict) -> "GuideMetadata":
-        """Read a provider guide entry (or an already-normalized program dict)."""
+        """Read a provider guide entry, or a guide payload of our own shape."""
         entry = entry or {}
-        categories = entry.get("categories")
-        if not categories:
-            categories = [entry.get("category") or entry.get("genre")]
+        categories = entry.get("categories") or [entry.get(_PRIMARY_CATEGORY_COLUMN)]
 
         onscreen = _clean_text(entry.get("episode_num_onscreen"))
         xmltv_ns = _clean_text(entry.get("episode_num_xmltv"))
-        season = _clean_int(entry.get("season_number") if "season_number" in entry else entry.get("season"))
-        episode = _clean_int(
-            entry.get("episode_number") if "episode_number" in entry else entry.get("episode")
-        )
+        season = _clean_int(_first_present(entry, "season_number", "season"))
+        episode = _clean_int(_first_present(entry, "episode_number", "episode"))
         if season is None and episode is None:
             season, episode = cls._pick_season_episode(
                 _parse_onscreen(onscreen), _parse_xmltv_ns(xmltv_ns)
             )
 
         return cls(
-            subtitle=_clean_text(entry.get("subtitle") or entry.get("sub_title")),
+            subtitle=_clean_text(_first_present(entry, "subtitle", "sub_title")),
             categories=_dedupe_categories(categories),
             season_number=season,
             episode_number=episode,
@@ -251,15 +308,9 @@ class GuideMetadata:
     @classmethod
     def from_row(cls, row) -> "GuideMetadata":
         """Read a stored guide row (an EPGProgram, or anything shaped like one)."""
-        values: dict[str, Any] = {}
-        for meta_field in _FIELDS:
-            raw = getattr(row, meta_field.column, None)
-            if meta_field.kind == "categories":
-                values[meta_field.name] = _dedupe_categories(cls._decode_categories(raw))
-            elif meta_field.kind == "int":
-                values[meta_field.name] = _clean_int(raw)
-            else:
-                values[meta_field.name] = _clean_text(raw)
+        values = {
+            f.name: f.codec.from_storage(getattr(row, f.column, None)) for f in _FIELDS
+        }
 
         # Rows written before this module have only the single category column.
         if not values["categories"]:
@@ -273,22 +324,13 @@ class GuideMetadata:
 
     def to_columns(self) -> dict:
         """The database columns for this metadata, ready to merge into a row dict."""
-        columns: dict[str, Any] = {_PRIMARY_CATEGORY_COLUMN: self.primary_category}
-        for meta_field in _FIELDS:
-            value = getattr(self, meta_field.name)
-            if meta_field.kind == "categories":
-                columns[meta_field.column] = json.dumps(list(value)) if value else None
-            else:
-                columns[meta_field.column] = value
+        columns = {f.column: f.codec.to_storage(getattr(self, f.name)) for f in _FIELDS}
+        columns[_PRIMARY_CATEGORY_COLUMN] = self.primary_category
         return columns
 
     def to_api(self) -> dict:
         """The guide-payload shape. Every key is nullable and additive."""
-        payload: dict[str, Any] = {}
-        for meta_field in _FIELDS:
-            value = getattr(self, meta_field.name)
-            payload[meta_field.name] = list(value) if meta_field.kind == "categories" else value
-        return payload
+        return {f.name: f.codec.to_api(getattr(self, f.name)) for f in _FIELDS}
 
     # --- merging ------------------------------------------------------
 
@@ -297,9 +339,9 @@ class GuideMetadata:
         if other is None:
             return self
         filled = {
-            meta_field.name: getattr(other, meta_field.name)
-            for meta_field in _FIELDS
-            if not getattr(self, meta_field.name)
+            f.name: getattr(other, f.name)
+            for f in _FIELDS
+            if _is_absent(getattr(self, f.name))
         }
         return replace(self, **filled) if filled else self
 
@@ -307,42 +349,18 @@ class GuideMetadata:
 
     @staticmethod
     def _pick_season_episode(onscreen, xmltv_ns) -> tuple[Optional[int], Optional[int]]:
-        """Prefer the on-screen form when it yields both numbers."""
-        for candidate in (onscreen, xmltv_ns):
-            if candidate[0] is not None and candidate[1] is not None:
-                return candidate
-        return (
-            onscreen[0] if onscreen[0] is not None else xmltv_ns[0],
-            onscreen[1] if onscreen[1] is not None else xmltv_ns[1],
-        )
+        """Prefer the on-screen form when it yields both numbers, else the XMLTV one.
 
-    @staticmethod
-    def _decode_categories(raw) -> list:
-        if not raw:
-            return []
-        if isinstance(raw, (list, tuple)):
-            return list(raw)
-        try:
-            decoded = json.loads(raw)
-        except (TypeError, ValueError):
-            return [raw]
-        return decoded if isinstance(decoded, list) else [decoded]
-
-
-GuideMetadata.COLUMN_NAMES = (_PRIMARY_CATEGORY_COLUMN,) + tuple(f.column for f in _FIELDS)
-GuideMetadata.NEW_COLUMN_NAMES = tuple(f.column for f in _FIELDS if f.new_column)
+        One form or the other, never a season from one paired with an episode
+        from the other.
+        """
+        if onscreen[0] is not None and onscreen[1] is not None:
+            return onscreen
+        if xmltv_ns[0] is not None or xmltv_ns[1] is not None:
+            return xmltv_ns
+        return onscreen
 
 
 def metadata_column_ddl() -> tuple[tuple[str, str], ...]:
     """(column, SQL type) for the startup ALTER TABLE migration."""
-    return tuple((f.column, f.ddl) for f in _FIELDS if f.new_column)
-
-
-def guide_metadata_mixin() -> type:
-    """A declarative mixin carrying one column per metadata field."""
-    namespace = {
-        f.column: mapped_column(f.sa_type, nullable=True)
-        for f in _FIELDS
-        if f.new_column
-    }
-    return type("GuideMetadataColumns", (), namespace)
+    return tuple((f.column, f.ddl) for f in _FIELDS)
