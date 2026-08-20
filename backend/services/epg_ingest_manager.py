@@ -21,6 +21,7 @@ from services.account_credentials import resolve_account_password
 from services.xtream_client import XtreamClient
 from services.epg_service import epg_service
 from services.log_stream import backend_log_stream
+from services.epg_metadata import extract_xmltv_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +33,17 @@ def _program_insert_stmt():
         set_={
             "title": stmt.excluded.title,
             "description": stmt.excluded.description,
-            "category": stmt.excluded.category,
+            "category": func.coalesce(stmt.excluded.category, EPGProgram.category),
+            "subtitle": func.coalesce(stmt.excluded.subtitle, EPGProgram.subtitle),
+            "categories_json": func.coalesce(stmt.excluded.categories_json, EPGProgram.categories_json),
+            "season_number": func.coalesce(stmt.excluded.season_number, EPGProgram.season_number),
+            "episode_number": func.coalesce(stmt.excluded.episode_number, EPGProgram.episode_number),
+            "episode_onscreen": func.coalesce(stmt.excluded.episode_onscreen, EPGProgram.episode_onscreen),
+            "episode_xmltv_ns": func.coalesce(stmt.excluded.episode_xmltv_ns, EPGProgram.episode_xmltv_ns),
+            "dd_progid": func.coalesce(stmt.excluded.dd_progid, EPGProgram.dd_progid),
+            "tvdb_id": func.coalesce(stmt.excluded.tvdb_id, EPGProgram.tvdb_id),
+            "tmdb_id": func.coalesce(stmt.excluded.tmdb_id, EPGProgram.tmdb_id),
+            "imdb_id": func.coalesce(stmt.excluded.imdb_id, EPGProgram.imdb_id),
             # Repair rows missing the provider-local start/stop (e.g. created by
             # API backfill entries without a "start" field, or rows predating the
             # provider_start column). Without provider_start the timeshift URL
@@ -771,7 +782,8 @@ class EPGIngestManager:
 
                 title = self._extract_text(elem, "title") or "Unknown"
                 description = self._extract_text(elem, "desc")
-                category = self._extract_text(elem, "category")
+                metadata = extract_xmltv_metadata(elem)
+                category = metadata.get("category") or self._extract_text(elem, "category")
 
                 start_ts = int(start_utc.timestamp())
                 stop_ts = int(end_utc.timestamp())
@@ -792,6 +804,16 @@ class EPGIngestManager:
                         "title": title,
                         "description": description,
                         "category": category,
+                        "subtitle": metadata.get("subtitle"),
+                        "categories_json": metadata.get("categories_json"),
+                        "season_number": metadata.get("season_number"),
+                        "episode_number": metadata.get("episode_number"),
+                        "episode_onscreen": metadata.get("episode_onscreen"),
+                        "episode_xmltv_ns": metadata.get("episode_xmltv_ns"),
+                        "dd_progid": metadata.get("dd_progid"),
+                        "tvdb_id": metadata.get("tvdb_id"),
+                        "tmdb_id": metadata.get("tmdb_id"),
+                        "imdb_id": metadata.get("imdb_id"),
                         "start_time": start_utc,
                         "end_time": end_utc,
                         "start_timestamp": start_ts,

@@ -84,7 +84,10 @@ class MovieDownloadRequest(BaseModel):
     name: str
     container_extension: Optional[str] = None
     direct_source: Optional[str] = None
-    release_date: Optional[str] = None
+    # Xtream providers commonly return a bare numeric year here. Accept either
+    # form at the API boundary and normalize before handing it to the service.
+    release_date: Optional[str | int] = None
+    tmdb_id: Optional[str | int] = None
 
 
 class EpisodeItem(BaseModel):
@@ -101,23 +104,31 @@ class SeriesDownloadRequest(BaseModel):
     account_id: int
     series_id: str
     series_name: str
+    tmdb_id: Optional[str | int] = None
     episodes: Annotated[list[EpisodeItem], Field(max_length=200)]
 
 
-class ExternalVODDownloadRequest(BaseModel):
-    """Trusted integration request for an already-resolved VOD source.
+def _extract_tmdb_id(payload: object) -> Optional[str]:
+    """Extract provider TMDB metadata from common Xtream response shapes."""
+    if not isinstance(payload, dict):
+        return None
 
-    The caller supplies the exact provider URL plus a path relative to Mustarrd's
-    configured downloads root. DownloadManager then preserves that relative path
-    when it moves the completed file into the completed root.
-    """
+    info = payload.get("info")
+    if not isinstance(info, dict):
+        info = {}
 
-    account_id: int
-    media_id: str = Field(min_length=1, max_length=255)
-    title: str = Field(min_length=1, max_length=500)
-    source_url: str = Field(min_length=1, max_length=8192)
-    relative_output_path: str = Field(min_length=1, max_length=900)
-    duration_minutes: int = Field(default=0, ge=0, le=100000)
+    for value in (
+        info.get("tmdb_id"),
+        info.get("tmdb"),
+        payload.get("tmdb_id"),
+        payload.get("tmdb"),
+    ):
+        if value is None:
+            continue
+        normalized = str(value).strip()
+        if normalized:
+            return normalized
+    return None
 
 
 async def _get_client(session: AsyncSession, account: XtreamAccount) -> XtreamClient:
@@ -135,97 +146,38 @@ async def _get_account(session: AsyncSession, account_id: int) -> XtreamAccount:
     return account
 
 
-def _validate_external_source_url(source_url: str) -> str:
-    """Accept only an absolute HTTP(S) URL for trusted integration downloads."""
-    try:
-        parsed = urlparse(source_url)
-    except Exception as exc:
-        raise ValueError("Invalid source URL") from exc
-    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-        raise ValueError("source_url must be an absolute HTTP(S) URL")
-    return source_url
-
-
-def _external_output_path(download_folder: str, relative_output_path: str) -> str:
-    """Resolve a caller-supplied relative path without allowing root escape."""
-    raw = str(relative_output_path or "").strip()
-    if not raw or "\x00" in raw:
-        raise ValueError("Invalid output path")
-
-    # Treat backslashes as separators too so a Windows-style traversal string
-    # cannot bypass validation when Mustarrd runs on Linux.
-    normalized = raw.replace("\\", "/")
-    relative = FilePath(normalized)
-    if relative.is_absolute() or any(part == ".." for part in relative.parts):
-        raise ValueError("Output path must remain relative to the downloads folder")
-
-    parts = [part for part in relative.parts if part not in {"", "."}]
-    if not parts:
-        raise ValueError("Invalid output path")
-
-    root = FilePath(download_folder).expanduser().resolve()
-    target = root.joinpath(*parts).resolve(strict=False)
-    try:
-        target.relative_to(root)
-    except ValueError as exc:
-        raise ValueError("Output path escapes the downloads folder") from exc
-
-    if len(str(target)) > 1000:
-        raise ValueError("Output path is too long")
-    return str(target)
-
-
-@router.post("/external/download")
-async def download_external_vod(
-    data: ExternalVODDownloadRequest,
-    auth: AuthContext = Depends(require_admin_or_download_user),
-    session: AsyncSession = Depends(get_session),
-):
-    """Queue a VOD URL selected by a trusted local integration.
-
-    Local credential users and admins may use this endpoint. Plex-authenticated
-    download-only users intentionally cannot submit arbitrary external URLs.
+async def _resolve_provider_tmdb_id(
+    session: AsyncSession,
+    account_id: int,
+    media_id: str,
+    media_type: str,
+) -> Optional[str]:
     """
-    if not auth.is_admin and auth.provider != "local":
-        raise HTTPException(status_code=403, detail="Local integration access required")
+    Recover TMDB metadata directly from the provider when the client omits it.
 
-    await _get_account(session, data.account_id)
-
+    This keeps output naming correct for stale/alternate clients and costs one
+    provider detail request per movie or series batch only when tmdb_id was not
+    supplied in the download request.
+    """
+    account = await _get_account(session, account_id)
+    client = await _get_client(session, account)
     try:
-        source_url = _validate_external_source_url(data.source_url)
-        settings_result = await session.execute(select(AppSettings))
-        settings_row = settings_result.scalar_one_or_none()
-        # Use the same effective-folder resolution as DownloadManager so Docker
-        # path fallbacks cannot cause the requested relative tree to be flattened
-        # when the file is later moved into the completed root.
-        download_folder = download_manager._resolve_download_folder(settings_row)
-        output_path = _external_output_path(download_folder, data.relative_output_path)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    now = datetime.utcnow()
-    download = Download(
-        account_id=data.account_id,
-        channel_id=data.media_id,
-        channel_name="External VOD",
-        program_title=data.title,
-        program_start=now,
-        program_end=now,
-        duration_minutes=data.duration_minutes,
-        source_url=source_url,
-        output_path=output_path,
-        status=DownloadStatus.PENDING.value,
-        is_vod=True,
-        requested_by_user_id=auth.user_id,
-        request_source="external_vod",
-    )
-
-    await check_disk_space(session)
-    try:
-        download = await download_manager.queue_download(download)
-    except ValueError:
-        raise HTTPException(status_code=409, detail="A download for this output path is already active.")
-    return download.to_dict()
+        if media_type == "series":
+            payload = await client.get_series_info(media_id)
+        else:
+            payload = await client.get_vod_info(media_id)
+        return _extract_tmdb_id(payload)
+    except Exception:
+        logger.warning(
+            "Unable to recover provider TMDB metadata account_id=%s media_type=%s media_id=%s",
+            account_id,
+            media_type,
+            media_id,
+            exc_info=True,
+        )
+        return None
+    finally:
+        await client.close()
 
 
 @router.get("/movies/categories")
@@ -291,6 +243,15 @@ async def download_movie(
     auth: AuthContext = Depends(require_admin_or_download_user),
     session: AsyncSession = Depends(get_session)
 ):
+    tmdb_id = str(data.tmdb_id).strip() if data.tmdb_id is not None else None
+    if not tmdb_id:
+        tmdb_id = await _resolve_provider_tmdb_id(
+            session,
+            data.account_id,
+            data.vod_id,
+            "movie",
+        )
+
     try:
         download = await build_movie_download(
             session,
@@ -299,7 +260,8 @@ async def download_movie(
             title=data.name,
             container_extension=data.container_extension,
             direct_source=data.direct_source,
-            release_date=data.release_date,
+            release_date=str(data.release_date) if data.release_date is not None else None,
+            tmdb_id=tmdb_id,
             requested_by_user_id=auth.user_id,
             request_source=auth.provider or "admin_local",
         )
@@ -385,6 +347,15 @@ async def download_series(
     auth: AuthContext = Depends(require_admin_or_download_user),
     session: AsyncSession = Depends(get_session)
 ):
+    tmdb_id = str(data.tmdb_id).strip() if data.tmdb_id is not None else None
+    if not tmdb_id:
+        tmdb_id = await _resolve_provider_tmdb_id(
+            session,
+            data.account_id,
+            data.series_id,
+            "series",
+        )
+
     # Build every episode first; nothing is persisted until the whole batch
     # validates, so a mid-batch failure cannot leave a partial episode set.
     downloads = []
@@ -402,6 +373,7 @@ async def download_series(
                 container_extension=episode.container_extension,
                 direct_source=episode.direct_source,
                 duration_minutes=episode.duration_minutes,
+                tmdb_id=tmdb_id,
                 requested_by_user_id=auth.user_id,
                 request_source=auth.provider or "admin_local",
             )

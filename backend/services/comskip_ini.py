@@ -8,7 +8,7 @@ and overriding those tunable keys with the stored values.  Starting from
 the base file keeps non-exposed keys working, most importantly
 output_edl=1 which the post-processing pipeline depends on.
 
-A user-supplied custom INI (comskip_custom_ini_path) bypasses generation
+When custom INI mode is enabled, the user-supplied path bypasses generation
 entirely and is passed to Comskip as-is.
 """
 import logging
@@ -20,8 +20,6 @@ from typing import Optional
 from config import ensure_config_files, _resolve_bundled_comskip_ini
 
 logger = logging.getLogger(__name__)
-
-GENERATED_INI_NAME = "comskip.generated.ini"
 
 # comskip.ini keys editable in the Settings UI; each maps 1:1 to the
 # AppSettings column with a comskip_ prefix.
@@ -35,6 +33,7 @@ TUNABLE_KEYS = (
     "always_keep_last_seconds",
     "remove_before",
     "remove_after",
+    "connect_blocks_with_logo",
     "thread_count",
 )
 
@@ -91,36 +90,37 @@ def _base_ini_text() -> str:
     return "output_edl=1\n"
 
 
-def generate_comskip_ini(settings) -> Optional[str]:
-    """Write the generated INI into the config dir and return its path.
+def generate_comskip_ini(
+    settings, runtime_overrides: Optional[dict[str, int]] = None
+) -> Optional[str]:
+    """Write a unique per-run INI in the system temp dir and return its path.
 
-    Returns None when generation fails (unwritable config dir, etc.) so the
+    Returns None when generation fails (unwritable temp dir, etc.) so the
     caller can fall back instead of breaking commercial detection.
     """
     try:
-        config_dir = ensure_config_files()
-        content = render_comskip_ini(_base_ini_text(), tunable_overrides(settings))
-        target = config_dir / GENERATED_INI_NAME
-        # Atomic replace: concurrent post-processing tasks may regenerate at
-        # the same time, and Comskip must never read a half-written file.
-        fd, tmp_path = tempfile.mkstemp(dir=str(config_dir), prefix=".comskip-ini-")
+        overrides = tunable_overrides(settings)
+        overrides.update(runtime_overrides or {})
+        content = render_comskip_ini(_base_ini_text(), overrides)
+        fd, tmp_path = tempfile.mkstemp(prefix="mustarrd-comskip-", suffix=".ini")
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
                 handle.write(content)
-            os.replace(tmp_path, target)
         except BaseException:
             try:
                 os.unlink(tmp_path)
             except OSError:
                 pass
             raise
-        return str(target)
+        return tmp_path
     except Exception as exc:
         logger.warning("Failed to generate comskip.ini from settings: %s", exc)
         return None
 
 
-def resolve_comskip_ini(settings) -> Optional[str]:
+def resolve_comskip_ini(
+    settings, runtime_overrides: Optional[dict[str, int]] = None
+) -> Optional[str]:
     """Pick the INI path to pass to Comskip for this run.
 
     Precedence: user custom INI > INI generated from stored settings >
@@ -128,9 +128,9 @@ def resolve_comskip_ini(settings) -> Optional[str]:
     generation fails).
     """
     custom = (getattr(settings, "comskip_custom_ini_path", None) or "").strip()
-    if custom:
+    if getattr(settings, "comskip_use_custom_ini", False) and custom:
         return custom
-    generated = generate_comskip_ini(settings)
+    generated = generate_comskip_ini(settings, runtime_overrides)
     if generated:
         return generated
     return getattr(settings, "comskip_ini_path", None)

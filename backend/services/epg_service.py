@@ -8,6 +8,7 @@ from models import XtreamAccount, EPGProgram, AppSettings
 from services.account_credentials import resolve_account_password_with_migration
 from services.file_namer import FileNamer
 from services.xtream_client import XtreamClient
+from services.epg_metadata import decode_categories, metadata_from_live_entry
 from config import settings as app_settings
 
 
@@ -200,6 +201,9 @@ class EPGService:
             except Exception:
                 live_programs = []
             if live_programs:
+                live_programs = await self._enrich_live_from_stored(
+                    session, account_id, channel_id, live_programs, account, global_offset_minutes
+                )
                 self._cache[cache_key] = {
                     "data": live_programs,
                     "cached_at": datetime.utcnow()
@@ -277,14 +281,14 @@ class EPGService:
         if start_time and end_time:
             duration_minutes = int((end_time - start_time).total_seconds() / 60)
 
-        channel_id = str(entry.get("channel_id") or fallback_channel_id or "")
+        channel_id = str(entry.get("stream_id") or fallback_channel_id or entry.get("channel_id") or "")
         epg_id = entry.get("epg_id")
         if channel_id and start_timestamp and stop_timestamp:
             epg_id = f"{channel_id}:{start_timestamp}:{stop_timestamp}"
 
         raw_has_archive = entry.get("has_archive")
 
-        return {
+        result = {
             "id": entry.get("id"),
             "epg_id": epg_id,
             "title": title,
@@ -299,6 +303,8 @@ class EPGService:
             "has_archive": has_archive_fallback if raw_has_archive is None else (int(raw_has_archive or 0) == 1),
             "channel_id": channel_id or None,
         }
+        result.update(metadata_from_live_entry(entry))
+        return result
 
     async def get_past_programs(
         self,
@@ -369,8 +375,62 @@ class EPGService:
             "has_archive": row.has_archive,
             "channel_id": row.channel_id,
             "channel_name": row.channel_name,
-            "category": row.category,
+            "category": getattr(row, "category", None),
+            "categories": decode_categories(getattr(row, "categories_json", None)),
+            "subtitle": getattr(row, "subtitle", None),
+            "season_number": getattr(row, "season_number", None),
+            "episode_number": getattr(row, "episode_number", None),
+            "episode_onscreen": getattr(row, "episode_onscreen", None),
+            "episode_xmltv_ns": getattr(row, "episode_xmltv_ns", None),
+            "dd_progid": getattr(row, "dd_progid", None),
+            "tvdb_id": getattr(row, "tvdb_id", None),
+            "tmdb_id": getattr(row, "tmdb_id", None),
+            "imdb_id": getattr(row, "imdb_id", None),
         }
+
+    _STRUCTURED_ENRICH_FIELDS = (
+        "category", "categories", "subtitle", "season_number", "episode_number",
+        "episode_onscreen", "episode_xmltv_ns", "dd_progid", "tvdb_id", "tmdb_id", "imdb_id",
+    )
+
+    @classmethod
+    def _enrich_live_programs(cls, live_programs: list[dict], stored_programs: list[dict]) -> list[dict]:
+        stored_by_window = {
+            (str(item.get("channel_id") or ""), item.get("start_timestamp"), item.get("stop_timestamp")): item
+            for item in stored_programs
+        }
+        enriched = []
+        for live in live_programs:
+            key = (str(live.get("channel_id") or ""), live.get("start_timestamp"), live.get("stop_timestamp"))
+            stored = stored_by_window.get(key)
+            if not stored:
+                enriched.append(live)
+                continue
+            merged = dict(live)
+            for field in cls._STRUCTURED_ENRICH_FIELDS:
+                if merged.get(field) in (None, "", []):
+                    value = stored.get(field)
+                    if value not in (None, "", []):
+                        merged[field] = value
+            enriched.append(merged)
+        return enriched
+
+    async def _enrich_live_from_stored(
+        self, session: AsyncSession, account_id: int, channel_id: str,
+        live_programs: list[dict], account: Optional[XtreamAccount], global_offset_minutes: int,
+    ) -> list[dict]:
+        starts = [int(item["start_timestamp"]) for item in live_programs if item.get("start_timestamp") is not None]
+        if not starts:
+            return live_programs
+        db_result = await session.execute(
+            select(EPGProgram).where(
+                EPGProgram.account_id == account_id,
+                EPGProgram.channel_id == str(channel_id),
+                EPGProgram.start_timestamp.in_(starts),
+            )
+        )
+        stored = [self.serialize_program(row, account, global_offset_minutes) for row in db_result.scalars().all()]
+        return self._enrich_live_programs(live_programs, stored)
 
     def _filter_programs_by_cutoff(self, programs: list[dict], cutoff: datetime) -> list:
         filtered: list[dict] = []
@@ -480,43 +540,107 @@ class EPGService:
         return list(deduped.values())
 
     def detect_program_type(self, program: dict, channel: dict = None) -> str:
-        """
-        Analyze program metadata to determine content type.
-
-        Returns: 'tv_show', 'movie', 'sports', 'news', or 'other'
-        """
+        """Classify a programme using structured metadata before heuristics."""
         import re
-        title = program.get("title", "") or ""
-        description = program.get("description", "") or ""
-        category = ""
-        if channel:
-            category = (channel.get("category_name", "") or "").lower()
 
-        # TV show: season/episode markers anywhere in title or description.
-        # Uses the same patterns as FileNamer so the detected type and the
-        # generated filename can't disagree.
-        full_text = f"{title} {description}"
-        if FileNamer.extract_season_episode(full_text):
-            return "tv_show"
-        # Episode-only markers (daily shows): "Ep 173", "Episode 5"
-        if re.search(r'\b(?:season|episode|ep)\.?\s*\d{1,4}\b', full_text, re.IGNORECASE):
-            return "tv_show"
+        title = (program.get("title") or "").strip()
+        description = (program.get("description") or "").strip()
+        subtitle = (program.get("subtitle") or "").strip()
+        full_text = f"{title} {subtitle} {description}".strip()
+        title_lower = title.lower()
+        channel_category = ((channel or {}).get("category_name") or "").strip().lower()
 
-        if FileNamer.detect_sports(title, category):
-            return "sports"
+        raw_categories = program.get("categories") or []
+        if isinstance(raw_categories, str):
+            raw_categories = [raw_categories]
+        categories = [
+            str(value).strip().lower()
+            for value in raw_categories
+            if str(value).strip()
+        ]
+        primary = (program.get("category") or "").strip().lower()
+        if primary and primary not in categories:
+            categories.insert(0, primary)
 
-        # Check for movies
-        movie_categories = ['movie', 'movies', 'film', 'films', 'cinema', 'peliculas']
-        if any(cat in category for cat in movie_categories):
+        def has_category(*needles):
+            return any(
+                any(needle in value for needle in needles)
+                for value in categories
+            )
+
+        # Strong movie and news metadata wins before any sports fallback.
+        tmdb_id = str(program.get("tmdb_id") or "").strip().lower()
+        dd_progid = str(program.get("dd_progid") or "").strip().upper()
+        if tmdb_id.startswith("movie/") or dd_progid.startswith("MV") or has_category(
+            "movie", "film", "cinema", "pelicula"
+        ):
             return "movie"
 
-        # Check for news
-        news_keywords = ['news', 'noticias', 'journal', 'breaking']
-        news_categories = ['news', 'noticias', 'information']
-        title_lower = title.lower()
-        if any(re.search(rf'\b{kw}\b', title_lower) for kw in news_keywords) or \
-           any(cat in category for cat in news_categories):
+        news_words = ("news", "noticias", "journal", "breaking")
+        if has_category("news", "noticias", "information") or any(
+            re.search(rf"\b{re.escape(word)}\b", title_lower)
+            for word in news_words
+        ):
             return "news"
+
+        # Explicit episode or series identity beats a generic Sports category.
+        has_structured_episode = (
+            program.get("season_number") is not None
+            or program.get("episode_number") is not None
+            or bool(program.get("episode_onscreen"))
+            or bool(program.get("episode_xmltv_ns"))
+        )
+        if has_category("series") or has_structured_episode:
+            return "tv_show"
+
+        if FileNamer.extract_season_episode(full_text) or re.search(
+            r"\b(?:season|episode|ep)\.?\s*\d{1,4}\b",
+            full_text,
+            re.IGNORECASE,
+        ):
+            return "tv_show"
+
+        # A real matchup needs text on both sides. This prevents a title such as
+        # "Henry V" from being interpreted as a versus marker.
+        matchup = re.search(
+            r"\b\w[\w.'’&-]*\s+(?:vs?\.?|at|@)\s+\w[\w.'’&-]*\b",
+            f"{title} {subtitle}",
+            re.IGNORECASE,
+        )
+        event_words = re.search(
+            r"\b(?:nba|wnba|nfl|mlb|nhl|ncaa|ufc|football|baseball|basketball|soccer|hockey|tennis|golf|boxing|mma|wrestling|rugby|cricket|race|racing|cup|tournament|championship|finals?|playoffs?)\b",
+            f"{title} {subtitle}",
+            re.IGNORECASE,
+        )
+        sports_metadata = has_category("sports", "sport")
+        if event_words or (sports_metadata and matchup):
+            return "sports"
+
+        # External series identifiers are useful for sparse non-event rows, but
+        # come after event detection because providers attach them to games too.
+        tvdb_id = str(program.get("tvdb_id") or "").strip().lower()
+        if (
+            tvdb_id.startswith("series/")
+            or tmdb_id.startswith("series/")
+            or dd_progid.startswith(("SH", "EP"))
+        ):
+            return "tv_show"
+
+        movie_categories = ("movie", "movies", "film", "films", "cinema", "peliculas")
+        if any(value in channel_category for value in movie_categories):
+            return "movie"
+        if any(value in channel_category for value in ("news", "noticias", "information")):
+            return "news"
+
+        if re.fullmatch(
+            r"\s*(?:paid programming|to be announced|tba|off air)\s*",
+            title,
+            re.IGNORECASE,
+        ):
+            return "other"
+
+        if sports_metadata or "sport" in channel_category:
+            return "sports"
 
         return "other"
 
