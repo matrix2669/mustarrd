@@ -4,6 +4,7 @@ from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
+from guide_metadata import GuideMetadata
 from models import XtreamAccount, EPGProgram, AppSettings
 from services.account_credentials import resolve_account_password_with_migration
 from services.file_namer import FileNamer
@@ -370,6 +371,7 @@ class EPGService:
             "channel_id": row.channel_id,
             "channel_name": row.channel_name,
             "category": row.category,
+            **GuideMetadata.from_row(row).to_api(),
         }
 
     def _filter_programs_by_cutoff(self, programs: list[dict], cutoff: datetime) -> list:
