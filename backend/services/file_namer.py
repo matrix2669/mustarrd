@@ -244,18 +244,51 @@ class FileNamer:
         tmdb_hint = self._tmdb_hint(program.get("tmdb_id"))
 
         if program_type == "tv_show":
+            structured_season = self._structured_season(program, start_time)
+            structured_episode = self._coerce_optional_int(program.get("episode_number"))
             full_text = f"{title} {description}"
-            season_ep = self.extract_season_episode(full_text)
-            if season_ep:
+            parsed_season_ep = self.extract_season_episode(full_text)
+
+            if structured_season is not None and structured_episode is not None:
+                show_name = (
+                    self.extract_show_name(title)
+                    if self.extract_season_episode(title)
+                    else title
+                )
+                episode_title = (
+                    program.get("subtitle")
+                    or self.extract_episode_title(title)
+                    or ""
+                ).strip()
+                context = {
+                    "show": show_name,
+                    "season": structured_season,
+                    "episode": structured_episode,
+                    "title": episode_title,
+                    "date": date_str,
+                    "channel": channel_name,
+                }
+                custom = s.get("tv_template")
+                if custom:
+                    template = custom
+                elif episode_title:
+                    template = self._DEFAULT_TEMPLATES["tv"]
+                else:
+                    template = self._DEFAULT_TEMPLATES["tv_no_subtitle"]
+            elif parsed_season_ep:
                 show_name = self.extract_show_name(title)
-                episode_title = self.extract_episode_title(title)
+                episode_title = (
+                    program.get("subtitle")
+                    or self.extract_episode_title(title)
+                    or ""
+                ).strip()
                 context = {
                     "show": show_name, "season": season_ep[0], "episode": season_ep[1],
                     "title": episode_title, "date": date_str, "channel": channel_name,
                     "tmdb": tmdb_hint,
                 }
                 custom = s.get("tv_template")
-                if custom and episode_title:
+                if custom:
                     template = custom
                 elif episode_title:
                     template = self._DEFAULT_TEMPLATES["tv"]
