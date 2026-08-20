@@ -46,7 +46,7 @@ describe('ComskipSection', () => {
 
     expect(screen.getByRole('checkbox', { name: 'Black frames' })).toBeChecked()
     expect(screen.getByRole('checkbox', { name: 'Logo detection' })).toBeChecked()
-    expect(screen.getByRole('checkbox', { name: 'Resolution change' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: 'Fuzzy logic' })).toBeChecked()
     expect(screen.getByRole('checkbox', { name: 'Aspect ratio change' })).toBeChecked()
     expect(screen.getByRole('checkbox', { name: 'Silence detection' })).toBeChecked()
     expect(screen.getByRole('checkbox', { name: 'Scene change' })).not.toBeChecked()
@@ -87,14 +87,35 @@ describe('ComskipSection', () => {
     expect(onResetDefaults).toHaveBeenCalled()
   })
 
-  it('reports custom INI path edits through onChange', () => {
-    const { onChange } = renderSection()
+  it('enables custom INI mode and reports path edits through onChange', () => {
+    const { onChange } = renderSection({ comskip_use_custom_ini: true })
+
+    expect(screen.getByText(/default config directory is \/app\/config/)).toBeInTheDocument()
 
     fireEvent.change(screen.getByPlaceholderText('/path/to/comskip.ini'), {
       target: { value: '/tmp/custom.ini' },
     })
 
     expect(onChange).toHaveBeenCalledWith('comskip_custom_ini_path', '/tmp/custom.ini')
+  })
+
+  it('greys out managed controls while custom INI mode is active', () => {
+    renderSection({
+      comskip_use_custom_ini: true,
+      comskip_custom_ini_path: '/tmp/custom.ini',
+    })
+
+    expect(screen.getByRole('checkbox', { name: 'Use a custom Comskip INI' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: 'Black frames' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Reset to Defaults' })).toBeDisabled()
+    expect(screen.getByText(/Custom INI mode is active/)).toBeInTheDocument()
+  })
+
+  it('warns that multiple processing threads can change detection', () => {
+    renderSection({ comskip_thread_count: 4 })
+
+    expect(screen.getByText('Higher thread counts can change detection results')).toBeInTheDocument()
+    expect(screen.getByText(/return to 1 if breaks are missed/)).toBeInTheDocument()
   })
 })
 
@@ -130,5 +151,14 @@ describe('getComskipErrors', () => {
 
   it('returns no errors when formData is null', () => {
     expect(getComskipErrors(null)).toEqual({})
+  })
+
+  it('requires a path when custom INI mode is enabled', () => {
+    const errors = getComskipErrors({
+      ...baseFormData,
+      comskip_use_custom_ini: true,
+      comskip_custom_ini_path: '',
+    })
+    expect(errors.custom_ini).toBeTruthy()
   })
 })

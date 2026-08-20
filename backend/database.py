@@ -140,6 +140,8 @@ async def _apply_lightweight_migrations(conn) -> None:
         ("comskip_always_keep_last_seconds", "INTEGER DEFAULT 60"),
         ("comskip_remove_before", "INTEGER DEFAULT 0"),
         ("comskip_remove_after", "INTEGER DEFAULT 0"),
+        ("comskip_connect_blocks_with_logo", "INTEGER DEFAULT 0"),
+        ("comskip_dynamic_ticker_tape", "BOOLEAN DEFAULT 0"),
         ("comskip_thread_count", "INTEGER DEFAULT 1"),
     )
     for column_name, column_spec in comskip_tunable_columns:
@@ -159,6 +161,18 @@ async def _apply_lightweight_migrations(conn) -> None:
         )
         if await _column_exists(conn, "app_settings", "comskip_ini_path"):
             await _carry_over_legacy_comskip_ini(conn)
+
+    if not await _column_exists(conn, "app_settings", "comskip_use_custom_ini"):
+        await conn.execute(
+            text("ALTER TABLE app_settings ADD COLUMN comskip_use_custom_ini BOOLEAN DEFAULT 0")
+        )
+        await conn.execute(
+            text(
+                "UPDATE app_settings SET comskip_use_custom_ini = 1 "
+                "WHERE comskip_custom_ini_path IS NOT NULL "
+                "AND TRIM(comskip_custom_ini_path) != ''"
+            )
+        )
 
     # Cut-vs-Mark flag for Commercial Skip. Defaults to 1 (Cut) so existing
     # comskip_enabled installs keep cutting commercials exactly as before.
