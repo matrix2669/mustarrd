@@ -34,7 +34,7 @@ const DETECT_METHOD_OPTIONS = [
   { bit: 1, label: 'Black frames', description: 'Looks for dark frames commonly inserted between a show and an ad break.' },
   { bit: 2, label: 'Logo detection', description: 'Uses the appearance and disappearance of the channel logo as a boundary signal.' },
   { bit: 4, label: 'Scene change', description: 'Looks for rapid visual cuts; useful for some ads but may increase false matches.' },
-  { bit: 8, label: 'Resolution change', description: 'Detects transitions where commercials use a different video resolution.' },
+  { bit: 8, label: 'Fuzzy logic', description: 'Uses Comskip\'s fuzzy scoring to combine weaker clues when classifying show and commercial blocks.' },
   { bit: 32, label: 'Aspect ratio change', description: 'Detects switches such as 16:9 programming to 4:3 commercial material.' },
   { bit: 64, label: 'Silence detection', description: 'Looks for brief silence around commercial boundaries.' },
 ]
@@ -277,8 +277,8 @@ export default function ComskipSection({ formData, onChange, onResetDefaults, on
           <Stack gap={0}>
             <SettingRow
               label="Dynamic ticker exclusion"
-              description="Before each scan, Mustarrd reads the recording resolution and tells Comskip to ignore the bottom one-ninth of the picture—80 px at 720p or 120 px at 1080p. Enable this for channels with a persistent news, sports, or stock ticker."
-              tooltip="This is calculated independently for every recording. It can prevent a moving ticker from looking like scene changes, but may hide real commercial evidence near the bottom of the frame."
+              description="Before each scan, Mustarrd reads the recording resolution and tells Comskip to ignore the bottom one-ninth of the picture—80 px at 720p or 120 px at 1080p. Enable this when a persistent lower-third or ticker remains visible during ads and can make channel graphics look continuously present."
+              tooltip="This is calculated independently for every recording. Excluding the ticker area can keep persistent bottom graphics from influencing logo and block classification, but may hide useful commercial evidence near the bottom of the frame."
             >
               <Checkbox
                 aria-label="Dynamic ticker exclusion"
@@ -301,8 +301,8 @@ export default function ComskipSection({ formData, onChange, onResetDefaults, on
             </SettingRow>
             <SettingRow
               label="Processing threads"
-              description="Number of CPU threads Comskip may use while decoding. The default of 1 minimizes contention with active downloads and video conversion."
-              tooltip="Higher values can shorten a scan on some systems, but can also slow simultaneous recordings, ffmpeg jobs, and the rest of Mustarrd. Maximum: 16."
+              description="Number of CPU threads Comskip may use while decoding. The default of 1 gives the most repeatable detection behavior and minimizes contention with other work."
+              tooltip="Some Comskip builds can produce different detection results with multiple decode threads. Increase only after validating the EDL for your channels. Higher values can also compete with downloads and ffmpeg jobs. Maximum: 16."
             >
               <NumberStepper
                 aria-label="Processing threads"
@@ -316,10 +316,11 @@ export default function ComskipSection({ formData, onChange, onResetDefaults, on
           </Stack>
           {(formData?.comskip_thread_count ?? COMSKIP_DEFAULTS.comskip_thread_count) > 1 && (
             <Alert color="orange" variant="light">
-              <Text size="sm" fw={500}>Higher thread count can affect recordings in progress</Text>
+              <Text size="sm" fw={500}>Higher thread counts can change detection results</Text>
               <Text size="xs" mt={3}>
-                Comskip may compete with downloads, ffmpeg, and other post-processing jobs for CPU time. Increase
-                this gradually and return to 1 if recordings stutter, scans slow down, or the system becomes busy.
+                Comskip may not produce identical commercial boundaries when multiple decode threads are used. Validate
+                the EDL after increasing this value and return to 1 if breaks are missed or detection becomes less
+                accurate. Higher values can also increase CPU contention with downloads and ffmpeg jobs.
               </Text>
             </Alert>
           )}
