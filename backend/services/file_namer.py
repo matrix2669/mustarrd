@@ -210,41 +210,14 @@ class FileNamer:
     }
 
     @staticmethod
-    def _coerce_optional_int(value) -> Optional[int]:
-        if value is None or value == "":
-            return None
-        try:
-            return int(value)
-        except (TypeError, ValueError):
-            return None
-
-    @classmethod
-    def _structured_season(cls, program: dict, start_time: datetime) -> Optional[int]:
-        """Normalize a provider's unknown season zero to the airing year.
-
-        XMLTV uses ``-1`` for an unknown season, which is stored as season 0.
-        Fresh provider rows can lose the raw XMLTV marker, so season 0 with a
-        positive episode is treated as an annual series unless an onscreen S00
-        explicitly identifies a genuine special.
-        """
-        season = cls._coerce_optional_int(program.get("season_number"))
-        episode = cls._coerce_optional_int(program.get("episode_number"))
-        if season != 0 or episode is None or episode <= 0:
-            return season
-
-        onscreen = str(program.get("episode_onscreen") or "").strip()
-        onscreen_numbers = cls.extract_season_episode(onscreen) if onscreen else None
-        explicit_special = bool(onscreen_numbers and onscreen_numbers[0] == 0)
-
-        xmltv_ns = str(program.get("episode_xmltv_ns") or "").strip()
-        try:
-            raw_xmltv_season = int(xmltv_ns.split(".", 1)[0]) if xmltv_ns else None
-        except (TypeError, ValueError):
-            raw_xmltv_season = None
-        if explicit_special and raw_xmltv_season != -1:
-            return season
-
-        return start_time.year
+    def _tmdb_hint(value) -> str:
+        """Render an existing guide TMDB ID for Plex and Jellyfin templates."""
+        raw = str(value or "").strip()
+        match = re.fullmatch(r"(?:(?:series|movie)/)?(\d+)", raw, re.IGNORECASE)
+        if not match:
+            return ""
+        tmdb_id = match.group(1)
+        return f"{{tmdb-{tmdb_id}}} [tmdbid-{tmdb_id}]"
 
     def generate_filename(
         self,
@@ -268,6 +241,7 @@ class FileNamer:
 
         date_str = start_time.strftime("%Y-%m-%d")
         s = settings or {}
+        tmdb_hint = self._tmdb_hint(program.get("tmdb_id"))
 
         if program_type == "tv_show":
             structured_season = self._structured_season(program, start_time)
@@ -309,12 +283,9 @@ class FileNamer:
                     or ""
                 ).strip()
                 context = {
-                    "show": show_name,
-                    "season": parsed_season_ep[0],
-                    "episode": parsed_season_ep[1],
-                    "title": episode_title,
-                    "date": date_str,
-                    "channel": channel_name,
+                    "show": show_name, "season": season_ep[0], "episode": season_ep[1],
+                    "title": episode_title, "date": date_str, "channel": channel_name,
+                    "tmdb": tmdb_hint,
                 }
                 custom = s.get("tv_template")
                 if custom:
@@ -328,6 +299,7 @@ class FileNamer:
                     "title": title,
                     "date": date_str,
                     "channel": channel_name,
+                    "tmdb": tmdb_hint,
                 }
                 template = s.get("default_template") or self._DEFAULT_TEMPLATES["default"]
         elif program_type == "sports":
@@ -335,6 +307,7 @@ class FileNamer:
                 "title": title,
                 "date": date_str,
                 "channel": channel_name,
+                "tmdb": tmdb_hint,
             }
             template = s.get("sports_template") or self._DEFAULT_TEMPLATES["sports"]
         elif program_type == "movie":
@@ -345,6 +318,7 @@ class FileNamer:
                 "year": year,
                 "date": date_str,
                 "channel": channel_name,
+                "tmdb": tmdb_hint,
             }
             template = s.get("movie_template") or self._DEFAULT_TEMPLATES["movie"]
         else:
@@ -352,6 +326,7 @@ class FileNamer:
                 "title": title,
                 "date": date_str,
                 "channel": channel_name,
+                "tmdb": tmdb_hint,
             }
             template = s.get("default_template") or self._DEFAULT_TEMPLATES["default"]
 

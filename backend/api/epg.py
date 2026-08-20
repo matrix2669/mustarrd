@@ -2,6 +2,7 @@ import asyncio
 import logging
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_, func
@@ -11,6 +12,8 @@ from database import get_session
 from models import XtreamAccount, EPGProgram, AppSettings
 from services.epg_service import epg_service
 from services.epg_ingest_manager import epg_ingest_manager
+from services.epg_diagnostics import export_epg_classification_diagnostics
+from services.epg_targeted_diagnostics import export_targeted_epg_diagnostics
 
 
 router = APIRouter()
@@ -81,6 +84,60 @@ async def search_epg(
 @router.get("/epg/status")
 async def epg_status(_admin: None = Depends(require_admin_or_download_user)):
     return epg_ingest_manager.get_status()
+
+
+@router.get("/epg/diagnostics/export")
+async def export_epg_diagnostics(
+    account_id: int | None = Query(None, ge=1),
+    channels_per_account: int = Query(6, ge=1, le=20),
+    programs_per_channel: int = Query(4, ge=1, le=10),
+    xmltv_overall_samples: int = Query(20, ge=1, le=50),
+    _admin: None = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Download bounded, credential-scrubbed samples from every EPG data path."""
+    diagnostics = await export_epg_classification_diagnostics(
+        session,
+        account_id=account_id,
+        channels_per_account=channels_per_account,
+        programs_per_channel=programs_per_channel,
+        xmltv_overall_samples=xmltv_overall_samples,
+    )
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return JSONResponse(
+        content=diagnostics,
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="mustarrd-epg-diagnostics-{timestamp}.json"'
+            )
+        },
+    )
+
+
+@router.get("/epg/diagnostics/channel-export")
+async def export_epg_channel_diagnostics(
+    account_id: int = Query(..., ge=1),
+    channel: list[str] = Query(...),
+    programs_per_channel: int = Query(20, ge=1, le=50),
+    _admin: None = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Download diagnostics for exact channel IDs/names, focused near current time."""
+    diagnostics = await export_targeted_epg_diagnostics(
+        session,
+        account_id=account_id,
+        channel_targets=channel,
+        programs_per_channel=programs_per_channel,
+    )
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return JSONResponse(
+        content=diagnostics,
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="mustarrd-epg-channel-diagnostics-{timestamp}.json"'
+            )
+        },
+    )
 
 
 @router.post("/epg/refresh")

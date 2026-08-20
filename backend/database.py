@@ -63,6 +63,24 @@ async def _apply_lightweight_migrations(conn) -> None:
     if not await _column_exists(conn, "epg_programs", "provider_stop"):
         await conn.execute(text("ALTER TABLE epg_programs ADD COLUMN provider_stop VARCHAR(255)"))
 
+    structured_epg_columns = {
+        "subtitle": "VARCHAR(500)",
+        "categories_json": "TEXT",
+        "season_number": "INTEGER",
+        "episode_number": "INTEGER",
+        "episode_onscreen": "VARCHAR(100)",
+        "episode_xmltv_ns": "VARCHAR(100)",
+        "dd_progid": "VARCHAR(100)",
+        "tvdb_id": "VARCHAR(100)",
+        "tmdb_id": "VARCHAR(100)",
+        "imdb_id": "VARCHAR(100)",
+    }
+    for column_name, column_type in structured_epg_columns.items():
+        if not await _column_exists(conn, "epg_programs", column_name):
+            await conn.execute(
+                text(f"ALTER TABLE epg_programs ADD COLUMN {column_name} {column_type}")
+            )
+
     if not await _column_exists(conn, "xtream_accounts", "catchup_resolution_mode"):
         await conn.execute(
             text("ALTER TABLE xtream_accounts ADD COLUMN catchup_resolution_mode VARCHAR(32) DEFAULT 'auto'")
@@ -140,6 +158,8 @@ async def _apply_lightweight_migrations(conn) -> None:
         ("comskip_always_keep_last_seconds", "INTEGER DEFAULT 60"),
         ("comskip_remove_before", "INTEGER DEFAULT 0"),
         ("comskip_remove_after", "INTEGER DEFAULT 0"),
+        ("comskip_connect_blocks_with_logo", "INTEGER DEFAULT 0"),
+        ("comskip_dynamic_ticker_tape", "BOOLEAN DEFAULT 0"),
         ("comskip_thread_count", "INTEGER DEFAULT 1"),
     )
     for column_name, column_spec in comskip_tunable_columns:
@@ -159,6 +179,18 @@ async def _apply_lightweight_migrations(conn) -> None:
         )
         if await _column_exists(conn, "app_settings", "comskip_ini_path"):
             await _carry_over_legacy_comskip_ini(conn)
+
+    if not await _column_exists(conn, "app_settings", "comskip_use_custom_ini"):
+        await conn.execute(
+            text("ALTER TABLE app_settings ADD COLUMN comskip_use_custom_ini BOOLEAN DEFAULT 0")
+        )
+        await conn.execute(
+            text(
+                "UPDATE app_settings SET comskip_use_custom_ini = 1 "
+                "WHERE comskip_custom_ini_path IS NOT NULL "
+                "AND TRIM(comskip_custom_ini_path) != ''"
+            )
+        )
 
     # Cut-vs-Mark flag for Commercial Skip. Defaults to 1 (Cut) so existing
     # comskip_enabled installs keep cutting commercials exactly as before.

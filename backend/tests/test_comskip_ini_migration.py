@@ -15,10 +15,10 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 
-from database import Base, _carry_over_legacy_comskip_ini
+from database import Base, _apply_lightweight_migrations, _carry_over_legacy_comskip_ini
 from models import AppSettings
 
 
@@ -84,6 +84,22 @@ class LegacyComskipIniCarryOverTests(unittest.IsolatedAsyncioTestCase):
 
         settings = await self._fetch()
         self.assertIsNone(settings.comskip_custom_ini_path)
+
+    async def test_saved_custom_path_enables_explicit_custom_mode_on_upgrade(self):
+        async with self.session_factory() as session:
+            session.add(AppSettings(comskip_custom_ini_path="/home/user/my-tuned.ini"))
+            await session.commit()
+
+        async with self.engine.begin() as conn:
+            await conn.execute(text("ALTER TABLE app_settings DROP COLUMN comskip_use_custom_ini"))
+            await _apply_lightweight_migrations(conn)
+            enabled = (
+                await conn.execute(
+                    text("SELECT comskip_use_custom_ini FROM app_settings")
+                )
+            ).scalar_one()
+
+        self.assertEqual(enabled, 1)
 
 
 if __name__ == "__main__":
