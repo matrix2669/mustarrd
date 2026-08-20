@@ -33,9 +33,9 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-def _validate_custom_comskip_ini_path(path: str) -> None:
-    """Require a readable regular file in Mustarrd's runtime filesystem."""
-    expanded_path = os.path.expanduser(path)
+def _validate_custom_comskip_ini_path(path: str) -> str:
+    """Require a readable regular file and return its normalized runtime path."""
+    expanded_path = os.path.expanduser(path.strip())
     if not os.path.isabs(expanded_path):
         raise HTTPException(
             status_code=400,
@@ -44,9 +44,10 @@ def _validate_custom_comskip_ini_path(path: str) -> None:
                 "Mustarrd (inside the container when using Docker)"
             ),
         )
+    normalized_path = os.path.abspath(expanded_path)
 
     try:
-        path_stat = os.stat(expanded_path)
+        path_stat = os.stat(normalized_path)
     except FileNotFoundError:
         raise HTTPException(
             status_code=400,
@@ -65,7 +66,7 @@ def _validate_custom_comskip_ini_path(path: str) -> None:
         )
 
     try:
-        with open(expanded_path, "rb") as handle:
+        with open(normalized_path, "rb") as handle:
             handle.read(1)
     except OSError as exc:
         raise HTTPException(
@@ -75,6 +76,7 @@ def _validate_custom_comskip_ini_path(path: str) -> None:
                 f"{exc.strerror or exc}"
             ),
         )
+    return normalized_path
 
 
 def _probe_folder_writable(path: str) -> dict:
@@ -391,7 +393,7 @@ async def update_settings(
                 status_code=400,
                 detail="A custom Comskip INI path is required when custom INI mode is enabled",
             )
-        _validate_custom_comskip_ini_path(custom_ini_path)
+        settings.comskip_custom_ini_path = _validate_custom_comskip_ini_path(custom_ini_path)
 
     # Validate min<=max pairs on the final stored state so two separate PUT
     # requests cannot sneak an inverted range past per-request validation.
