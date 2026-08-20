@@ -46,7 +46,7 @@ describe('ComskipSection', () => {
 
     expect(screen.getByRole('checkbox', { name: 'Black frames' })).toBeChecked()
     expect(screen.getByRole('checkbox', { name: 'Logo detection' })).toBeChecked()
-    expect(screen.getByRole('checkbox', { name: 'Resolution change' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: 'Fuzzy logic' })).toBeChecked()
     expect(screen.getByRole('checkbox', { name: 'Aspect ratio change' })).toBeChecked()
     expect(screen.getByRole('checkbox', { name: 'Silence detection' })).toBeChecked()
     expect(screen.getByRole('checkbox', { name: 'Scene change' })).not.toBeChecked()
@@ -111,10 +111,11 @@ describe('ComskipSection', () => {
     expect(screen.getByText(/Custom INI mode is active/)).toBeInTheDocument()
   })
 
-  it('warns when more than one processing thread is selected', () => {
+  it('warns that multiple processing threads can change detection', () => {
     renderSection({ comskip_thread_count: 4 })
 
-    expect(screen.getByText('Higher thread count can affect recordings in progress')).toBeInTheDocument()
+    expect(screen.getByText('Higher thread counts can change detection results')).toBeInTheDocument()
+    expect(screen.getByText(/return to 1 if breaks are missed/)).toBeInTheDocument()
   })
 })
 
