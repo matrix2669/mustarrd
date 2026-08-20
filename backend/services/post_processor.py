@@ -717,7 +717,6 @@ class PostProcessor:
         if "-fflags" in cmd or "-err_detect" in cmd:
             return cmd
         return [cmd[0], "-fflags", "+genpts+discardcorrupt", "-err_detect", "ignore_err", *cmd[1:]]
-
     def _prepend_vaapi_env(
         self, cmd: List[str], render_device: Optional[Path] = None
     ) -> List[str]:
@@ -1202,7 +1201,11 @@ class PostProcessor:
                 raise
 
             returncode = process.returncode if process.returncode is not None else -1
-            combined_output = (stderr_output.strip() or stdout_output.strip())
+            combined_output = "\n".join(
+                output
+                for output in (stdout_output.strip(), stderr_output.strip())
+                if output
+            )
             return returncode, combined_output
 
         def excerpt(text: str, max_len: int) -> str:
