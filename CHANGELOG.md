@@ -4,6 +4,16 @@ All notable changes to Mustarrd are listed here. Most recent changes are at the 
 
 ---
 
+## 2026-08-20
+
+### Fixed: Browse shows the same program details as search
+
+**What you would notice:** A program you open from Browse now shows the same details as the same program found through search: its category, its episode subtitle, its season and episode number, and any TVDB, TMDB, IMDb or Gracenote ID your provider published. Previously Browse often showed only the title and the times, because many providers answer the live guide request with nothing else.
+
+**What changed:** When Mustarrd asks your provider for a channel's live guide, it now fills in whatever the answer left out from the guide entry it already stored for that exact airing: same account, same channel, same start and same end time. Anything the provider does send is left alone, so the live times, title, description and whether a program is still in the catchup archive are always the provider's word. A program with no exactly matching stored entry is shown exactly as before.
+
+---
+
 ## 2026-08-18
 
 ### Fixed: Containers start when a GPU group already has another name
