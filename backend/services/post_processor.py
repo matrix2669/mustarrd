@@ -717,6 +717,7 @@ class PostProcessor:
         if "-fflags" in cmd or "-err_detect" in cmd:
             return cmd
         return [cmd[0], "-fflags", "+genpts+discardcorrupt", "-err_detect", "ignore_err", *cmd[1:]]
+
     def _prepend_vaapi_env(
         self, cmd: List[str], render_device: Optional[Path] = None
     ) -> List[str]:
