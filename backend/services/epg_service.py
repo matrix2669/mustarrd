@@ -307,7 +307,6 @@ class EPGService:
             "duration_minutes": duration_minutes,
             "has_archive": has_archive_fallback if raw_has_archive is None else (int(raw_has_archive or 0) == 1),
             "channel_id": channel_id or None,
-            "category": metadata.primary_category,
             **metadata.to_api(),
         }
 
@@ -328,20 +327,26 @@ class EPGService:
         program is left exactly as the provider sent it. Only fields the live
         entry lacks are filled, so live timing, title, description and catchup
         archive availability always win.
+
+        Matched programs are filled in place; the same list is returned.
         """
         keys = {
             (p.get("channel_id"), p.get("start_timestamp"), p.get("stop_timestamp"))
             for p in programs
         }
-        keys = {key for key in keys if all(key)}
+        keys = {key for key in keys if all(part is not None for part in key)}
         if not keys:
             return programs
 
+        starts = {key[1] for key in keys}
         result = await session.execute(
             select(EPGProgram).where(
                 EPGProgram.account_id == account_id,
                 EPGProgram.channel_id.in_({key[0] for key in keys}),
-                EPGProgram.start_timestamp.in_({key[1] for key in keys}),
+                # A range rather than an IN list: the live response covers a
+                # contiguous stretch of guide, and the exact match happens below.
+                EPGProgram.start_timestamp >= min(starts),
+                EPGProgram.start_timestamp <= max(starts),
             )
         )
         stored = {
@@ -365,7 +370,6 @@ class EPGService:
                 GuideMetadata.from_row(row)
             )
             program.update(merged.to_api())
-            program["category"] = merged.primary_category
 
         return programs
 
@@ -438,7 +442,6 @@ class EPGService:
             "has_archive": row.has_archive,
             "channel_id": row.channel_id,
             "channel_name": row.channel_name,
-            "category": row.category,
             **GuideMetadata.from_row(row).to_api(),
         }
 

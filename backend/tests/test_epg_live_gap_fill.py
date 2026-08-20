@@ -199,6 +199,21 @@ class LiveGuideGapFillTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(program["description"], "Live description")
         self.assertEqual(program["start_timestamp"], int(START.timestamp()))
         self.assertEqual(program["stop_timestamp"], int(STOP.timestamp()))
+        self.assertEqual(program["start_time"], START.isoformat())
+        self.assertEqual(program["end_time"], STOP.isoformat())
+
+    async def test_metadata_the_live_entry_supplies_is_not_overwritten(self):
+        """Only gaps are filled: anything the provider sent wins."""
+        await self._ingest(FULL_PROGRAMME)
+
+        program = await self._browse_one(
+            [_live_entry(subtitle="Tonight", season=9, episode=1)]
+        )
+
+        self.assertEqual(program["subtitle"], "Tonight")
+        self.assertEqual(program["season_number"], 9)
+        self.assertEqual(program["episode_number"], 1)
+        self.assertEqual(program["categories"], ["Series", "Talk"])
 
     async def test_live_archive_availability_stays_authoritative(self):
         """The provider says this airing is gone; the stored row must not revive it."""
