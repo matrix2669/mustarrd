@@ -68,8 +68,9 @@ class AppSettings(Base):
     comskip_path: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     comskip_ini_path: Mapped[str | None] = mapped_column(String(1000), nullable=True)
 
-    # User-supplied INI override; when set it bypasses the INI generated from
-    # the comskip_* tunables below (see services/comskip_ini.py).
+    # User-supplied INI override. The path bypasses generated settings only
+    # while explicit custom mode is enabled (see services/comskip_ini.py).
+    comskip_use_custom_ini: Mapped[bool] = mapped_column(Boolean, default=False)
     comskip_custom_ini_path: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     comskip_detect_method: Mapped[int] = mapped_column(Integer, default=107)
     comskip_max_commercialbreak: Mapped[int] = mapped_column(Integer, default=600)
@@ -80,6 +81,8 @@ class AppSettings(Base):
     comskip_always_keep_last_seconds: Mapped[int] = mapped_column(Integer, default=60)
     comskip_remove_before: Mapped[int] = mapped_column(Integer, default=0)
     comskip_remove_after: Mapped[int] = mapped_column(Integer, default=0)
+    comskip_connect_blocks_with_logo: Mapped[int] = mapped_column(Integer, default=0)
+    comskip_dynamic_ticker_tape: Mapped[bool] = mapped_column(Boolean, default=False)
     comskip_thread_count: Mapped[int] = mapped_column(Integer, default=1)
     admin_password_hash: Mapped[str | None] = mapped_column(String(500), nullable=True)
     admin_username_bootstrap_required: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -118,6 +121,7 @@ class AppSettings(Base):
             "comskip_cut": self.comskip_cut,
             "comskip_path": self.comskip_path,
             "comskip_ini_path": self.comskip_ini_path,
+            "comskip_use_custom_ini": self.comskip_use_custom_ini,
             "comskip_custom_ini_path": self.comskip_custom_ini_path,
             "comskip_detect_method": self.comskip_detect_method,
             "comskip_max_commercialbreak": self.comskip_max_commercialbreak,
@@ -128,6 +132,8 @@ class AppSettings(Base):
             "comskip_always_keep_last_seconds": self.comskip_always_keep_last_seconds,
             "comskip_remove_before": self.comskip_remove_before,
             "comskip_remove_after": self.comskip_remove_after,
+            "comskip_connect_blocks_with_logo": self.comskip_connect_blocks_with_logo,
+            "comskip_dynamic_ticker_tape": self.comskip_dynamic_ticker_tape,
             "comskip_thread_count": self.comskip_thread_count,
             "admin_username_bootstrap_required": self.admin_username_bootstrap_required,
             "epg_offset_minutes": self.epg_offset_minutes,
