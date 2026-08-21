@@ -329,8 +329,15 @@ class GuideMetadata:
         return columns
 
     def to_api(self) -> dict:
-        """The guide-payload shape. Every key is nullable and additive."""
-        return {f.name: f.codec.to_api(getattr(self, f.name)) for f in _FIELDS}
+        """The guide-payload shape. Every key is nullable and additive.
+
+        Includes the pre-existing single-category key, so a guide payload gets
+        its whole metadata from one call and no caller has to know that
+        ``category`` is the first of ``categories``.
+        """
+        payload = {f.name: f.codec.to_api(getattr(self, f.name)) for f in _FIELDS}
+        payload[_PRIMARY_CATEGORY_COLUMN] = self.primary_category
+        return payload
 
     # --- merging ------------------------------------------------------
 

@@ -191,7 +191,10 @@ class EPGService:
                     for entry in epg_data
                 ]
                 filtered = self._filter_programs_by_cutoff(processed, cutoff)
-                return self._dedupe_programs(filtered)
+                deduped = self._dedupe_programs(filtered)
+                return await self._fill_live_gaps_from_stored(
+                    session, account_id, deduped
+                )
             finally:
                 await client.close()
 
@@ -285,6 +288,11 @@ class EPGService:
 
         raw_has_archive = entry.get("has_archive")
 
+        # Whatever structured metadata the provider did send, in the same shape
+        # the stored guide read uses. Usually nothing: this is the gap that
+        # _fill_live_gaps_from_stored fills from the stored entry.
+        metadata = GuideMetadata.from_guide_entry(entry)
+
         return {
             "id": entry.get("id"),
             "epg_id": epg_id,
@@ -299,7 +307,71 @@ class EPGService:
             "duration_minutes": duration_minutes,
             "has_archive": has_archive_fallback if raw_has_archive is None else (int(raw_has_archive or 0) == 1),
             "channel_id": channel_id or None,
+            **metadata.to_api(),
         }
+
+    async def _fill_live_gaps_from_stored(
+        self,
+        session: AsyncSession,
+        account_id: int,
+        programs: list[dict],
+    ) -> list[dict]:
+        """Fill metadata a sparse live guide response left out from storage.
+
+        Many providers answer the live guide endpoint with title and timing only,
+        which made Browse show less than search for the very same airing. The
+        stored guide entry for that airing has the rest, so borrow it.
+
+        A stored entry only counts when it is unambiguously the same airing:
+        same account, same channel, same start, same stop. No match means the
+        program is left exactly as the provider sent it. Only fields the live
+        entry lacks are filled, so live timing, title, description and catchup
+        archive availability always win.
+
+        Matched programs are filled in place; the same list is returned.
+        """
+        keys = {
+            (p.get("channel_id"), p.get("start_timestamp"), p.get("stop_timestamp"))
+            for p in programs
+        }
+        keys = {key for key in keys if all(part is not None for part in key)}
+        if not keys:
+            return programs
+
+        starts = {key[1] for key in keys}
+        result = await session.execute(
+            select(EPGProgram).where(
+                EPGProgram.account_id == account_id,
+                EPGProgram.channel_id.in_({key[0] for key in keys}),
+                # A range rather than an IN list: the live response covers a
+                # contiguous stretch of guide, and the exact match happens below.
+                EPGProgram.start_timestamp >= min(starts),
+                EPGProgram.start_timestamp <= max(starts),
+            )
+        )
+        stored = {
+            (row.channel_id, row.start_timestamp, row.stop_timestamp): row
+            for row in result.scalars().all()
+        }
+        if not stored:
+            return programs
+
+        for program in programs:
+            row = stored.get(
+                (
+                    program.get("channel_id"),
+                    program.get("start_timestamp"),
+                    program.get("stop_timestamp"),
+                )
+            )
+            if row is None:
+                continue
+            merged = GuideMetadata.from_guide_entry(program).fill_gaps_from(
+                GuideMetadata.from_row(row)
+            )
+            program.update(merged.to_api())
+
+        return programs
 
     async def get_past_programs(
         self,
@@ -370,7 +442,6 @@ class EPGService:
             "has_archive": row.has_archive,
             "channel_id": row.channel_id,
             "channel_name": row.channel_name,
-            "category": row.category,
             **GuideMetadata.from_row(row).to_api(),
         }
 
