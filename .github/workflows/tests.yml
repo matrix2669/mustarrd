@@ -1,8 +1,13 @@
 name: Tests
 
 on:
+  # Every pull request, whatever it targets. Restricting this to PRs against
+  # main left stacked PRs (each based on the one below it) with no run at all:
+  # main requires the "tests" check, a base change alone does not trigger a
+  # workflow, and the PR sits blocked on a check that never starts. A run is
+  # recorded against the head commit, so a stacked PR that passed while it
+  # pointed at its parent still satisfies main once it is retargeted.
   pull_request:
-    branches: [main]
 
 jobs:
   tests:
