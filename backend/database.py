@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sess
 from sqlalchemy.orm import DeclarativeBase
 
 from config import settings
+from guide_metadata import metadata_column_ddl
 
 
 class Base(DeclarativeBase):
@@ -62,6 +63,14 @@ async def _apply_lightweight_migrations(conn) -> None:
 
     if not await _column_exists(conn, "epg_programs", "provider_stop"):
         await conn.execute(text("ALTER TABLE epg_programs ADD COLUMN provider_stop VARCHAR(255)"))
+
+    # Structured guide metadata. The column list comes from guide_metadata so a
+    # new field cannot be added to the model and forgotten here.
+    for column_name, column_spec in metadata_column_ddl():
+        if not await _column_exists(conn, "epg_programs", column_name):
+            await conn.execute(
+                text(f"ALTER TABLE epg_programs ADD COLUMN {column_name} {column_spec}")
+            )
 
     if not await _column_exists(conn, "xtream_accounts", "catchup_resolution_mode"):
         await conn.execute(

@@ -2,9 +2,12 @@ from datetime import datetime
 from sqlalchemy import String, Integer, DateTime, Text, Boolean, ForeignKey, Index
 from sqlalchemy.orm import Mapped, mapped_column
 from database import Base
+from guide_metadata import GuideMetadataColumns
 
 
-class EPGProgram(Base):
+# Structured guide metadata (subtitle, categories, season/episode, external IDs)
+# is declared once in guide_metadata.py and mixed in here.
+class EPGProgram(GuideMetadataColumns, Base):
     __tablename__ = "epg_programs"
     __table_args__ = (
         Index("ix_epg_programs_account_channel_start", "account_id", "channel_id", "start_time"),
@@ -23,6 +26,7 @@ class EPGProgram(Base):
     epg_id: Mapped[str] = mapped_column(String(200))
     title: Mapped[str] = mapped_column(String(500))
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # First of the provider's categories; the full list lives in categories_json.
     category: Mapped[str | None] = mapped_column(String(255), nullable=True)
     start_time: Mapped[datetime] = mapped_column(DateTime)
     end_time: Mapped[datetime] = mapped_column(DateTime)

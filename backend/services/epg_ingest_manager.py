@@ -16,6 +16,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from config import settings as app_settings
 from database import async_session_maker
+from guide_metadata import GuideMetadata
 from models import EPGProgram, XtreamAccount
 from services.account_credentials import resolve_account_password
 from services.xtream_client import XtreamClient
@@ -27,12 +28,20 @@ logger = logging.getLogger(__name__)
 
 def _program_insert_stmt():
     stmt = sqlite_insert(EPGProgram)
+    # A refresh that supplies a metadata value overwrites the stored one, so a
+    # provider can correct bad data. A refresh that omits a field (NULL) leaves
+    # the stored value alone, so a temporarily sparse guide cannot erase good
+    # metadata. COALESCE gives exactly that, for every metadata column.
+    metadata_updates = {
+        column: func.coalesce(stmt.excluded[column], getattr(EPGProgram, column))
+        for column in GuideMetadata.COLUMN_NAMES
+    }
     return stmt.on_conflict_do_update(
         index_elements=["account_id", "epg_id"],
         set_={
             "title": stmt.excluded.title,
             "description": stmt.excluded.description,
-            "category": stmt.excluded.category,
+            **metadata_updates,
             # Repair rows missing the provider-local start/stop (e.g. created by
             # API backfill entries without a "start" field, or rows predating the
             # provider_start column). Without provider_start the timeshift URL
@@ -771,7 +780,7 @@ class EPGIngestManager:
 
                 title = self._extract_text(elem, "title") or "Unknown"
                 description = self._extract_text(elem, "desc")
-                category = self._extract_text(elem, "category")
+                metadata_columns = GuideMetadata.from_xmltv_element(elem).to_columns()
 
                 start_ts = int(start_utc.timestamp())
                 stop_ts = int(end_utc.timestamp())
@@ -791,7 +800,7 @@ class EPGIngestManager:
                         "epg_id": f"{stream_id}:{start_ts}:{stop_ts}",
                         "title": title,
                         "description": description,
-                        "category": category,
+                        **metadata_columns,
                         "start_time": start_utc,
                         "end_time": end_utc,
                         "start_timestamp": start_ts,
@@ -1167,7 +1176,7 @@ class EPGIngestManager:
 
                     title = self._decode_base64_text(entry.get("title")) or "Unknown"
                     description = self._decode_base64_text(entry.get("description"))
-                    category = entry.get("category")
+                    metadata_columns = GuideMetadata.from_guide_entry(entry).to_columns()
                     epg_id = f"{stream_id}:{start_ts}:{stop_ts}"
                     has_archive = self._bool_from_value(entry.get("has_archive"), fallback=channel_has_archive)
 
@@ -1179,7 +1188,7 @@ class EPGIngestManager:
                         "epg_id": str(epg_id),
                         "title": title,
                         "description": description,
-                        "category": category,
+                        **metadata_columns,
                         "start_time": start_utc,
                         "end_time": end_utc,
                         "start_timestamp": start_ts,

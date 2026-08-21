@@ -56,6 +56,22 @@ video and placed alongside it, listing commercial segments so players can skip
 them. Produced only in Mark mode.
 _Avoid_: cutlist, skip file, chapters
 
+### Guide
+
+**Structured guide metadata**:
+Everything a provider's XMLTV entry says about a program beyond its title,
+description and timing: the episode subtitle, the full category list, the season
+and episode number, and any external identifiers (Gracenote, TVDB, TMDB, IMDb).
+Owned end to end by one module (`backend/guide_metadata.py`), which defines the
+field list once for the database, the model and the guide payload.
+_Avoid_: extra fields, EPG extras, rich metadata
+
+**Primary category**:
+The first category the provider listed for a program. Kept in its own column so
+everything that read a program's single category before still works; the rest of
+the list lives alongside it.
+_Avoid_: main genre, default category
+
 ### Preview
 
 **Preview**:
