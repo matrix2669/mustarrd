@@ -4,6 +4,16 @@ All notable changes to Mustarrd are listed here. Most recent changes are at the 
 
 ---
 
+## 2026-08-23
+
+### Fixed: Live guide metadata stays attached to the requested channel
+
+**What you would notice:** Browse no longer loses stored program details when a provider identifies a live guide row with its XMLTV channel ID instead of the stream ID Mustarrd requested. Categories, episode subtitles, season and episode numbers, and external IDs continue to appear on the channel you opened.
+
+**What changed:** The stream ID used to request a channel's guide is now authoritative while normalizing that response. A provider-supplied channel identifier can no longer redirect the row into a different ID namespace and prevent its exact stored airing from matching.
+
+---
+
 ## 2026-08-20
 
 ### Fixed: Recordings are named with the season and episode your guide published
