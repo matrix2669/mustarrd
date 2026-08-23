@@ -284,6 +284,31 @@ class ProjectionTests(unittest.TestCase):
         self.assertEqual(payload["episode_num_onscreen"], "S01E02")
         self.assertIsNone(payload["tvdb_id"])
 
+    def test_api_shape_keeps_fork_compatibility_aliases(self):
+        meta = GuideMetadata(
+            episode_num_onscreen="S01E02",
+            episode_num_xmltv="0.1.",
+            gracenote_id="EP012345670001",
+        )
+
+        payload = meta.to_api()
+
+        self.assertEqual(payload["episode_onscreen"], "S01E02")
+        self.assertEqual(payload["episode_xmltv_ns"], "0.1.")
+        self.assertEqual(payload["dd_progid"], "EP012345670001")
+
+    def test_legacy_api_aliases_are_accepted_as_input(self):
+        meta = GuideMetadata.from_guide_entry({
+            "episode_onscreen": "S01E02",
+            "episode_xmltv_ns": "0.1.",
+            "dd_progid": "EP012345670001",
+        })
+
+        self.assertEqual(meta.season_episode, (1, 2))
+        self.assertEqual(meta.episode_num_onscreen, "S01E02")
+        self.assertEqual(meta.episode_num_xmltv, "0.1.")
+        self.assertEqual(meta.gracenote_id, "EP012345670001")
+
     def test_declared_columns_match_the_field_list(self):
         """The model columns and the field list cannot drift apart."""
         declared = {name for name in vars(GuideMetadataColumns) if not name.startswith("_")}

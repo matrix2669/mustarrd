@@ -555,43 +555,112 @@ class EPGService:
         return list(deduped.values())
 
     def detect_program_type(self, program: dict, channel: dict = None) -> str:
-        """
-        Analyze program metadata to determine content type.
-
-        Returns: 'tv_show', 'movie', 'sports', 'news', or 'other'
-        """
+        """Classify a programme using structured metadata before heuristics."""
         import re
-        title = program.get("title", "") or ""
-        description = program.get("description", "") or ""
-        category = ""
-        if channel:
-            category = (channel.get("category_name", "") or "").lower()
 
-        # TV show: season/episode markers anywhere in title or description.
-        # Uses the same patterns as FileNamer so the detected type and the
-        # generated filename can't disagree.
-        full_text = f"{title} {description}"
-        if FileNamer.extract_season_episode(full_text):
-            return "tv_show"
-        # Episode-only markers (daily shows): "Ep 173", "Episode 5"
-        if re.search(r'\b(?:season|episode|ep)\.?\s*\d{1,4}\b', full_text, re.IGNORECASE):
-            return "tv_show"
+        title = (program.get("title") or "").strip()
+        description = (program.get("description") or "").strip()
+        subtitle = (program.get("subtitle") or "").strip()
+        full_text = f"{title} {subtitle} {description}".strip()
+        title_lower = title.lower()
+        channel_category = ((channel or {}).get("category_name") or "").strip().lower()
 
-        if FileNamer.detect_sports(title, category):
-            return "sports"
+        raw_categories = program.get("categories") or []
+        if isinstance(raw_categories, str):
+            raw_categories = [raw_categories]
+        categories = [
+            str(value).strip().lower()
+            for value in raw_categories
+            if str(value).strip()
+        ]
+        primary = (program.get("category") or "").strip().lower()
+        if primary and primary not in categories:
+            categories.insert(0, primary)
 
-        # Check for movies
-        movie_categories = ['movie', 'movies', 'film', 'films', 'cinema', 'peliculas']
-        if any(cat in category for cat in movie_categories):
+        def has_category(*needles):
+            return any(
+                any(needle in value for needle in needles)
+                for value in categories
+            )
+
+        # Strong movie and news metadata wins before any sports fallback.
+        tmdb_id = str(program.get("tmdb_id") or "").strip().lower()
+        gracenote_id = str(
+            program.get("gracenote_id") or program.get("dd_progid") or ""
+        ).strip().upper()
+        if tmdb_id.startswith("movie/") or gracenote_id.startswith("MV") or has_category(
+            "movie", "film", "cinema", "pelicula"
+        ):
             return "movie"
 
-        # Check for news
-        news_keywords = ['news', 'noticias', 'journal', 'breaking']
-        news_categories = ['news', 'noticias', 'information']
-        title_lower = title.lower()
-        if any(re.search(rf'\b{kw}\b', title_lower) for kw in news_keywords) or \
-           any(cat in category for cat in news_categories):
+        news_words = ("news", "noticias", "journal", "breaking")
+        if has_category("news", "noticias", "information") or any(
+            re.search(rf"\b{re.escape(word)}\b", title_lower)
+            for word in news_words
+        ):
             return "news"
+
+        sports_metadata = has_category("sports", "sport")
+        matchup = re.search(
+            r"\b\w[\w.'’&-]*\s+(?:vs?\.?|at|@)\s+\w[\w.'’&-]*\b",
+            f"{title} {subtitle}",
+            re.IGNORECASE,
+        )
+        # A real matchup remains a sports event even when the provider also
+        # attaches series/episode metadata to the broadcast.
+        if sports_metadata and matchup:
+            return "sports"
+
+        # Explicit episode or series identity beats a generic Sports category.
+        has_structured_episode = (
+            program.get("season_number") is not None
+            or program.get("episode_number") is not None
+            or bool(program.get("episode_num_onscreen") or program.get("episode_onscreen"))
+            or bool(program.get("episode_num_xmltv") or program.get("episode_xmltv_ns"))
+        )
+        if has_category("series") or has_structured_episode:
+            return "tv_show"
+
+        if FileNamer.extract_season_episode(full_text) or re.search(
+            r"\b(?:season|episode|ep)\.?\s*\d{1,4}\b",
+            full_text,
+            re.IGNORECASE,
+        ):
+            return "tv_show"
+
+        event_words = re.search(
+            r"\b(?:nba|wnba|nfl|mlb|nhl|ncaa|ufc|football|baseball|basketball|soccer|hockey|tennis|golf|boxing|mma|wrestling|rugby|cricket|race|racing|cup|tournament|championship|finals?|playoffs?)\b",
+            f"{title} {subtitle}",
+            re.IGNORECASE,
+        )
+        if event_words:
+            return "sports"
+
+        # External series identifiers are useful for sparse non-event rows, but
+        # come after event detection because providers attach them to games too.
+        tvdb_id = str(program.get("tvdb_id") or "").strip().lower()
+        if (
+            tvdb_id.startswith("series/")
+            or tmdb_id.startswith("series/")
+            or gracenote_id.startswith(("SH", "EP"))
+        ):
+            return "tv_show"
+
+        movie_categories = ("movie", "movies", "film", "films", "cinema", "peliculas")
+        if any(value in channel_category for value in movie_categories):
+            return "movie"
+        if any(value in channel_category for value in ("news", "noticias", "information")):
+            return "news"
+
+        if re.fullmatch(
+            r"\s*(?:paid programming|to be announced|tba|off air)\s*",
+            title,
+            re.IGNORECASE,
+        ):
+            return "other"
+
+        if sports_metadata or "sport" in channel_category:
+            return "sports"
 
         return "other"
 
