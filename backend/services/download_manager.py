@@ -119,6 +119,7 @@ class DownloadManager:
         self._active_account_ids: Dict[int, int] = {}
         self._account_active_counts: Dict[int, int] = {}
         self._cancelled: Set[int] = set()
+        self._vod_retry_downloads: Set[int] = set()
         self._progress_callbacks: Dict[int, Callable] = {}
         self._websocket_connections: Dict[Any, Dict[str, Any]] = {}
         self._stage_progress: Dict[int, Dict[str, Any]] = {}
@@ -801,14 +802,18 @@ class DownloadManager:
                 )
 
                 # Start download
-                downloaded_bytes = await self._download_file(
-                    download.source_url,
-                    download.output_path,
-                    download_id,
-                    session,
-                    offset=recovery_offset,
-                    retry_http_errors=bool(download.is_vod),
-                )
+                if download.is_vod:
+                    self._vod_retry_downloads.add(download_id)
+                try:
+                    downloaded_bytes = await self._download_file(
+                        download.source_url,
+                        download.output_path,
+                        download_id,
+                        session,
+                        offset=recovery_offset,
+                    )
+                finally:
+                    self._vod_retry_downloads.discard(download_id)
                 if downloaded_bytes == 0:
                     raise Exception(
                         "Provider returned an empty response. "
@@ -1729,7 +1734,28 @@ class DownloadManager:
         download_id: int,
         session: AsyncSession,
         offset: int = 0,
-        retry_http_errors: bool = False,
+        retry_http_errors: Optional[bool] = None,
+    ):
+        """Download with bounded transport and optional VOD HTTP retries."""
+        if retry_http_errors is None:
+            retry_http_errors = download_id in self._vod_retry_downloads
+        return await self._download_file_with_policy(
+            url,
+            output_path,
+            download_id,
+            session,
+            offset=offset,
+            retry_http_errors=retry_http_errors,
+        )
+
+    async def _download_file_with_policy(
+        self,
+        url: str,
+        output_path: str,
+        download_id: int,
+        session: AsyncSession,
+        offset: int,
+        retry_http_errors: bool,
     ):
         """Download with bounded transport retries and optional VOD HTTP retries.
 
