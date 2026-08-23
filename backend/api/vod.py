@@ -11,6 +11,7 @@ import logging
 import os
 
 from auth import require_admin_or_download_user, AuthContext
+from database import async_session_maker
 from api.hls_common import (
     acquire_preview_slot,
     close_provider_connection,
@@ -143,7 +144,6 @@ async def _get_account(session: AsyncSession, account_id: int) -> XtreamAccount:
 
 
 async def _resolve_provider_tmdb_id(
-    session: AsyncSession,
     account_id: int,
     media_id: str,
     media_type: str,
@@ -155,14 +155,19 @@ async def _resolve_provider_tmdb_id(
     provider detail request per movie or series batch only when tmdb_id was not
     supplied in the download request.
     """
-    account = await _get_account(session, account_id)
-    client = await _get_client(session, account)
+    client = None
     try:
-        if media_type == "series":
-            payload = await client.get_series_info(media_id)
-        else:
-            payload = await client.get_vod_info(media_id)
-        return _extract_tmdb_id(payload)
+        # Provider enrichment is optional and must not consume or reorder the
+        # request transaction used for account validation, duplicate checks,
+        # and all-or-nothing series batching.
+        async with async_session_maker() as lookup_session:
+            account = await _get_account(lookup_session, account_id)
+            client = await _get_client(lookup_session, account)
+            if media_type == "series":
+                payload = await client.get_series_info(media_id)
+            else:
+                payload = await client.get_vod_info(media_id)
+            return _extract_tmdb_id(payload)
     except Exception:
         logger.warning(
             "Unable to recover provider TMDB metadata account_id=%s media_type=%s media_id=%s",
@@ -173,7 +178,8 @@ async def _resolve_provider_tmdb_id(
         )
         return None
     finally:
-        await client.close()
+        if client is not None:
+            await client.close()
 
 
 @router.get("/movies/categories")
@@ -242,7 +248,6 @@ async def download_movie(
     tmdb_id = str(data.tmdb_id).strip() if data.tmdb_id is not None else None
     if not tmdb_id:
         tmdb_id = await _resolve_provider_tmdb_id(
-            session,
             data.account_id,
             data.vod_id,
             "movie",
@@ -343,10 +348,12 @@ async def download_series(
     auth: AuthContext = Depends(require_admin_or_download_user),
     session: AsyncSession = Depends(get_session)
 ):
+    if not data.episodes:
+        return {"count": 0, "downloads": []}
+
     tmdb_id = str(data.tmdb_id).strip() if data.tmdb_id is not None else None
     if not tmdb_id:
         tmdb_id = await _resolve_provider_tmdb_id(
-            session,
             data.account_id,
             data.series_id,
             "series",
@@ -385,9 +392,6 @@ async def download_series(
                 raise HTTPException(status_code=404, detail="Account not found")
             raise HTTPException(status_code=400, detail="Unable to queue series download")
         downloads.append(download)
-
-    if not downloads:
-        return {"count": 0, "downloads": []}
 
     await check_disk_space(session)
 

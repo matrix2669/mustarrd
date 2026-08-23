@@ -33,14 +33,25 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from database import Base
 from models import AppSettings, Download, DownloadStatus, XtreamAccount
 from services.download_manager import DownloadManager
-from services.vod_namer import series_episode_output_path
+from services.output_path import output_path
 
 DOWNLOAD_FOLDER = "/tmp/downloads"
 
 
 def _episode_path(season: int, episode_num: int, title: str) -> str:
-    return series_episode_output_path(
-        DOWNLOAD_FOLDER, "Breaking Bad", season, episode_num, title, "mp4",
+    # Match the configured-template path produced by build_episode_download;
+    # the batch regression is about atomic conflict handling, not the legacy
+    # VOD hierarchy used only when no TV template exists.
+    return output_path.for_series_episode(
+        {
+            "download_folder": DOWNLOAD_FOLDER,
+            "tv_template": "{show} - S{season:02d}E{episode:02d} - {title}",
+        },
+        "Breaking Bad",
+        season,
+        episode_num,
+        title,
+        "mp4",
     )
 
 
