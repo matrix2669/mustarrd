@@ -20,6 +20,12 @@ All notable changes to Mustarrd are listed here. Most recent changes are at the 
 
 ---
 
+### Added: Arr Stack Connector can hand downloads to Mustarrd
+
+**What you would notice:** The Dispatcharr Arr Stack Plugin can send a selected movie or episode to Mustarrd, keep the Sonarr/Radarr category-based output path, and follow the job through Mustarrd's queue, retry, cancellation, and completion lifecycle.
+
+**What changed:** Mustarrd now provides the authenticated external VOD download endpoint required by the Arr Stack Connector plugin. The endpoint validates the supplied Dispatcharr proxy URL and relative output path, queues the request as VOD, preserves the requested path when moving the completed file, and retries bounded transient HTTP failures. This is a Mustarrd dependency of `matrix2669/Dispatcharr-Arr-Stack-Plugin`; it is not part of upstream Mustarrd until the focused changes are rebuilt from current upstream and accepted there.
+
 ## 2026-08-20
 
 ### Fixed: Recordings are named with the season and episode your guide published
