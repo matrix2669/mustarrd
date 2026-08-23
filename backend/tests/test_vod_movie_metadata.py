@@ -1,12 +1,18 @@
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from api.vod import MovieDownloadRequest, SeriesDownloadRequest, _extract_tmdb_id
+from api.vod import (
+    MovieDownloadRequest,
+    SeriesDownloadRequest,
+    _extract_tmdb_id,
+    _resolve_provider_tmdb_id,
+)
 from services.output_path import output_path
 from services.vod_service import _clean_episode_title
 
@@ -71,6 +77,31 @@ class ProviderTmdbMetadataTests(unittest.TestCase):
 
     def test_ignores_empty_provider_values(self):
         self.assertIsNone(_extract_tmdb_id({"info": {"tmdb_id": "", "tmdb": None}}))
+
+
+class ProviderTmdbFallbackTests(unittest.IsolatedAsyncioTestCase):
+    async def test_uses_an_isolated_lookup_session(self):
+        lookup_session = MagicMock()
+        context = MagicMock()
+        context.__aenter__ = AsyncMock(return_value=lookup_session)
+        context.__aexit__ = AsyncMock(return_value=None)
+
+        account = MagicMock()
+        client = MagicMock()
+        client.get_vod_info = AsyncMock(return_value={"info": {"tmdb_id": 693134}})
+        client.close = AsyncMock()
+
+        with (
+            patch("api.vod.async_session_maker", return_value=context),
+            patch("api.vod._get_account", new=AsyncMock(return_value=account)) as get_account,
+            patch("api.vod._get_client", new=AsyncMock(return_value=client)) as get_client,
+        ):
+            result = await _resolve_provider_tmdb_id(1, "42", "movie")
+
+        self.assertEqual(result, "693134")
+        get_account.assert_awaited_once_with(lookup_session, 1)
+        get_client.assert_awaited_once_with(lookup_session, account)
+        client.close.assert_awaited_once()
 
 
 class VodEpisodeTitleMetadataTests(unittest.TestCase):
