@@ -84,6 +84,18 @@ Nothing changes if you leave the GPU picker on **Automatic**, or if you only hav
 
 **What changed:** The stream ID used to request a channel's guide is now authoritative while normalizing that response. A provider-supplied channel identifier can no longer redirect the row into a different ID namespace and prevent its exact stored airing from matching.
 
+### Fixed: Sports series and live events are classified separately
+
+**What you would notice:** Episodic sports programs such as documentaries and recap shows are now filed as TV shows when the guide supplies series or episode metadata, while actual games and matches remain sports. Titles such as `Henry V` are no longer mistaken for versus-style events, and filler listings such as `Paid Programming` do not inherit a sports classification just because they air on a sports channel.
+
+**What changed:** Program classification now uses the guide's full category list, episode metadata, and external IDs before falling back to title and channel-name heuristics. Movie and news metadata remain authoritative, matchup detection requires meaningful text on both sides, and the generic sports fallback runs only after known filler is excluded.
+
+### Fixed: Unknown XMLTV seasons no longer overwrite genuine specials
+
+**What you would notice:** A daily program whose provider explicitly publishes XMLTV season `-1` is filed under the airing year, while a real season-zero special—or a program with no raw unknown-season marker—stays in `Season 00`. Episode subtitles from the guide are also used in recording filenames when available.
+
+**What changed:** Filename generation keeps upstream's guide-first season and episode handling, then applies the airing year only when the preserved raw XMLTV value explicitly starts with `-1`. Existing matrix2669 databases and Dispatcharr integrations retain compatibility while moving to upstream's canonical structured-guide field names.
+
 ---
 
 ## 2026-08-20
