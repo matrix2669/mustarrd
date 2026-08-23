@@ -184,7 +184,7 @@ class EPGService:
                 processed = [
                     self._process_epg_entry(
                         entry, account,
-                        fallback_channel_id=channel_id,
+                        requested_channel_id=channel_id,
                         has_archive_fallback=True,
                         global_offset_minutes=global_offset_minutes,
                     )
@@ -244,7 +244,7 @@ class EPGService:
         self,
         entry: dict,
         account: Optional[XtreamAccount] = None,
-        fallback_channel_id: Optional[str] = None,
+        requested_channel_id: Optional[str] = None,
         has_archive_fallback: bool = False,
         global_offset_minutes: int = 0,
     ) -> dict:
@@ -281,7 +281,10 @@ class EPGService:
         if start_time and end_time:
             duration_minutes = int((end_time - start_time).total_seconds() / 60)
 
-        channel_id = str(entry.get("channel_id") or fallback_channel_id or "")
+        # The caller requested guide data for one specific stream. Provider
+        # responses may identify the same guide row with an XMLTV channel ID,
+        # which lives in a different namespace and must not redirect the row.
+        channel_id = str(requested_channel_id or entry.get("channel_id") or "")
         epg_id = entry.get("epg_id")
         if channel_id and start_timestamp and stop_timestamp:
             epg_id = f"{channel_id}:{start_timestamp}:{stop_timestamp}"

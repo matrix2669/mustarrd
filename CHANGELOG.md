@@ -26,6 +26,16 @@ All notable changes to Mustarrd are listed here. Most recent changes are at the 
 
 **What changed:** Mustarrd now provides the authenticated external VOD download endpoint required by the Arr Stack Connector plugin. The endpoint validates the supplied Dispatcharr proxy URL and relative output path, queues the request as VOD, preserves the requested path when moving the completed file, and retries bounded transient HTTP failures. This is a Mustarrd dependency of `matrix2669/Dispatcharr-Arr-Stack-Plugin`; it is not part of upstream Mustarrd until the focused changes are rebuilt from current upstream and accepted there.
 
+---
+
+### Fixed: Live guide metadata stays attached to the requested channel
+
+**What you would notice:** Browse no longer loses stored program details when a provider identifies a live guide row with its XMLTV channel ID instead of the stream ID Mustarrd requested. Categories, episode subtitles, season and episode numbers, and external IDs continue to appear on the channel you opened.
+
+**What changed:** The stream ID used to request a channel's guide is now authoritative while normalizing that response. A provider-supplied channel identifier can no longer redirect the row into a different ID namespace and prevent its exact stored airing from matching.
+
+---
+
 ## 2026-08-20
 
 ### Fixed: Recordings are named with the season and episode your guide published
