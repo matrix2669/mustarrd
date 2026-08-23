@@ -296,8 +296,12 @@ class GuideMetadata:
         entry = entry or {}
         categories = entry.get("categories") or [entry.get(_PRIMARY_CATEGORY_COLUMN)]
 
-        onscreen = _clean_text(entry.get("episode_num_onscreen"))
-        xmltv_ns = _clean_text(entry.get("episode_num_xmltv"))
+        onscreen = _clean_text(
+            _first_present(entry, "episode_num_onscreen", "episode_onscreen")
+        )
+        xmltv_ns = _clean_text(
+            _first_present(entry, "episode_num_xmltv", "episode_xmltv_ns")
+        )
         season = _clean_int(_first_present(entry, "season_number", "season"))
         episode = _clean_int(_first_present(entry, "episode_number", "episode"))
         if season is None and episode is None:
@@ -312,7 +316,9 @@ class GuideMetadata:
             episode_number=episode,
             episode_num_onscreen=onscreen,
             episode_num_xmltv=xmltv_ns,
-            gracenote_id=_clean_text(entry.get("gracenote_id")),
+            gracenote_id=_clean_text(
+                _first_present(entry, "gracenote_id", "dd_progid")
+            ),
             tvdb_id=_clean_text(entry.get("tvdb_id")),
             tmdb_id=_clean_text(entry.get("tmdb_id")),
             imdb_id=_clean_text(entry.get("imdb_id")),
@@ -324,6 +330,19 @@ class GuideMetadata:
         values = {
             f.name: f.codec.from_storage(getattr(row, f.column, None)) for f in _FIELDS
         }
+
+        # Read databases created by the matrix2669 fork before upstream
+        # standardized these three column names. Startup migration copies the
+        # values forward; these fallbacks also keep pre-migration row-shaped
+        # objects safe in tests and maintenance tools.
+        legacy_columns = {
+            "episode_num_onscreen": "episode_onscreen",
+            "episode_num_xmltv": "episode_xmltv_ns",
+            "gracenote_id": "dd_progid",
+        }
+        for current_name, legacy_name in legacy_columns.items():
+            if _is_absent(values[current_name]):
+                values[current_name] = _clean_text(getattr(row, legacy_name, None))
 
         # Rows written before this module have only the single category column.
         if not values["categories"]:
@@ -350,6 +369,11 @@ class GuideMetadata:
         """
         payload = {f.name: f.codec.to_api(getattr(self, f.name)) for f in _FIELDS}
         payload[_PRIMARY_CATEGORY_COLUMN] = self.primary_category
+        # Temporary API aliases preserve the existing Dispatcharr plugin
+        # contract while the fork moves to upstream's canonical field names.
+        payload["episode_onscreen"] = payload["episode_num_onscreen"]
+        payload["episode_xmltv_ns"] = payload["episode_num_xmltv"]
+        payload["dd_progid"] = payload["gracenote_id"]
         return payload
 
     # --- merging ------------------------------------------------------
