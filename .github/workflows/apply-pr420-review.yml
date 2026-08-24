@@ -1,0 +1,117 @@
+name: Apply PR 420 review fixes
+
+on:
+  push:
+    branches:
+      - automation/pr420-review-fixes
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out automation branch
+        uses: actions/checkout@v6
+        with:
+          ref: automation/pr420-review-fixes
+          fetch-depth: 0
+
+      - name: Preserve patch helper and check out PR branch
+        run: |
+          cp .github/scripts/apply_pr420_review.py /tmp/apply_pr420_review.py
+          git fetch origin feature/comskip-runtime-config
+          git checkout --force -B feature/comskip-runtime-config origin/feature/comskip-runtime-config
+
+      - name: Apply guarded source changes
+        run: python /tmp/apply_pr420_review.py
+
+      - name: Add current UI screenshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -L --fail --retry 3 \
+            "https://github.com/user-attachments/assets/aa037932-8c1a-4286-8579-278b0f365e19" \
+            -o /tmp/comskip-runtime-config-screenshot
+          mkdir -p .github/pr-screenshots
+          mime="$(file -b --mime-type /tmp/comskip-runtime-config-screenshot)"
+          case "$mime" in
+            image/png)
+              destination=.github/pr-screenshots/comskip-runtime-config.png
+              ;;
+            image/jpeg)
+              destination=.github/pr-screenshots/comskip-runtime-config.jpg
+              ;;
+            *)
+              echo "Unexpected screenshot MIME type: $mime" >&2
+              exit 1
+              ;;
+          esac
+          cp /tmp/comskip-runtime-config-screenshot "$destination"
+          echo "Added $destination ($mime)"
+
+      - name: Check patch formatting
+        run: |
+          git diff --check
+          python -m compileall -q backend
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install backend dependencies
+        run: pip install -r backend/requirements.txt
+
+      - name: Run focused backend regressions
+        working-directory: backend
+        run: |
+          python -m unittest \
+            tests.test_comskip_ini_generation \
+            tests.test_comskip_ini_migration \
+            tests.test_comskip_tunables_api \
+            tests.test_comskip_probe_sidecar_cleanup
+
+      - name: Run complete backend suite
+        working-directory: backend
+        run: python -m unittest discover -s tests
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run complete frontend suite
+        working-directory: frontend
+        run: npm test
+
+      - name: Commit and push reviewed changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Address Comskip review feedback"
+          git push origin HEAD:feature/comskip-runtime-config
+
+      - name: Remove disposable automation branch
+        if: success()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          curl -L --fail-with-body \
+            -X DELETE \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/git/refs/heads/automation/pr420-review-fixes" \
+            || echo "Automation branch cleanup must be completed manually."
