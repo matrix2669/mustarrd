@@ -1,6 +1,8 @@
 """Tests for generated and custom Comskip INI resolution."""
+import asyncio
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -237,6 +239,36 @@ class ResolvedIniLifecycleTests(unittest.IsolatedAsyncioTestCase):
                     generated = Path(path)
                     raise RuntimeError("boom")
         self.assertIsNotNone(generated)
+        self.assertFalse(generated.exists())
+
+    async def test_generated_ini_removed_when_resolution_is_cancelled(self):
+        generated = self.config_dir / ".mustarrd-comskip-cancel.ini"
+        started = threading.Event()
+        release = threading.Event()
+        finished = threading.Event()
+
+        def slow_resolve(*_args):
+            generated.write_text("output_edl=1\n", encoding="utf-8")
+            started.set()
+            release.wait(timeout=2)
+            finished.set()
+            return str(generated), True
+
+        async def use_ini():
+            async with resolved_comskip_ini(self.settings):
+                self.fail("The context must not be entered after cancellation")
+
+        with patch(
+            "services.comskip_ini.resolve_comskip_ini", side_effect=slow_resolve
+        ):
+            task = asyncio.create_task(use_ini())
+            self.assertTrue(await asyncio.to_thread(started.wait, 2))
+            task.cancel()
+            release.set()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+            self.assertTrue(await asyncio.to_thread(finished.wait, 2))
+
         self.assertFalse(generated.exists())
 
     async def test_custom_ini_is_never_deleted(self):
