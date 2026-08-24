@@ -191,11 +191,21 @@ def cleanup_comskip_ini(path: Optional[str], is_temporary: bool) -> None:
 async def resolved_comskip_ini(
     settings, runtime_overrides: Optional[dict[str, int]] = None
 ) -> AsyncIterator[Optional[str]]:
-    """Resolve one run's INI and clean generated files on every normal exit."""
-    path, is_temporary = await asyncio.to_thread(
-        resolve_comskip_ini, settings, runtime_overrides
+    """Resolve one run's INI and clean owned files even when resolution is cancelled."""
+    path: Optional[str] = None
+    is_temporary = False
+    resolve_task = asyncio.create_task(
+        asyncio.to_thread(resolve_comskip_ini, settings, runtime_overrides)
     )
     try:
+        try:
+            path, is_temporary = await asyncio.shield(resolve_task)
+        except asyncio.CancelledError:
+            try:
+                path, is_temporary = await resolve_task
+            except Exception:
+                pass
+            raise
         yield path
     finally:
         await asyncio.to_thread(cleanup_comskip_ini, path, is_temporary)
