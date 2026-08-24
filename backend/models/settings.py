@@ -81,7 +81,7 @@ class AppSettings(Base):
     comskip_always_keep_last_seconds: Mapped[int] = mapped_column(Integer, default=60)
     comskip_remove_before: Mapped[int] = mapped_column(Integer, default=0)
     comskip_remove_after: Mapped[int] = mapped_column(Integer, default=0)
-    comskip_connect_blocks_with_logo: Mapped[int] = mapped_column(Integer, default=0)
+    comskip_connect_blocks_with_logo: Mapped[bool] = mapped_column(Boolean, default=True)
     comskip_dynamic_ticker_tape: Mapped[bool] = mapped_column(Boolean, default=False)
     comskip_thread_count: Mapped[int] = mapped_column(Integer, default=1)
     admin_password_hash: Mapped[str | None] = mapped_column(String(500), nullable=True)

@@ -167,7 +167,7 @@ async def _apply_lightweight_migrations(conn) -> None:
         ("comskip_always_keep_last_seconds", "INTEGER DEFAULT 60"),
         ("comskip_remove_before", "INTEGER DEFAULT 0"),
         ("comskip_remove_after", "INTEGER DEFAULT 0"),
-        ("comskip_connect_blocks_with_logo", "INTEGER DEFAULT 0"),
+        ("comskip_connect_blocks_with_logo", "BOOLEAN DEFAULT 1"),
         ("comskip_dynamic_ticker_tape", "BOOLEAN DEFAULT 0"),
         ("comskip_thread_count", "INTEGER DEFAULT 1"),
     )

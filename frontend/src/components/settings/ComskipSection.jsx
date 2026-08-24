@@ -24,10 +24,11 @@ export const COMSKIP_DEFAULTS = {
   comskip_always_keep_last_seconds: 60,
   comskip_remove_before: 0,
   comskip_remove_after: 0,
-  comskip_connect_blocks_with_logo: 0,
+  comskip_connect_blocks_with_logo: true,
   comskip_dynamic_ticker_tape: false,
   comskip_thread_count: 1,
   comskip_use_custom_ini: false,
+  comskip_custom_ini_path: null,
 }
 
 const DETECT_METHOD_OPTIONS = [
@@ -289,14 +290,20 @@ export default function ComskipSection({ formData, onChange, onResetDefaults, on
             </SettingRow>
             <SettingRow
               label="Connect blocks with logo"
-              description="Join neighboring detected blocks when the channel logo is visible at their transition. Disabled by default because it can merge show content into a commercial break on logo-heavy channels."
+              description="Join neighboring detected blocks when the channel logo is visible at their transition. Enabled by default to match the bundled Comskip behavior; turn it off if logo-heavy channels merge show content into a break."
               tooltip="Corresponds to connect_blocks_with_logo in comskip.ini. Enable only if your provider splits a single ad break into several short blocks."
             >
               <Checkbox
                 aria-label="Connect blocks with logo"
                 disabled={managedDisabled}
-                checked={Boolean(formData?.comskip_connect_blocks_with_logo)}
-                onChange={(e) => onChange('comskip_connect_blocks_with_logo', e.currentTarget.checked ? 1 : 0)}
+                checked={Boolean(
+                  formData?.comskip_connect_blocks_with_logo
+                    ?? COMSKIP_DEFAULTS.comskip_connect_blocks_with_logo
+                )}
+                onChange={(e) => onChange(
+                  'comskip_connect_blocks_with_logo',
+                  e.currentTarget.checked,
+                )}
               />
             </SettingRow>
             <SettingRow
@@ -324,13 +331,14 @@ export default function ComskipSection({ formData, onChange, onResetDefaults, on
               </Text>
             </Alert>
           )}
-          <Group>
-            <Button variant="default" size="xs" disabled={managedDisabled} onClick={onResetDefaults}>
-              Reset to Defaults
-            </Button>
-          </Group>
         </SubGroup>
       </Stack>
+
+      <Group>
+        <Button variant="default" size="xs" disabled={!enabled} onClick={onResetDefaults}>
+          Reset to Defaults
+        </Button>
+      </Group>
     </Stack>
   )
 }
