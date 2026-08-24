@@ -4,25 +4,31 @@ The Settings page exposes a small set of Comskip tunables stored on
 app_settings (comskip_detect_method, comskip_min_commercialbreak, ...).
 At detection time the INI passed to Comskip is produced by taking a base
 INI — the user's config-dir comskip.ini if present, else the bundled one —
-and overriding those tunable keys with the stored values.  Starting from
+and overriding those tunable keys with the stored values. Starting from
 the base file keeps non-exposed keys working, most importantly
 output_edl=1 which the post-processing pipeline depends on.
 
 When custom INI mode is enabled, the user-supplied path bypasses generation
-entirely and is passed to Comskip as-is.
+entirely and is passed to Comskip as-is after save-time and run-time checks.
 """
+import asyncio
 import logging
 import os
 import re
+import stat
 import tempfile
-from typing import Optional
+from contextlib import asynccontextmanager
+from typing import AsyncIterator, Optional
 
 from config import ensure_config_files, _resolve_bundled_comskip_ini
 
 logger = logging.getLogger(__name__)
 
-# comskip.ini keys editable in the Settings UI; each maps 1:1 to the
-# AppSettings column with a comskip_ prefix.
+
+class ComskipIniError(RuntimeError):
+    """Raised when an explicitly selected Comskip INI cannot be used safely."""
+
+
 TUNABLE_KEYS = (
     "detect_method",
     "max_commercialbreak",
@@ -40,6 +46,43 @@ TUNABLE_KEYS = (
 _KEY_LINE = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=")
 
 
+def validate_comskip_ini_path(path: str, *, custom: bool = False) -> str:
+    """Require a readable regular INI file and return its normalized path."""
+    label = "Custom Comskip INI" if custom else "Comskip INI"
+    cleaned = path.strip()
+    if not cleaned:
+        raise ComskipIniError(f"{label} path is required")
+
+    expanded_path = os.path.expanduser(cleaned)
+    if not os.path.isabs(expanded_path):
+        raise ComskipIniError(
+            f"{label} path must be an absolute path as seen by Mustarrd "
+            "(inside the container when using Docker)"
+        )
+    normalized_path = os.path.abspath(expanded_path)
+
+    try:
+        path_stat = os.stat(normalized_path)
+    except FileNotFoundError as exc:
+        raise ComskipIniError(f"{label} file was not found: {path}") from exc
+    except OSError as exc:
+        raise ComskipIniError(
+            f"{label} path could not be checked: {exc.strerror or exc}"
+        ) from exc
+
+    if not stat.S_ISREG(path_stat.st_mode):
+        raise ComskipIniError(f"{label} path is not a regular file: {path}")
+
+    try:
+        with open(normalized_path, "rb") as handle:
+            handle.read(1)
+    except OSError as exc:
+        raise ComskipIniError(
+            f"{label} file is not readable by Mustarrd: {exc.strerror or exc}"
+        ) from exc
+    return normalized_path
+
+
 def tunable_overrides(settings) -> dict[str, int]:
     """Read the tunable values off an AppSettings row, skipping unset ones."""
     overrides: dict[str, int] = {}
@@ -51,11 +94,7 @@ def tunable_overrides(settings) -> dict[str, int]:
 
 
 def render_comskip_ini(base_text: str, overrides: dict[str, int]) -> str:
-    """Return base_text with `key=value` lines replaced by the overrides.
-
-    Keys not present in the base are appended at the end, so the result is
-    complete even when the base INI is minimal.
-    """
+    """Return base_text with `key=value` lines replaced by the overrides."""
     out: list[str] = []
     seen: set[str] = set()
     for line in base_text.splitlines():
@@ -86,23 +125,23 @@ def _base_ini_text() -> str:
                 return candidate.read_text(encoding="utf-8", errors="replace")
         except OSError as exc:
             logger.warning("Could not read %s as comskip.ini base: %s", candidate, exc)
-    # Minimal base: EDL output is required by the post-processing pipeline.
     return "output_edl=1\n"
 
 
 def generate_comskip_ini(
     settings, runtime_overrides: Optional[dict[str, int]] = None
 ) -> Optional[str]:
-    """Write a unique per-run INI in the system temp dir and return its path.
-
-    Returns None when generation fails (unwritable temp dir, etc.) so the
-    caller can fall back instead of breaking commercial detection.
-    """
+    """Write a unique per-run INI in Mustarrd's config dir and return its path."""
     try:
+        config_dir = ensure_config_files()
         overrides = tunable_overrides(settings)
         overrides.update(runtime_overrides or {})
         content = render_comskip_ini(_base_ini_text(), overrides)
-        fd, tmp_path = tempfile.mkstemp(prefix="mustarrd-comskip-", suffix=".ini")
+        fd, tmp_path = tempfile.mkstemp(
+            dir=str(config_dir),
+            prefix=".mustarrd-comskip-",
+            suffix=".ini",
+        )
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
                 handle.write(content)
@@ -120,17 +159,43 @@ def generate_comskip_ini(
 
 def resolve_comskip_ini(
     settings, runtime_overrides: Optional[dict[str, int]] = None
-) -> Optional[str]:
-    """Pick the INI path to pass to Comskip for this run.
+) -> tuple[Optional[str], bool]:
+    """Return the INI path and whether Mustarrd owns it as a temporary file."""
+    if getattr(settings, "comskip_use_custom_ini", False):
+        custom = (getattr(settings, "comskip_custom_ini_path", None) or "").strip()
+        if not custom:
+            raise ComskipIniError(
+                "A custom Comskip INI path is required when custom INI mode is enabled"
+            )
+        return validate_comskip_ini_path(custom, custom=True), False
 
-    Precedence: user custom INI > INI generated from stored settings >
-    legacy comskip_ini_path (pre-editor behaviour, used only when
-    generation fails).
-    """
-    custom = (getattr(settings, "comskip_custom_ini_path", None) or "").strip()
-    if getattr(settings, "comskip_use_custom_ini", False) and custom:
-        return custom
     generated = generate_comskip_ini(settings, runtime_overrides)
     if generated:
-        return generated
-    return getattr(settings, "comskip_ini_path", None)
+        return generated, True
+    return getattr(settings, "comskip_ini_path", None), False
+
+
+def cleanup_comskip_ini(path: Optional[str], is_temporary: bool) -> None:
+    """Remove a generated INI while leaving custom and legacy files untouched."""
+    if not path or not is_temporary:
+        return
+    try:
+        os.unlink(path)
+    except FileNotFoundError:
+        pass
+    except OSError as exc:
+        logger.warning("Could not remove temporary Comskip INI %s: %s", path, exc)
+
+
+@asynccontextmanager
+async def resolved_comskip_ini(
+    settings, runtime_overrides: Optional[dict[str, int]] = None
+) -> AsyncIterator[Optional[str]]:
+    """Resolve one run's INI and clean generated files on every normal exit."""
+    path, is_temporary = await asyncio.to_thread(
+        resolve_comskip_ini, settings, runtime_overrides
+    )
+    try:
+        yield path
+    finally:
+        await asyncio.to_thread(cleanup_comskip_ini, path, is_temporary)

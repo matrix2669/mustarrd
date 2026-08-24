@@ -107,8 +107,29 @@ describe('ComskipSection', () => {
 
     expect(screen.getByRole('checkbox', { name: 'Use a custom Comskip INI' })).toBeChecked()
     expect(screen.getByRole('checkbox', { name: 'Black frames' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Reset to Defaults' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Reset to Defaults' })).toBeEnabled()
     expect(screen.getByText(/Custom INI mode is active/)).toBeInTheDocument()
+  })
+
+  it('resets from custom mode', () => {
+    const { onResetDefaults } = renderSection({
+      comskip_use_custom_ini: true,
+      comskip_custom_ini_path: '/tmp/custom.ini',
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reset to Defaults' }))
+
+    expect(onResetDefaults).toHaveBeenCalledOnce()
+  })
+
+  it('uses a boolean enabled default for connecting logo blocks', () => {
+    const { onChange } = renderSection()
+    const checkbox = screen.getByRole('checkbox', { name: 'Connect blocks with logo' })
+
+    expect(checkbox).toBeChecked()
+    fireEvent.click(checkbox)
+
+    expect(onChange).toHaveBeenCalledWith('comskip_connect_blocks_with_logo', false)
   })
 
   it('warns that multiple processing threads can change detection', () => {

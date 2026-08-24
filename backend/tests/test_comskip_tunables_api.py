@@ -93,7 +93,7 @@ class ComskipTunablesUpdateTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["comskip_always_keep_last_seconds"], 60)
         self.assertEqual(result["comskip_remove_before"], 0)
         self.assertEqual(result["comskip_remove_after"], 0)
-        self.assertEqual(result["comskip_connect_blocks_with_logo"], 0)
+        self.assertTrue(result["comskip_connect_blocks_with_logo"])
         self.assertFalse(result["comskip_dynamic_ticker_tape"])
         self.assertEqual(result["comskip_thread_count"], 1)
         self.assertFalse(result["comskip_use_custom_ini"])

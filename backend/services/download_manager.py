@@ -2081,11 +2081,10 @@ class DownloadManager:
                     comskip_indeterminate = False
                     await broadcast_processing(comskip_progress, current_message, indeterminate=False)
 
-                from services.comskip_ini import resolve_comskip_ini
+                from services.comskip_ini import resolved_comskip_ini
 
-                custom_ini = (getattr(settings, "comskip_custom_ini_path", None) or "").strip()
                 use_custom_ini = bool(
-                    getattr(settings, "comskip_use_custom_ini", False) and custom_ini
+                    getattr(settings, "comskip_use_custom_ini", False)
                 )
                 runtime_overrides = {}
                 if getattr(settings, "comskip_dynamic_ticker_tape", False) and not use_custom_ini:
@@ -2099,33 +2098,15 @@ class DownloadManager:
                         await log_callback(f"Comskip input dimensions: {width}x{height}.")
                         await log_callback(f"Comskip resolved ticker_tape: {ticker_tape} px.")
 
-                comskip_ini_path = await asyncio.to_thread(
-                    resolve_comskip_ini, settings, runtime_overrides
-                )
-                generated_ini = bool(
-                    comskip_ini_path
-                    and not use_custom_ini
-                    and comskip_ini_path != getattr(settings, "comskip_ini_path", None)
-                )
-                try:
+                async with resolved_comskip_ini(
+                    settings, runtime_overrides
+                ) as comskip_ini_path:
                     edl_path = await post_processor.detect_commercials(
                         current_path,
                         comskip_ini_path,
                         log_callback=log_callback,
                         progress_callback=comskip_progress_callback
                     )
-                finally:
-                    if generated_ini and comskip_ini_path:
-                        try:
-                            os.unlink(comskip_ini_path)
-                        except FileNotFoundError:
-                            pass
-                        except OSError as cleanup_error:
-                            logger.warning(
-                                "Could not remove temporary Comskip INI %s: %s",
-                                comskip_ini_path,
-                                cleanup_error,
-                            )
                 if comskip_progress is None or comskip_progress < 100:
                     comskip_progress = 100.0
                 comskip_indeterminate = False

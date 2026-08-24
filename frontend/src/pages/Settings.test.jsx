@@ -69,7 +69,7 @@ const baseSettings = {
   comskip_always_keep_last_seconds: 60,
   comskip_remove_before: 0,
   comskip_remove_after: 0,
-  comskip_connect_blocks_with_logo: 0,
+  comskip_connect_blocks_with_logo: true,
   comskip_dynamic_ticker_tape: false,
   comskip_thread_count: 1,
   tv_template: '{show} - S{season:02d}E{episode:02d} - {title}',
@@ -207,6 +207,36 @@ describe('Settings page', () => {
 
     expect(screen.queryByRole('button', { name: 'Save Changes' })).not.toBeInTheDocument()
     expect(screen.getByRole('textbox', { name: 'Max concurrent downloads' })).toHaveValue('2')
+  })
+
+  it('resets custom Comskip mode and clears its path', async () => {
+    settingsApi.get.mockResolvedValue({
+      ...baseSettings,
+      comskip_enabled: true,
+      comskip_use_custom_ini: true,
+      comskip_custom_ini_path: '/app/config/custom-comskip.ini',
+      comskip_connect_blocks_with_logo: false,
+    })
+
+    renderSettings()
+    await screen.findByText('Connections')
+    fireEvent.click(screen.getByText('Commercial Skip'))
+
+    const reset = await screen.findByRole('button', { name: 'Reset to Defaults' })
+    expect(reset).toBeEnabled()
+    fireEvent.click(reset)
+
+    expect(screen.queryByPlaceholderText('/path/to/comskip.ini')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+
+    await waitFor(() => {
+      expect(settingsApi.update).toHaveBeenCalled()
+    })
+    expect(settingsApi.update.mock.calls[0][0]).toEqual({
+      comskip_use_custom_ini: false,
+      comskip_custom_ini_path: null,
+      comskip_connect_blocks_with_logo: true,
+    })
   })
 
   it('offers a GPU device picker listing every detected render node', async () => {

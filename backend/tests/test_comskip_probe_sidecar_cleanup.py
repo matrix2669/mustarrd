@@ -162,6 +162,27 @@ class ComskipProbeSidecarCleanupTests(unittest.IsolatedAsyncioTestCase):
             "Probe .txt sidecar must be removed even when the retry succeeds.",
         )
 
+    async def test_missing_ini_fails_before_comskip_is_spawned(self):
+        ts_path = Path(self.tmp) / "Show.ts"
+        ts_path.write_bytes(b"\x47" * 188)
+        missing_ini = Path(self.tmp) / "missing.ini"
+        processor = PostProcessor()
+        processor._comskip_path = "/usr/bin/comskip"
+
+        create_process = AsyncMock()
+        with patch.object(
+            type(processor), "comskip_available",
+            new_callable=PropertyMock, return_value=True,
+        ), patch(
+            "asyncio.create_subprocess_exec", new=create_process,
+        ):
+            with self.assertRaisesRegex(Exception, "not found at run time"):
+                await processor.detect_commercials(
+                    str(ts_path), ini_path=str(missing_ini)
+                )
+
+        create_process.assert_not_awaited()
+
     async def test_exit_one_no_commercials_does_not_normalize_ts(self):
         ts_path = Path(self.tmp) / "Show.ts"
         ts_path.write_bytes(b"\x47" * 188)

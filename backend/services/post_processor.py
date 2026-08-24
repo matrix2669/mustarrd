@@ -17,6 +17,13 @@ from services.process_runner import ProcessRunner
 logger = logging.getLogger(__name__)
 
 
+def _is_no_commercials_result(returncode: int, output: str) -> bool:
+    return (
+        returncode == 1
+        and "commercials were not found" in output.lower()
+    )
+
+
 class OutputFormat(str, Enum):
     TS = "ts"
     MP4 = "mp4"
@@ -1132,8 +1139,21 @@ class PostProcessor:
 
         async def run_comskip_once(source_path: str, progress_prefix: str = "Comskip") -> tuple[int, str]:
             cmd = [self._comskip_path]
-            if ini_path and os.path.isfile(ini_path):
-                cmd.extend(["--ini", ini_path])
+            if ini_path:
+                ini_file = Path(ini_path)
+                if not ini_file.is_file():
+                    raise Exception(
+                        f"Comskip INI file was not found at run time: {ini_path}"
+                    )
+                try:
+                    with ini_file.open("rb") as handle:
+                        handle.read(1)
+                except OSError as exc:
+                    raise Exception(
+                        "Comskip INI file is not readable at run time: "
+                        f"{ini_path}: {exc.strerror or exc}"
+                    ) from exc
+                cmd.extend(["--ini", str(ini_file)])
             cmd.extend([
                 "--output", str(output_dir),
                 str(source_path)
@@ -1235,8 +1255,7 @@ class PostProcessor:
         temp_probe_file: Optional[Path] = None
 
         try:
-            no_commercials = "commercials were not found" in combined_output.lower()
-            if returncode == 1 and no_commercials:
+            if _is_no_commercials_result(returncode, combined_output):
                 await self._notify_log(
                     log_callback,
                     "Comskip completed successfully: commercials were not found."
@@ -1297,7 +1316,7 @@ class PostProcessor:
                         str(temp_probe_file),
                         progress_prefix="Comskip retry"
                     )
-                    if returncode == 1 and "commercials were not found" in combined_output.lower():
+                    if _is_no_commercials_result(returncode, combined_output):
                         await self._notify_log(
                             log_callback,
                             "Comskip completed successfully: commercials were not found."

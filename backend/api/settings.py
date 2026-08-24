@@ -9,7 +9,6 @@ import errno
 import logging
 import os
 import re
-import stat
 import tempfile
 
 from auth import require_admin, require_authenticated, AuthContext
@@ -23,6 +22,7 @@ from config import (
     legacy_desktop_completed_folder,
 )
 from models import AppSettings, XtreamAccount
+from services.comskip_ini import ComskipIniError, validate_comskip_ini_path
 from services.download_manager import download_manager
 from services.epg_service import epg_service
 from services.post_processor import post_processor
@@ -32,51 +32,6 @@ router = APIRouter()
 
 logger = logging.getLogger(__name__)
 
-
-def _validate_custom_comskip_ini_path(path: str) -> str:
-    """Require a readable regular file and return its normalized runtime path."""
-    expanded_path = os.path.expanduser(path.strip())
-    if not os.path.isabs(expanded_path):
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "Custom Comskip INI path must be an absolute path as seen by "
-                "Mustarrd (inside the container when using Docker)"
-            ),
-        )
-    normalized_path = os.path.abspath(expanded_path)
-
-    try:
-        path_stat = os.stat(normalized_path)
-    except FileNotFoundError:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Custom Comskip INI file was not found: {path}",
-        )
-    except OSError as exc:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Custom Comskip INI path could not be checked: {exc.strerror or exc}",
-        )
-
-    if not stat.S_ISREG(path_stat.st_mode):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Custom Comskip INI path is not a regular file: {path}",
-        )
-
-    try:
-        with open(normalized_path, "rb") as handle:
-            handle.read(1)
-    except OSError as exc:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "Custom Comskip INI file is not readable by Mustarrd: "
-                f"{exc.strerror or exc}"
-            ),
-        )
-    return normalized_path
 
 
 def _probe_folder_writable(path: str) -> dict:
@@ -176,7 +131,7 @@ class SettingsUpdate(BaseModel):
     comskip_always_keep_last_seconds: Optional[int] = Field(default=None, ge=0)
     comskip_remove_before: Optional[int] = Field(default=None, ge=0)
     comskip_remove_after: Optional[int] = Field(default=None, ge=0)
-    comskip_connect_blocks_with_logo: Optional[int] = Field(default=None, ge=0, le=1)
+    comskip_connect_blocks_with_logo: Optional[bool] = None
     comskip_dynamic_ticker_tape: Optional[bool] = None
     # Clamped to 1..16 in update_settings rather than rejected.
     comskip_thread_count: Optional[int] = None
@@ -393,7 +348,12 @@ async def update_settings(
                 status_code=400,
                 detail="A custom Comskip INI path is required when custom INI mode is enabled",
             )
-        settings.comskip_custom_ini_path = _validate_custom_comskip_ini_path(custom_ini_path)
+        try:
+            settings.comskip_custom_ini_path = validate_comskip_ini_path(
+                custom_ini_path, custom=True
+            )
+        except ComskipIniError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     # Validate min<=max pairs on the final stored state so two separate PUT
     # requests cannot sneak an inverted range past per-request validation.
