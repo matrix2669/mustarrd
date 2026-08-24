@@ -1,2 +1,3 @@
 Trigger the disposable PR #420 review-fix runner.
 Retry after updating the tuple-contract regression.
+Retry after narrowing the Reset payload assertion to changed fields.
