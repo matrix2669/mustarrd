@@ -1370,13 +1370,15 @@ class DownloadManager:
             )
 
     async def _sync_schedule_status(self, session: AsyncSession, download_id: int, new_status: str) -> None:
-        """Update the linked ScheduledRecording when a download reaches a terminal state."""
+        """Update linked ScheduledRecording rows when a download changes state."""
         result = await session.execute(
             select(ScheduledRecording).where(ScheduledRecording.download_id == download_id)
         )
-        schedule = result.scalar_one_or_none()
+        schedules = result.scalars().all()
         _protected = {ScheduledStatus.CANCELLED.value, ScheduledStatus.COMPLETED.value}
-        if schedule and schedule.status != new_status and schedule.status not in _protected:
+        for schedule in schedules:
+            if schedule.status == new_status or schedule.status in _protected:
+                continue
             schedule.status = new_status
             schedule.status_message = None
             schedule.updated_at = datetime.utcnow()

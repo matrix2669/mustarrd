@@ -4,6 +4,8 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from sqlalchemy.exc import MultipleResultsFound
+
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
@@ -34,9 +36,9 @@ class SyncScheduleStatusTests(unittest.IsolatedAsyncioTestCase):
     download_manager._sync_schedule_status, called at each terminal transition.
     """
 
-    async def _make_session(self, schedule=None):
+    async def _make_session(self, *schedules):
         result = MagicMock()
-        result.scalar_one_or_none.return_value = schedule
+        result.scalars.return_value.all.return_value = list(schedules)
         session = AsyncMock()
         session.execute = AsyncMock(return_value=result)
         return session
@@ -73,11 +75,45 @@ class SyncScheduleStatusTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_sync_schedule_status_noop_when_no_linked_schedule(self):
         """_sync_schedule_status must silently do nothing when no schedule links this download."""
-        session = await self._make_session(schedule=None)
+        session = await self._make_session()
 
         manager = DownloadManager()
         # Must not raise
         await manager._sync_schedule_status(session, 999, DownloadStatus.FAILED.value)
+
+    async def test_sync_schedule_status_updates_all_duplicate_links(self):
+        """Legacy duplicate links must not crash startup recovery."""
+        queued = _make_schedule(download_id=42, status=ScheduledStatus.QUEUED.value)
+        downloading = _make_schedule(
+            download_id=42,
+            status=ScheduledStatus.DOWNLOADING.value,
+        )
+        cancelled = _make_schedule(
+            download_id=42,
+            status=ScheduledStatus.CANCELLED.value,
+        )
+        completed = _make_schedule(
+            download_id=42,
+            status=ScheduledStatus.COMPLETED.value,
+        )
+        queued.status_message = "Queued before restart"
+        downloading.status_message = "Downloading before restart"
+
+        session = await self._make_session(queued, downloading, cancelled, completed)
+        result = await session.execute()
+        result.scalar_one_or_none.side_effect = MultipleResultsFound(
+            "Multiple rows were found when one or none was required"
+        )
+
+        manager = DownloadManager()
+        await manager._sync_schedule_status(session, 42, DownloadStatus.FAILED.value)
+
+        self.assertEqual(queued.status, DownloadStatus.FAILED.value)
+        self.assertEqual(downloading.status, DownloadStatus.FAILED.value)
+        self.assertIsNone(queued.status_message)
+        self.assertIsNone(downloading.status_message)
+        self.assertEqual(cancelled.status, ScheduledStatus.CANCELLED.value)
+        self.assertEqual(completed.status, ScheduledStatus.COMPLETED.value)
 
     async def test_list_schedules_no_db_commit(self):
         """
@@ -160,7 +196,7 @@ class CancelDownloadSyncTests(unittest.IsolatedAsyncioTestCase):
         download_result.scalar_one_or_none.return_value = download
 
         schedule_result = MagicMock()
-        schedule_result.scalar_one_or_none.return_value = schedule
+        schedule_result.scalars.return_value.all.return_value = [schedule]
 
         call_count = [0]
 
@@ -202,7 +238,7 @@ class CancelDownloadSyncTests(unittest.IsolatedAsyncioTestCase):
         download_result.scalar_one_or_none.return_value = download
 
         schedule_result = MagicMock()
-        schedule_result.scalar_one_or_none.return_value = None
+        schedule_result.scalars.return_value.all.return_value = []
 
         call_count = [0]
 

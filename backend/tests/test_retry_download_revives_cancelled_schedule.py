@@ -60,7 +60,7 @@ def _make_fake_session(download_status, schedule_status):
         if call_count[0] == 1:
             result.scalar_one_or_none.return_value = download
         else:
-            result.scalar_one_or_none.return_value = schedule
+            result.scalars.return_value.all.return_value = [schedule]
         return result
 
     fake_session = AsyncMock()

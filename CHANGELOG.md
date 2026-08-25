@@ -4,6 +4,16 @@ All notable changes to Mustarrd are listed here. Most recent changes are at the 
 
 ---
 
+## 2026-08-24
+
+### Fixed: Mustarrd starts when old schedules share a download
+
+**What you would notice:** Mustarrd no longer exits during startup recovery with `Multiple rows were found when one or none was required` when its database contains more than one scheduled-recording row linked to the same download. This can occur in databases that retain duplicate legacy schedule links.
+
+**What changed:** Download status synchronization now updates every linked schedule instead of assuming there can be only one. Schedules already marked Cancelled or Completed remain protected from later download-state changes.
+
+---
+
 ## 2026-08-20
 
 ### Fixed: Recordings are named with the season and episode your guide published
