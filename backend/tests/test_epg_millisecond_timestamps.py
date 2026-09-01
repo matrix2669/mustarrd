@@ -62,7 +62,7 @@ class ProcessEpgEntryMillisecondTest(unittest.TestCase):
             "channel_id": "123",
         }
         try:
-            self.svc._process_epg_entry(entry, account=None, fallback_channel_id="123")
+            self.svc._process_epg_entry(entry, account=None, requested_channel_id="123")
         except ValueError as exc:
             self.fail(f"_process_epg_entry raised ValueError: {exc}")
 

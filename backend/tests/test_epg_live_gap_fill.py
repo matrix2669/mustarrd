@@ -176,12 +176,20 @@ class LiveGuideGapFillTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(program["subtitle"])
         self.assertIsNone(program["season_number"])
 
-    async def test_a_stored_row_on_another_channel_does_not_match(self):
+    async def test_requested_channel_id_wins_over_provider_channel_id(self):
         await self._ingest(FULL_PROGRAMME)
 
         program = await self._browse_one([_live_entry(channel_id="999")])
 
-        self.assertIsNone(program["subtitle"])
+        self.assertEqual(program["channel_id"], CHANNEL_ID)
+        self.assertEqual(program["subtitle"], "The Situation Room")
+
+    def test_provider_channel_id_is_used_without_an_explicit_request_id(self):
+        program = EPGService()._process_epg_entry(
+            _live_entry(channel_id="999")
+        )
+
+        self.assertEqual(program["channel_id"], "999")
 
     async def test_a_stored_row_ending_at_a_different_time_does_not_match(self):
         await self._ingest(FULL_PROGRAMME, stop=STOP + timedelta(minutes=30))
