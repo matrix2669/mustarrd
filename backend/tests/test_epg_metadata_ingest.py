@@ -213,6 +213,46 @@ class MetadataMigrationTests(unittest.IsolatedAsyncioTestCase):
         finally:
             await engine.dispose()
 
+    async def test_matrix2669_legacy_metadata_values_are_copied_forward(self):
+        engine = create_async_engine("sqlite+aiosqlite://")
+        try:
+            async with engine.begin() as conn:
+                for table in (
+                    "plex_servers",
+                    "app_settings",
+                    "xtream_accounts",
+                    "scheduled_recordings",
+                    "downloads",
+                ):
+                    await conn.execute(
+                        text(f"CREATE TABLE {table} (id INTEGER PRIMARY KEY)")
+                    )
+                await conn.execute(text(
+                    "CREATE TABLE epg_programs ("
+                    "id INTEGER PRIMARY KEY, "
+                    "episode_onscreen VARCHAR(100), "
+                    "episode_xmltv_ns VARCHAR(100), "
+                    "dd_progid VARCHAR(100))"
+                ))
+                await conn.execute(text(
+                    "INSERT INTO epg_programs "
+                    "(id, episode_onscreen, episode_xmltv_ns, dd_progid) "
+                    "VALUES (1, 'S00E158', '-1.157.', 'EP012345670001')"
+                ))
+
+                await _apply_lightweight_migrations(conn)
+
+                result = await conn.execute(text(
+                    "SELECT episode_num_onscreen, episode_num_xmltv, gracenote_id "
+                    "FROM epg_programs WHERE id = 1"
+                ))
+                self.assertEqual(
+                    tuple(result.one()),
+                    ("S00E158", "-1.157.", "EP012345670001"),
+                )
+        finally:
+            await engine.dispose()
+
     async def test_migration_covers_every_new_field(self):
         """The migration is driven by the same field list as the model."""
         model_columns = {c.name for c in EPGProgram.__table__.columns}

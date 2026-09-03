@@ -232,6 +232,33 @@ class FileNamer:
         tmdb_id = match.group(1)
         return f"{{tmdb-{tmdb_id}}} [tmdbid-{tmdb_id}]"
 
+    @staticmethod
+    def _coerce_optional_int(value) -> Optional[int]:
+        if value is None or value == "":
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    @classmethod
+    def _structured_season(cls, program: dict, start_time: datetime) -> Optional[int]:
+        """Use the airing year only for XMLTV's explicit unknown season ``-1``."""
+        season = cls._coerce_optional_int(program.get("season_number"))
+        episode = cls._coerce_optional_int(program.get("episode_number"))
+        xmltv_ns = str(
+            program.get("episode_num_xmltv")
+            or program.get("episode_xmltv_ns")
+            or ""
+        ).strip()
+        try:
+            raw_xmltv_season = int(xmltv_ns.split(".", 1)[0]) if xmltv_ns else None
+        except (TypeError, ValueError):
+            raw_xmltv_season = None
+        if raw_xmltv_season == -1 and episode is not None and episode > 0:
+            return start_time.year
+        return season
+
     def generate_filename(
         self,
         program: dict,
@@ -257,17 +284,30 @@ class FileNamer:
         tmdb_hint = self._tmdb_hint(program.get("tmdb_id"))
 
         if program_type == "tv_show":
+            structured_season = self._structured_season(program, start_time)
+            structured_episode = self._coerce_optional_int(program.get("episode_number"))
             full_text = f"{title} {description}"
-            # What the guide published beats what the title text looks like.
             guide_season_ep = self.season_episode_from_guide(program)
+            if structured_season is not None and structured_episode is not None:
+                guide_season_ep = (structured_season, structured_episode)
+
+            # What the guide published beats what the title text looks like.
             numbering_from_guide = guide_season_ep is not None
             season_ep = guide_season_ep or self.extract_season_episode(full_text)
             if season_ep:
                 show_name = self.extract_show_name(title)
-                episode_title = self.extract_episode_title(title)
+                episode_title = (
+                    program.get("subtitle")
+                    or self.extract_episode_title(title)
+                    or ""
+                ).strip()
                 context = {
-                    "show": show_name, "season": season_ep[0], "episode": season_ep[1],
-                    "title": episode_title, "date": date_str, "channel": channel_name,
+                    "show": show_name,
+                    "season": season_ep[0],
+                    "episode": season_ep[1],
+                    "title": episode_title,
+                    "date": date_str,
+                    "channel": channel_name,
                     "tmdb": tmdb_hint,
                 }
                 custom = s.get("tv_template")

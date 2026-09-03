@@ -72,6 +72,24 @@ async def _apply_lightweight_migrations(conn) -> None:
                 text(f"ALTER TABLE epg_programs ADD COLUMN {column_name} {column_spec}")
             )
 
+    # The matrix2669 fork briefly stored three fields under different names.
+    # Copy those values forward when upgrading an existing fork database; the
+    # legacy columns can remain in SQLite but are no longer used by the model.
+    legacy_metadata_columns = {
+        "episode_onscreen": "episode_num_onscreen",
+        "episode_xmltv_ns": "episode_num_xmltv",
+        "dd_progid": "gracenote_id",
+    }
+    for legacy_name, current_name in legacy_metadata_columns.items():
+        if await _column_exists(conn, "epg_programs", legacy_name):
+            await conn.execute(
+                text(
+                    f"UPDATE epg_programs "
+                    f"SET {current_name} = COALESCE({current_name}, {legacy_name}) "
+                    f"WHERE {current_name} IS NULL AND {legacy_name} IS NOT NULL"
+                )
+            )
+
     if not await _column_exists(conn, "xtream_accounts", "catchup_resolution_mode"):
         await conn.execute(
             text("ALTER TABLE xtream_accounts ADD COLUMN catchup_resolution_mode VARCHAR(32) DEFAULT 'auto'")
