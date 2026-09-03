@@ -1411,7 +1411,8 @@ class PostProcessor:
                 progress_callback=progress_callback,
                 log_callback=log_callback,
                 remove_original=remove_original,
-                remux_only=remux_only
+                remux_only=remux_only,
+                render_device=render_device
             )
             self._cleanup_comskip_outputs(input_path, edl_path)
             return output
@@ -1458,7 +1459,8 @@ class PostProcessor:
                 progress_callback=progress_callback,
                 log_callback=log_callback,
                 remove_original=remove_original,
-                remux_only=remux_only
+                remux_only=remux_only,
+                render_device=render_device
             )
             self._cleanup_comskip_outputs(input_path, edl_path)
             return output
