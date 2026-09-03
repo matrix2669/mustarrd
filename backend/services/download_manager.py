@@ -141,6 +141,7 @@ class DownloadManager:
         self._active_account_ids: Dict[int, int] = {}
         self._account_active_counts: Dict[int, int] = {}
         self._cancelled: Set[int] = set()
+        self._vod_retry_downloads: Set[int] = set()
         self._progress_callbacks: Dict[int, Callable] = {}
         self._websocket_connections: Dict[Any, Dict[str, Any]] = {}
         self._stage_progress: Dict[int, Dict[str, Any]] = {}
@@ -833,13 +834,17 @@ class DownloadManager:
                 )
 
                 # Start download
-                downloaded_bytes = await self._download_catchup_stream(
-                    download,
-                    download_id,
-                    session,
-                    offset=recovery_offset,
-                    retry_http_errors=bool(download.is_vod),
-                )
+                if download.is_vod:
+                    self._vod_retry_downloads.add(download_id)
+                try:
+                    downloaded_bytes = await self._download_catchup_stream(
+                        download,
+                        download_id,
+                        session,
+                        offset=recovery_offset,
+                    )
+                finally:
+                    self._vod_retry_downloads.discard(download_id)
                 if downloaded_bytes == 0:
                     raise Exception(
                         "Provider returned an empty response. "
@@ -2095,7 +2100,7 @@ class DownloadManager:
         download_id: int,
         session: AsyncSession,
         offset: int = 0,
-        retry_http_errors: bool = False,
+        retry_http_errors: Optional[bool] = None,
     ):
         """Download with bounded transport retries and optional VOD HTTP retries.
 
@@ -2105,6 +2110,9 @@ class DownloadManager:
         provider to wait for profile capacity without failing over to another
         provider variant. Every retry recomputes the resume offset from disk.
         """
+        if retry_http_errors is None:
+            retry_http_errors = download_id in self._vod_retry_downloads
+
         network_attempt = 0
         availability_attempt = 0
         availability_started_at: Optional[float] = None
