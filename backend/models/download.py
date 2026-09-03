@@ -55,6 +55,13 @@ class Download(Base):
     # "Completed with warnings" integrity note can coexist without clobbering.
     interruption_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # Structured guide metadata for this program, as JSON, captured when the
+    # recording was queued. Guide ingest overwrites and prunes epg_programs
+    # rows, so by the time post-processing runs the original row may be gone
+    # or describe a different program; the NFO sidecar has to reflect what was
+    # on the guide when the user pressed record.
+    guide_metadata_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     # Automatic retry bookkeeping (auto_retry_failed_downloads setting)
     retry_count: Mapped[int] = mapped_column(Integer, default=0)
     last_retry_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
