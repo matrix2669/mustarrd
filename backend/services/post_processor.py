@@ -17,6 +17,13 @@ from services.process_runner import ProcessRunner
 logger = logging.getLogger(__name__)
 
 
+def _is_no_commercials_result(returncode: int, output: str) -> bool:
+    return (
+        returncode == 1
+        and "commercials were not found" in output.lower()
+    )
+
+
 class OutputFormat(str, Enum):
     TS = "ts"
     MP4 = "mp4"
@@ -889,6 +896,47 @@ class PostProcessor:
 
         return map_args
 
+    async def probe_video_dimensions(
+        self, input_path: str, log_callback: Optional[Callable[[str], None]] = None
+    ) -> Optional[tuple[int, int]]:
+        """Return the primary video dimensions, or None when ffprobe cannot resolve them."""
+        ffprobe = self._resolve_ffprobe_path()
+        if not ffprobe:
+            await self._notify_log(log_callback, "ffprobe unavailable; dynamic ticker exclusion skipped.")
+            return None
+        cmd = [
+            ffprobe, "-v", "error", "-select_streams", "v:0",
+            "-show_entries", "stream=width,height", "-of", "json", input_path,
+        ]
+        process = None
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(), timeout=self.FFPROBE_TIMEOUT_SECONDS
+            )
+        except (FileNotFoundError, asyncio.TimeoutError):
+            if process is not None and process.returncode is None:
+                await self._terminate_process(process)
+            await self._notify_log(log_callback, "ffprobe could not resolve video dimensions; dynamic ticker exclusion skipped.")
+            return None
+        except asyncio.CancelledError:
+            if process is not None:
+                await self._terminate_process(process)
+            raise
+        if process.returncode != 0:
+            detail = (stderr or b"").decode(errors="ignore").strip()
+            await self._notify_log(log_callback, f"ffprobe dimensions failed: {detail or 'unknown error'}")
+            return None
+        try:
+            streams = json.loads((stdout or b"{}").decode(errors="ignore")).get("streams", [])
+            width = int(streams[0]["width"])
+            height = int(streams[0]["height"])
+        except (ValueError, TypeError, KeyError, IndexError, json.JSONDecodeError):
+            return None
+        return (width, height) if width > 0 and height > 0 else None
+
     async def transcode(
         self,
         input_path: str,
@@ -1091,8 +1139,21 @@ class PostProcessor:
 
         async def run_comskip_once(source_path: str, progress_prefix: str = "Comskip") -> tuple[int, str]:
             cmd = [self._comskip_path]
-            if ini_path and os.path.isfile(ini_path):
-                cmd.extend(["--ini", ini_path])
+            if ini_path:
+                ini_file = Path(ini_path)
+                if not ini_file.is_file():
+                    raise Exception(
+                        f"Comskip INI file was not found at run time: {ini_path}"
+                    )
+                try:
+                    with ini_file.open("rb") as handle:
+                        handle.read(1)
+                except OSError as exc:
+                    raise Exception(
+                        "Comskip INI file is not readable at run time: "
+                        f"{ini_path}: {exc.strerror or exc}"
+                    ) from exc
+                cmd.extend(["--ini", str(ini_file)])
             cmd.extend([
                 "--output", str(output_dir),
                 str(source_path)
@@ -1161,7 +1222,11 @@ class PostProcessor:
                 raise
 
             returncode = process.returncode if process.returncode is not None else -1
-            combined_output = (stderr_output.strip() or stdout_output.strip())
+            combined_output = "\n".join(
+                output
+                for output in (stdout_output.strip(), stderr_output.strip())
+                if output
+            )
             return returncode, combined_output
 
         def excerpt(text: str, max_len: int) -> str:
@@ -1190,6 +1255,13 @@ class PostProcessor:
         temp_probe_file: Optional[Path] = None
 
         try:
+            if _is_no_commercials_result(returncode, combined_output):
+                await self._notify_log(
+                    log_callback,
+                    "Comskip completed successfully: commercials were not found."
+                )
+                return None
+
             if returncode != 0 and input_file.suffix.lower() == ".ts" and self.ffmpeg_available:
                 failed_excerpt = excerpt(combined_output, 600)
                 if failed_excerpt:
@@ -1244,6 +1316,12 @@ class PostProcessor:
                         str(temp_probe_file),
                         progress_prefix="Comskip retry"
                     )
+                    if _is_no_commercials_result(returncode, combined_output):
+                        await self._notify_log(
+                            log_callback,
+                            "Comskip completed successfully: commercials were not found."
+                        )
+                        return None
                 else:
                     prep_excerpt = excerpt((prep_stderr or b"").decode(errors="ignore"), 400)
                     if prep_excerpt:

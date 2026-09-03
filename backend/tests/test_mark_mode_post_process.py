@@ -88,7 +88,7 @@ class MarkModePostProcessTests(unittest.IsolatedAsyncioTestCase):
             with patch("services.download_manager.get_free_space_shortfall",
                        AsyncMock(return_value=None)), \
                  patch("services.comskip_ini.resolve_comskip_ini",
-                       MagicMock(return_value=None)), \
+                       MagicMock(return_value=(None, False))), \
                  patch.object(self.manager, "_update_processing", AsyncMock()), \
                  patch.object(self.manager, "_broadcast_log", AsyncMock()):
                 final_path, warnings = await self.manager._post_process(

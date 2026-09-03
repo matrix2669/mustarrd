@@ -6,12 +6,15 @@ Covers the validation contract from docs/design/comskip-settings-editor.md:
 - min<=max enforced for commercialbreak and commercial_size pairs on the
   FINAL stored state, so two separate PUT requests cannot create an
   inverted range
-- comskip_custom_ini_path is nullable and blank strings normalize to NULL
+- custom INI mode is explicit, requires a readable absolute file path, expands
+  user-home paths before saving, and blank paths normalize to NULL
 - GET /settings returns the new fields with their defaults
 """
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from fastapi import HTTPException
 from pydantic import ValidationError
@@ -90,7 +93,10 @@ class ComskipTunablesUpdateTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["comskip_always_keep_last_seconds"], 60)
         self.assertEqual(result["comskip_remove_before"], 0)
         self.assertEqual(result["comskip_remove_after"], 0)
+        self.assertTrue(result["comskip_connect_blocks_with_logo"])
+        self.assertFalse(result["comskip_dynamic_ticker_tape"])
         self.assertEqual(result["comskip_thread_count"], 1)
+        self.assertFalse(result["comskip_use_custom_ini"])
         self.assertIsNone(result["comskip_custom_ini_path"])
 
     async def test_thread_count_clamped_low_and_high(self):
@@ -146,6 +152,84 @@ class ComskipTunablesUpdateTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["comskip_custom_ini_path"], "/tmp/my.ini")
         result = await self._update(comskip_custom_ini_path=None)
         self.assertIsNone(result["comskip_custom_ini_path"])
+
+    async def test_custom_ini_mode_requires_a_path(self):
+        await self._seed()
+        with self.assertRaises(HTTPException) as ctx:
+            await self._update(comskip_use_custom_ini=True)
+        self.assertEqual(ctx.exception.status_code, 400)
+
+    async def test_custom_ini_mode_and_path_persist(self):
+        await self._seed()
+        with tempfile.NamedTemporaryFile(suffix=".ini") as custom_ini:
+            custom_ini.write(b"output_edl=1\n")
+            custom_ini.flush()
+            result = await self._update(
+                comskip_use_custom_ini=True,
+                comskip_custom_ini_path=custom_ini.name,
+            )
+            self.assertTrue(result["comskip_use_custom_ini"])
+            self.assertEqual(result["comskip_custom_ini_path"], custom_ini.name)
+
+    async def test_custom_ini_mode_expands_home_path_before_saving(self):
+        await self._seed()
+        with tempfile.NamedTemporaryFile(suffix=".ini") as custom_ini:
+            custom_ini.write(b"output_edl=1\n")
+            custom_ini.flush()
+            with patch("api.settings.os.path.expanduser", return_value=custom_ini.name):
+                result = await self._update(
+                    comskip_use_custom_ini=True,
+                    comskip_custom_ini_path="~/custom-comskip.ini",
+                )
+            self.assertEqual(
+                result["comskip_custom_ini_path"],
+                str(Path(custom_ini.name).absolute()),
+            )
+
+    async def test_custom_ini_mode_rejects_relative_path(self):
+        await self._seed()
+        with self.assertRaises(HTTPException) as ctx:
+            await self._update(
+                comskip_use_custom_ini=True,
+                comskip_custom_ini_path="custom.ini",
+            )
+        self.assertEqual(ctx.exception.status_code, 400)
+        self.assertIn("absolute path", ctx.exception.detail)
+
+    async def test_custom_ini_mode_rejects_missing_file(self):
+        await self._seed()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            missing_path = str(Path(temp_dir) / "missing.ini")
+            with self.assertRaises(HTTPException) as ctx:
+                await self._update(
+                    comskip_use_custom_ini=True,
+                    comskip_custom_ini_path=missing_path,
+                )
+        self.assertEqual(ctx.exception.status_code, 400)
+        self.assertIn("not found", ctx.exception.detail)
+
+    async def test_custom_ini_mode_rejects_directory(self):
+        await self._seed()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with self.assertRaises(HTTPException) as ctx:
+                await self._update(
+                    comskip_use_custom_ini=True,
+                    comskip_custom_ini_path=temp_dir,
+                )
+        self.assertEqual(ctx.exception.status_code, 400)
+        self.assertIn("not a regular file", ctx.exception.detail)
+
+    async def test_custom_ini_mode_rejects_unreadable_file(self):
+        await self._seed()
+        with tempfile.NamedTemporaryFile(suffix=".ini") as custom_ini:
+            with patch("builtins.open", side_effect=PermissionError("denied")):
+                with self.assertRaises(HTTPException) as ctx:
+                    await self._update(
+                        comskip_use_custom_ini=True,
+                        comskip_custom_ini_path=custom_ini.name,
+                    )
+        self.assertEqual(ctx.exception.status_code, 400)
+        self.assertIn("not readable", ctx.exception.detail)
 
     async def test_blank_custom_ini_path_normalizes_to_null(self):
         await self._seed(comskip_custom_ini_path="/tmp/my.ini")

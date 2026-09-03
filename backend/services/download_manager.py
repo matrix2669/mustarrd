@@ -2083,15 +2083,32 @@ class DownloadManager:
                     comskip_indeterminate = False
                     await broadcast_processing(comskip_progress, current_message, indeterminate=False)
 
-                from services.comskip_ini import resolve_comskip_ini
+                from services.comskip_ini import resolved_comskip_ini
 
-                comskip_ini_path = await asyncio.to_thread(resolve_comskip_ini, settings)
-                edl_path = await post_processor.detect_commercials(
-                    current_path,
-                    comskip_ini_path,
-                    log_callback=log_callback,
-                    progress_callback=comskip_progress_callback
+                use_custom_ini = bool(
+                    getattr(settings, "comskip_use_custom_ini", False)
                 )
+                runtime_overrides = {}
+                if getattr(settings, "comskip_dynamic_ticker_tape", False) and not use_custom_ini:
+                    dimensions = await post_processor.probe_video_dimensions(
+                        current_path, log_callback=log_callback
+                    )
+                    if dimensions:
+                        width, height = dimensions
+                        ticker_tape = round(height / 9)
+                        runtime_overrides["ticker_tape"] = ticker_tape
+                        await log_callback(f"Comskip input dimensions: {width}x{height}.")
+                        await log_callback(f"Comskip resolved ticker_tape: {ticker_tape} px.")
+
+                async with resolved_comskip_ini(
+                    settings, runtime_overrides
+                ) as comskip_ini_path:
+                    edl_path = await post_processor.detect_commercials(
+                        current_path,
+                        comskip_ini_path,
+                        log_callback=log_callback,
+                        progress_callback=comskip_progress_callback
+                    )
                 if comskip_progress is None or comskip_progress < 100:
                     comskip_progress = 100.0
                 comskip_indeterminate = False

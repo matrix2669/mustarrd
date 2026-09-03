@@ -24,16 +24,20 @@ export const COMSKIP_DEFAULTS = {
   comskip_always_keep_last_seconds: 60,
   comskip_remove_before: 0,
   comskip_remove_after: 0,
+  comskip_connect_blocks_with_logo: true,
+  comskip_dynamic_ticker_tape: false,
   comskip_thread_count: 1,
+  comskip_use_custom_ini: false,
+  comskip_custom_ini_path: null,
 }
 
 const DETECT_METHOD_OPTIONS = [
-  { bit: 1, label: 'Black frames' },
-  { bit: 2, label: 'Logo detection' },
-  { bit: 4, label: 'Scene change' },
-  { bit: 8, label: 'Resolution change' },
-  { bit: 32, label: 'Aspect ratio change' },
-  { bit: 64, label: 'Silence detection' },
+  { bit: 1, label: 'Black frames', description: 'Looks for dark frames commonly inserted between a show and an ad break.' },
+  { bit: 2, label: 'Logo detection', description: 'Uses the appearance and disappearance of the channel logo as a boundary signal.' },
+  { bit: 4, label: 'Scene change', description: 'Looks for rapid visual cuts; useful for some ads but may increase false matches.' },
+  { bit: 8, label: 'Fuzzy logic', description: 'Uses Comskip\'s fuzzy scoring to combine weaker clues when classifying show and commercial blocks.' },
+  { bit: 32, label: 'Aspect ratio change', description: 'Detects switches such as 16:9 programming to 4:3 commercial material.' },
+  { bit: 64, label: 'Silence detection', description: 'Looks for brief silence around commercial boundaries.' },
 ]
 const KNOWN_DETECT_BITS = DETECT_METHOD_OPTIONS.reduce((sum, option) => sum + option.bit, 0)
 
@@ -46,6 +50,9 @@ export function getComskipErrors(formData) {
   }
   if (value('comskip_min_commercial_size') > value('comskip_max_commercial_size')) {
     errors.commercial_size = 'Min single commercial must be less than or equal to max single commercial.'
+  }
+  if (formData.comskip_use_custom_ini && !(formData.comskip_custom_ini_path || '').trim()) {
+    errors.custom_ini = 'Enter the full path to a readable comskip.ini file.'
   }
   return errors
 }
@@ -82,6 +89,8 @@ function RecordingTimeline() {
 
 export default function ComskipSection({ formData, onChange, onResetDefaults, onNavigateToProcessing }) {
   const enabled = Boolean(formData?.comskip_enabled)
+  const useCustomIni = Boolean(formData?.comskip_use_custom_ini)
+  const managedDisabled = !enabled || useCustomIni
   const errors = getComskipErrors(formData)
 
   const detectMethod = formData?.comskip_detect_method ?? COMSKIP_DEFAULTS.comskip_detect_method
@@ -101,14 +110,14 @@ export default function ComskipSection({ formData, onChange, onResetDefaults, on
     <StepperField
       label={label}
       tooltip={tooltip}
-      disabled={!enabled}
+      disabled={managedDisabled}
       value={formData?.[field] ?? COMSKIP_DEFAULTS[field]}
       onChange={(val) => onChange(field, typeof val === 'number' ? val : COMSKIP_DEFAULTS[field])}
       {...props}
     />
   )
 
-  const dimClass = enabled ? undefined : classes.dimmed
+  const managedDimClass = managedDisabled ? classes.dimmed : undefined
 
   return (
     <Stack gap="xl">
@@ -124,7 +133,47 @@ export default function ComskipSection({ formData, onChange, onResetDefaults, on
         </Alert>
       )}
 
-      <Stack gap="xl" className={dimClass}>
+      <SubGroup label="Configuration source">
+        <SettingRow
+          label="Use a custom Comskip INI"
+          description="When enabled, Comskip reads the file below exactly as supplied. Mustarrd does not merge its detection settings or dynamic ticker value into that file."
+          tooltip="Use this only when you maintain a complete comskip.ini yourself. Turn it off to return to the settings managed on this page."
+        >
+          <Checkbox
+            aria-label="Use a custom Comskip INI"
+            disabled={!enabled}
+            checked={useCustomIni}
+            onChange={(e) => onChange('comskip_use_custom_ini', e.currentTarget.checked)}
+          />
+        </SettingRow>
+        {useCustomIni && (
+          <TextInput
+            label={
+              <LabelWithTooltip
+                label="Custom Comskip INI path"
+                tooltip="Enter the full path as seen by Mustarrd. In Docker, the file must be mounted inside the container."
+              />
+            }
+            description="Docker users: enter the path inside the Mustarrd container. The default config directory is /app/config, so a typical path is /app/config/custom-comskip.ini. The file must be complete and readable; Mustarrd validates it when you save."
+            placeholder="/path/to/comskip.ini"
+            disabled={!enabled}
+            error={errors.custom_ini}
+            value={formData?.comskip_custom_ini_path || ''}
+            onChange={(e) => onChange('comskip_custom_ini_path', e.target.value || null)}
+            classNames={{ input: classes.monoInput }}
+          />
+        )}
+        {useCustomIni && (
+          <Alert color="yellow" variant="light" icon={<IconInfoCircle size={16} />}>
+            <Text size="sm">
+              Custom INI mode is active. The detection, timing, protection, ticker, logo, and thread settings below
+              are saved but will not be sent to Comskip until custom mode is turned off.
+            </Text>
+          </Alert>
+        )}
+      </SubGroup>
+
+      <Stack gap="xl" className={managedDimClass}>
         <SubGroup label="What a recording looks like">
           <RecordingTimeline />
         </SubGroup>
@@ -132,7 +181,8 @@ export default function ComskipSection({ formData, onChange, onResetDefaults, on
         <SubGroup label="Detection signals">
           <Text size="xs" c="dimmed" maw="60ch">
             Which signals Comskip looks for when finding commercial boundaries. The defaults work for most
-            providers — adding more signals rarely helps and slows processing.
+            providers. Each enabled signal contributes evidence; enabling every signal can make detection slower
+            or less reliable when a provider uses unusual transitions.
           </Text>
           <Checkbox.Group value={checkedBits} onChange={handleDetectChange}>
             <div className={classes.checkGrid}>
@@ -140,8 +190,14 @@ export default function ComskipSection({ formData, onChange, onResetDefaults, on
                 <Checkbox
                   key={option.bit}
                   value={String(option.bit)}
-                  label={option.label}
-                  disabled={!enabled}
+                  aria-label={option.label}
+                  label={(
+                    <Stack gap={1}>
+                      <Text size="sm">{option.label}</Text>
+                      <Text size="xs" c="dimmed">{option.description}</Text>
+                    </Stack>
+                  )}
+                  disabled={managedDisabled}
                 />
               ))}
             </div>
@@ -149,6 +205,10 @@ export default function ComskipSection({ formData, onChange, onResetDefaults, on
         </SubGroup>
 
         <SubGroup label="Break timing">
+          <Text size="xs" c="dimmed" maw="60ch">
+            These limits decide which detected spans are plausible commercials. Values that are too narrow can
+            miss real breaks; values that are too broad can classify parts of the show as ads.
+          </Text>
           <div className={classes.grid2}>
             {stepperField(
               'comskip_min_commercialbreak',
@@ -178,6 +238,10 @@ export default function ComskipSection({ formData, onChange, onResetDefaults, on
         </SubGroup>
 
         <SubGroup label="Show protection">
+          <Text size="xs" c="dimmed" maw="60ch">
+            Protection keeps known show content safe and controls how aggressively cut mode trims around a detected
+            break. Start conservatively—trim values remove additional video outside Comskip&apos;s detected boundary.
+          </Text>
           <div className={classes.grid2}>
             {stepperField(
               'comskip_always_keep_first_seconds',
@@ -207,43 +271,74 @@ export default function ComskipSection({ formData, onChange, onResetDefaults, on
         </SubGroup>
 
         <SubGroup label="Advanced">
+          <Text size="xs" c="dimmed" maw="60ch">
+            These settings affect the portion of the picture Comskip analyzes, how nearby detections are joined,
+            and how much CPU the scan may use.
+          </Text>
           <Stack gap={0}>
             <SettingRow
+              label="Dynamic ticker exclusion"
+              description="Before each scan, Mustarrd reads the recording resolution and tells Comskip to ignore the bottom one-ninth of the picture—80 px at 720p or 120 px at 1080p. Enable this when a persistent lower-third or ticker remains visible during ads and can make channel graphics look continuously present."
+              tooltip="This is calculated independently for every recording. Excluding the ticker area can keep persistent bottom graphics from influencing logo and block classification, but may hide useful commercial evidence near the bottom of the frame."
+            >
+              <Checkbox
+                aria-label="Dynamic ticker exclusion"
+                disabled={managedDisabled}
+                checked={Boolean(formData?.comskip_dynamic_ticker_tape)}
+                onChange={(e) => onChange('comskip_dynamic_ticker_tape', e.currentTarget.checked)}
+              />
+            </SettingRow>
+            <SettingRow
+              label="Connect blocks with logo"
+              description="Join neighboring detected blocks when the channel logo is visible at their transition. Enabled by default to match the bundled Comskip behavior; turn it off if logo-heavy channels merge show content into a break."
+              tooltip="Corresponds to connect_blocks_with_logo in comskip.ini. Enable only if your provider splits a single ad break into several short blocks."
+            >
+              <Checkbox
+                aria-label="Connect blocks with logo"
+                disabled={managedDisabled}
+                checked={Boolean(
+                  formData?.comskip_connect_blocks_with_logo
+                    ?? COMSKIP_DEFAULTS.comskip_connect_blocks_with_logo
+                )}
+                onChange={(e) => onChange(
+                  'comskip_connect_blocks_with_logo',
+                  e.currentTarget.checked,
+                )}
+              />
+            </SettingRow>
+            <SettingRow
               label="Processing threads"
-              description="More threads finish faster but load the CPU during recording"
-              tooltip="Number of CPU threads Comskip uses. More threads = faster processing but more CPU load during recording. Maximum: 16."
+              description="Number of CPU threads Comskip may use while decoding. The default of 1 gives the most repeatable detection behavior and minimizes contention with other work."
+              tooltip="Some Comskip builds can produce different detection results with multiple decode threads. Increase only after validating the EDL for your channels. Higher values can also compete with downloads and ffmpeg jobs. Maximum: 16."
             >
               <NumberStepper
                 aria-label="Processing threads"
                 min={1}
                 max={16}
-                disabled={!enabled}
+                disabled={managedDisabled}
                 value={formData?.comskip_thread_count ?? COMSKIP_DEFAULTS.comskip_thread_count}
                 onChange={(val) => onChange('comskip_thread_count', typeof val === 'number' ? val : COMSKIP_DEFAULTS.comskip_thread_count)}
               />
             </SettingRow>
           </Stack>
-          <TextInput
-            label={
-              <LabelWithTooltip
-                label="Custom Comskip INI path"
-                tooltip="If set, this file overrides the generated settings above. Leave blank to use the settings on this page."
-              />
-            }
-            description="Optional — overrides all settings above"
-            placeholder="/path/to/comskip.ini"
-            disabled={!enabled}
-            value={formData?.comskip_custom_ini_path || ''}
-            onChange={(e) => onChange('comskip_custom_ini_path', e.target.value || null)}
-            classNames={{ input: classes.monoInput }}
-          />
-          <Group>
-            <Button variant="default" size="xs" disabled={!enabled} onClick={onResetDefaults}>
-              Reset to Defaults
-            </Button>
-          </Group>
+          {(formData?.comskip_thread_count ?? COMSKIP_DEFAULTS.comskip_thread_count) > 1 && (
+            <Alert color="orange" variant="light">
+              <Text size="sm" fw={500}>Higher thread counts can change detection results</Text>
+              <Text size="xs" mt={3}>
+                Comskip may not produce identical commercial boundaries when multiple decode threads are used. Validate
+                the EDL after increasing this value and return to 1 if breaks are missed or detection becomes less
+                accurate. Higher values can also increase CPU contention with downloads and ffmpeg jobs.
+              </Text>
+            </Alert>
+          )}
         </SubGroup>
       </Stack>
+
+      <Group>
+        <Button variant="default" size="xs" disabled={!enabled} onClick={onResetDefaults}>
+          Reset to Defaults
+        </Button>
+      </Group>
     </Stack>
   )
 }

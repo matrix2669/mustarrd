@@ -41,24 +41,24 @@ This lets users pre-configure settings before enabling Comskip.
 
 ## Settings to expose
 
-Nine settings, grouped into three subsections. All values stored in `app_settings` in the database. Comskip receives them via a generated `comskip.ini` written at runtime.
+Settings are stored in `app_settings`. Comskip receives them via a unique, per-run temporary `comskip.ini`; runtime values such as dynamic ticker exclusion override saved UI values, and the file is removed after Comskip exits.
 
 ### Commercial Detection
 
 | Field | Label | Default | Tooltip |
 |-------|-------|---------|---------|
-| `detect_method` | Detection methods | 107 | Which signals Comskip looks for when finding commercial boundaries. 107 enables black frames, logo presence, resolution change, aspect ratio changes, and silence detection. Recommended: 107. Higher values add rarely-useful signals and slow processing. |
+| `detect_method` | Detection methods | 107 | Which signals Comskip looks for when finding commercial boundaries. 107 enables black frames, logo presence, fuzzy logic, aspect ratio changes, and silence detection. Recommended: 107. Higher values add rarely-useful signals and slow processing. |
 
 `detect_method` is a bitmask. UI: a `CheckboxGroup` (visible checkboxes, not a dropdown) with human labels:
 
 - `1` Black frames
 - `2` Logo detection
 - `4` Scene change
-- `8` Resolution change
+- `8` Fuzzy logic
 - `32` Aspect ratio change
 - `64` Silence detection
 
-Default `detect_method = 107` pre-checks: 1, 2, 8, 32, 64 (black frames, logo, resolution change, aspect ratio, silence). Scene change (4) is **not** included in 107 and must not be pre-checked.
+Default `detect_method = 107` pre-checks: 1, 2, 8, 32, 64 (black frames, logo, fuzzy logic, aspect ratio, silence). Scene change (4) is **not** included in 107 and must not be pre-checked.
 
 (Values 16 = closed captions and 128 = cutscenes omitted: rarely available or effective on IPTV streams.)
 
@@ -81,7 +81,14 @@ Save Settings is disabled (with an inline error message) if `min_commercialbreak
 | `always_keep_last_seconds` | Always keep last N seconds | 60 | Never mark this many seconds at the end of the recording as commercial. Prevents accidental cutting of end credits or a post-credits scene. | |
 | `remove_before` | Remove N seconds before each break | 0 | Extra seconds of show content to cut immediately before each detected commercial block. Use with caution: removes show content. | |
 | `remove_after` | Remove N seconds after each break | 0 | Extra seconds of show content to cut immediately after each detected commercial block. | |
-| `thread_count` | Processing threads | 1 | Number of CPU threads Comskip uses. More threads = faster processing but more CPU load during recording. Maximum: 16. | Clamped to 1..16 (enforced in backend validation and as `min=1, max=16` on the NumberInput). |
+| `thread_count` | Processing threads | 1 | Number of CPU threads Comskip uses. More threads can change detection results as well as increase CPU load. Maximum: 16. | Clamped to 1..16 (enforced in backend validation and as `min=1, max=16` on the NumberInput). |
+
+### Advanced
+
+| Field | Label | Default | Tooltip |
+|-------|-------|---------|---------|
+| `connect_blocks_with_logo` | Connect blocks with logo | true | Join neighboring detected blocks when the channel logo remains visible at their transition. Enabled by default to match the bundled Comskip configuration; disable it on logo-heavy channels if show content is merged into a break. |
+| `dynamic_ticker_tape` | Dynamic ticker exclusion | false | Before each managed scan, probe the selected video height and ignore roughly the bottom ninth of the picture. Custom INI mode bypasses this runtime override. |
 
 ---
 
@@ -93,30 +100,28 @@ Appears at the bottom of the section, alongside the existing Save Settings butto
 [Reset to Defaults]   [Save Settings]
 ```
 
-"Reset to Defaults" restores all Comskip fields to the values in the table above without saving, leaving the user a chance to review before clicking Save.
+"Reset to Defaults" remains available while custom INI mode is active. It restores every managed Comskip field, disables custom mode, clears `comskip_custom_ini_path`, and leaves the changes unsaved so the user can review them before clicking Save.
 
 ---
 
 ## comskip.ini path handling
 
-`backend/api/settings.py` (line 185-186) auto-fills `comskip_ini_path` from the default location whenever that file exists. This means `comskip_ini_path` is non-null even when the user has never chosen a custom file. The generated settings must not silently lose to the auto-filled default path.
+The legacy `comskip_ini_path` field remains backend-managed and may be auto-filled with the config-directory base file. It is not the custom-mode selector and never overrides managed generation.
 
-Design:
-
-- Rename the existing hidden `comskip_ini_path` field to `comskip_auto_ini_path` (backend-managed, not shown in the UI). This stores the auto-detected default path.
-- Add a new `comskip_custom_ini_path` field (user-supplied, exposed in the UI as an optional text input at the bottom of the section). Label: "Custom Comskip INI path (optional)". Tooltip: "If set, this file overrides the generated settings above. Leave blank to use Comskip's built-in defaults plus the settings on this page."
-- Backend precedence at runtime: if `comskip_custom_ini_path` is non-empty, pass it to Comskip and skip generating an INI from stored settings. Otherwise, write a temporary INI from the stored settings (ignoring `comskip_auto_ini_path`).
-
-If the rename of `comskip_ini_path` is a bigger migration than the implementer wants, an alternative: add a `comskip_use_generated_ini` boolean (default true). When true, always generate from settings and ignore `comskip_ini_path`. When false (and `comskip_ini_path` is set), use the named file. The implementer should pick whichever is simpler given the current migration pattern.
+- `comskip_use_custom_ini` is the authoritative mode switch.
+- `comskip_custom_ini_path` is required only while custom mode is enabled. Existing non-default legacy custom paths migrate into this field and enable custom mode.
+- Custom paths are normalized and validated when Settings is saved, then validated again at run time. If the file moved, its mount disappeared, or it became unreadable, Commercial Skip fails with a clear error instead of silently using Comskip defaults.
+- Managed mode writes a unique temporary INI in Mustarrd's config directory, applies saved settings, then applies per-recording runtime overrides. Resolution returns both the path and whether Mustarrd owns the file so custom and legacy files are never deleted.
+- Generated files are removed after normal completion, failure, or cancellation. A file left by abrupt process termination remains visible in the config directory rather than an unrelated system temp directory.
 
 ---
 
 ## Backend changes needed
 
-1. **`models/settings.py`**: add 9 new columns to `AppSettings` (detect_method, max/min_commercialbreak, max/min_commercial_size, always_keep_first/last_seconds, remove_before/after, thread_count), plus `comskip_custom_ini_path` (nullable string).
+1. **`models/settings.py`**: add the managed Comskip fields plus `comskip_use_custom_ini` and nullable `comskip_custom_ini_path` fields.
 2. **`backend/database.py`**: `ALTER TABLE` migration for all new columns on startup.
-3. **`api/settings.py`**: include all new fields in GET/PUT. Validate `min <= max` pairs and clamp `thread_count` to 1..16 before saving. Remove the auto-fill logic for `comskip_ini_path` (or guard it so it only applies when `comskip_custom_ini_path` is null and `comskip_use_generated_ini` is false).
-4. **`services/post_processor.py`**: when running Comskip, check `comskip_custom_ini_path` first. If set, pass it to Comskip. Otherwise, write a temporary `comskip.ini` from the stored settings.
+3. **`api/settings.py`**: include all new fields in GET/PUT. Validate `min <= max` pairs, clamp `thread_count` to 1..16, and validate enabled custom paths through the shared service validator before saving.
+4. **`services/comskip_ini.py` / `services/post_processor.py`**: resolve explicit custom mode first and fail closed when its file is unavailable. Otherwise, write an owned per-run temporary INI in the config directory and clean it after use. Recheck any explicit INI immediately before each Comskip process starts.
 
 ---
 
@@ -128,5 +133,6 @@ If the rename of `comskip_ini_path` is a bigger migration than the implementer w
    - Three subsections with `NumberInput` fields (timing + show protection) and a `CheckboxGroup` for `detect_method`.
    - Tooltips via Mantine `Tooltip` on each label.
    - Inline validation errors if `min_commercialbreak > max_commercialbreak` or `min_commercial_size > max_commercial_size`.
-   - "Reset to Defaults" button that calls `setFormData(prev => ({ ...prev, ...COMSKIP_DEFAULTS }))`.
-   - Optional text input for `comskip_custom_ini_path` at the bottom of the section.
+   - "Reset to Defaults" button that stays available in custom mode, applies `COMSKIP_DEFAULTS`, disables custom mode, and clears the custom path.
+   - A custom-INI checkbox with a required path field; gray out managed controls while it is enabled.
+   - Boolean controls for dynamic ticker exclusion and connecting logo blocks, with the latter defaulting true to match the bundled base.

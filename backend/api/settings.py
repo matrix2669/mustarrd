@@ -22,6 +22,7 @@ from config import (
     legacy_desktop_completed_folder,
 )
 from models import AppSettings, XtreamAccount
+from services.comskip_ini import ComskipIniError, validate_comskip_ini_path
 from services.download_manager import download_manager
 from services.epg_service import epg_service
 from services.post_processor import post_processor
@@ -30,6 +31,7 @@ from services.post_processor import post_processor
 router = APIRouter()
 
 logger = logging.getLogger(__name__)
+
 
 
 def _probe_folder_writable(path: str) -> dict:
@@ -118,6 +120,7 @@ class SettingsUpdate(BaseModel):
     comskip_cut: Optional[bool] = None
     comskip_path: Optional[str] = None
     comskip_ini_path: Optional[str] = None
+    comskip_use_custom_ini: Optional[bool] = None
     comskip_custom_ini_path: Optional[str] = None
     comskip_detect_method: Optional[int] = Field(default=None, ge=0, le=255)
     comskip_max_commercialbreak: Optional[int] = Field(default=None, ge=0)
@@ -128,6 +131,8 @@ class SettingsUpdate(BaseModel):
     comskip_always_keep_last_seconds: Optional[int] = Field(default=None, ge=0)
     comskip_remove_before: Optional[int] = Field(default=None, ge=0)
     comskip_remove_after: Optional[int] = Field(default=None, ge=0)
+    comskip_connect_blocks_with_logo: Optional[bool] = None
+    comskip_dynamic_ticker_tape: Optional[bool] = None
     # Clamped to 1..16 in update_settings rather than rejected.
     comskip_thread_count: Optional[int] = None
     epg_offset_minutes: Optional[int] = None
@@ -157,6 +162,7 @@ NON_NULLABLE_FIELDS = {
     "integrity_check_enabled",
     "comskip_enabled",
     "comskip_cut",
+    "comskip_use_custom_ini",
     "comskip_detect_method",
     "comskip_max_commercialbreak",
     "comskip_min_commercialbreak",
@@ -166,6 +172,8 @@ NON_NULLABLE_FIELDS = {
     "comskip_always_keep_last_seconds",
     "comskip_remove_before",
     "comskip_remove_after",
+    "comskip_connect_blocks_with_logo",
+    "comskip_dynamic_ticker_tape",
     "comskip_thread_count",
     "epg_offset_minutes",
     "show_future_programs",
@@ -332,6 +340,20 @@ async def update_settings(
     # Cut is the valid "fast remux + skip commercials" profile from onboarding.
     if settings.comskip_enabled and settings.comskip_cut:
         settings.transcode_enabled = True
+
+    if settings.comskip_use_custom_ini:
+        custom_ini_path = (settings.comskip_custom_ini_path or "").strip()
+        if not custom_ini_path:
+            raise HTTPException(
+                status_code=400,
+                detail="A custom Comskip INI path is required when custom INI mode is enabled",
+            )
+        try:
+            settings.comskip_custom_ini_path = validate_comskip_ini_path(
+                custom_ini_path, custom=True
+            )
+        except ComskipIniError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     # Validate min<=max pairs on the final stored state so two separate PUT
     # requests cannot sneak an inverted range past per-request validation.
