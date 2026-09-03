@@ -4,6 +4,18 @@ All notable changes to Mustarrd are listed here. Most recent changes are at the 
 
 ---
 
+## 2026-09-03
+
+### Fixed: Your chosen GPU is used when commercial skip is on
+
+**What you would notice:** If you picked a specific GPU under **Settings > Post-Processing** and also have Commercial Skip enabled, Mustarrd now actually encodes on the GPU you chose. Previously your choice was used for an ordinary recording but silently dropped whenever commercial detection ran, and the encode fell back to whichever graphics card the app found first. On a machine with onboard graphics alongside a discrete card, that could mean every recording with commercial skip was processed on the weaker of the two, with nothing in the interface to tell you.
+
+Nothing changes if you leave the GPU picker on **Automatic**, or if you only have one GPU.
+
+**What changed:** `remove_commercials` delegates to the ordinary transcode step on the two paths where there is nothing to cut, and neither passed `render_device` through. Both now forward it.
+
+---
+
 ## 2026-08-24
 
 ### Fixed: Mustarrd starts when old schedules share a download
