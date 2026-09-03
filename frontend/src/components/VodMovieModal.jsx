@@ -17,8 +17,8 @@ import { IconPlayerPlay, IconCalendar, IconEye } from '@tabler/icons-react'
 import { vodApi } from '../api'
 import VodPreviewModal from './VodPreviewModal'
 
-function extractReleaseDate(info) {
-  return (
+export function extractReleaseDate(info) {
+  const value =
     info?.info?.releasedate ||
     info?.info?.releaseDate ||
     info?.info?.year ||
@@ -26,7 +26,29 @@ function extractReleaseDate(info) {
     info?.releaseDate ||
     info?.year ||
     null
-  )
+
+  if (value === null || value === undefined || value === '') return null
+  return String(value)
+}
+
+export function extractTmdbId(info) {
+  const value =
+    info?.info?.tmdb_id ||
+    info?.info?.tmdb ||
+    info?.tmdb_id ||
+    info?.tmdb ||
+    null
+
+  if (value === null || value === undefined || value === '') return null
+  const match = String(value).trim().match(/(?:^|\/)(\d+)(?:\/?$)/)
+  return match ? match[1] : null
+}
+
+export function resolveMovieMetadata(movieInfo, movie) {
+  return {
+    releaseDate: extractReleaseDate(movieInfo) || extractReleaseDate(movie),
+    tmdbId: extractTmdbId(movieInfo) || extractTmdbId(movie),
+  }
 }
 
 export default function MovieModal({ opened, onClose, movie, accountId }) {
@@ -40,7 +62,12 @@ export default function MovieModal({ opened, onClose, movie, accountId }) {
     retry: false,
   })
 
-  const releaseDate = useMemo(() => extractReleaseDate(movieInfo), [movieInfo])
+  const movieMetadata = useMemo(
+    () => resolveMovieMetadata(movieInfo, movie),
+    [movieInfo, movie]
+  )
+  const releaseDate = movieMetadata.releaseDate
+  const tmdbId = movieMetadata.tmdbId
 
   const downloadMutation = useMutation({
     mutationFn: (data) => vodApi.downloadMovie(data),
@@ -71,6 +98,7 @@ export default function MovieModal({ opened, onClose, movie, accountId }) {
       container_extension: movie.container_extension,
       direct_source: movie.direct_source || null,
       release_date: releaseDate,
+      tmdb_id: tmdbId,
     })
   }
 
