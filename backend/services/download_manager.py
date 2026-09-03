@@ -35,6 +35,15 @@ logger = logging.getLogger(__name__)
 TRANSIENT_RETRY_LIMIT = 3  # retries after the initial attempt
 TRANSIENT_RETRY_BACKOFF_SECONDS = 5.0  # base delay, multiplied by attempt number
 
+# VOD downloads can be pinned to an exact upstream provider/stream. Temporary
+# capacity or gateway failures must not make those jobs fail over to a different
+# variant, so keep retrying the same source URL for up to 30 minutes. The delay
+# ramps quickly, then caps at two minutes between attempts.
+VOD_RETRYABLE_HTTP_STATUSES = frozenset({429, 502, 503, 504})
+VOD_HTTP_RETRY_MAX_SECONDS = 30 * 60
+VOD_HTTP_RETRY_INITIAL_BACKOFF_SECONDS = 15.0
+VOD_HTTP_RETRY_MAX_BACKOFF_SECONDS = 120.0
+
 # Default minimum free space to preserve when the AppSettings row has no value;
 # matches the default used by services.disk_space.check_disk_space.
 MIN_FREE_SPACE_FALLBACK_GB = 25
@@ -66,12 +75,24 @@ class ProviderStatusError(Exception):
         self.reason = reason
 
 
+def _http_status_from_exception(e: BaseException) -> Optional[int]:
+    """Extract an HTTP status from the simple errors raised by _download_file_once."""
+    text = str(e or "")
+    if not text.startswith("HTTP "):
+        return None
+    code = text[5:8]
+    if len(code) == 3 and code.isdigit():
+        return int(code)
+    return None
+
+
 def _is_transient_network_error(e: BaseException) -> bool:
     """True for network-level errors worth retrying (disconnects, timeouts).
 
     HTTP status errors are raised by _download_file_once as
     ``ProviderStatusError`` and disk errors (e.g. ENOSPC) are plain
-    ``OSError``, so neither matches here: they fail fast.
+    ``OSError``, so neither matches here: they fail fast unless the VOD-specific
+    availability retry policy handles the HTTP status first.
     """
     if isinstance(e, asyncio.TimeoutError):
         return True
@@ -120,6 +141,7 @@ class DownloadManager:
         self._active_account_ids: Dict[int, int] = {}
         self._account_active_counts: Dict[int, int] = {}
         self._cancelled: Set[int] = set()
+        self._vod_retry_downloads: Set[int] = set()
         self._progress_callbacks: Dict[int, Callable] = {}
         self._websocket_connections: Dict[Any, Dict[str, Any]] = {}
         self._stage_progress: Dict[int, Dict[str, Any]] = {}
@@ -812,12 +834,17 @@ class DownloadManager:
                 )
 
                 # Start download
-                downloaded_bytes = await self._download_catchup_stream(
-                    download,
-                    download_id,
-                    session,
-                    offset=recovery_offset,
-                )
+                if download.is_vod:
+                    self._vod_retry_downloads.add(download_id)
+                try:
+                    downloaded_bytes = await self._download_catchup_stream(
+                        download,
+                        download_id,
+                        session,
+                        offset=recovery_offset,
+                    )
+                finally:
+                    self._vod_retry_downloads.discard(download_id)
                 if downloaded_bytes == 0:
                     raise Exception(
                         "Provider returned an empty response. "
@@ -2073,37 +2100,77 @@ class DownloadManager:
         download_id: int,
         session: AsyncSession,
         offset: int = 0,
+        retry_http_errors: Optional[bool] = None,
     ):
-        """Download with bounded retries on transient network errors.
+        """Download with bounded transport retries and optional VOD HTTP retries.
 
-        A connection reset or read timeout mid-transfer used to fail the
-        download permanently. Each retry recomputes the resume offset from the
-        bytes already on disk; _download_file_once then resumes via HTTP Range
-        when the provider supports it, or restarts from byte 0 otherwise.
-        Non-network errors (HTTP status errors, disk errors) propagate
-        immediately.
+        Connection resets/read timeouts keep the existing short retry policy.
+        VOD downloads additionally retry HTTP 429/502/503/504 against the exact
+        same source URL for up to 30 minutes, allowing a pinned Dispatcharr
+        provider to wait for profile capacity without failing over to another
+        provider variant. Every retry recomputes the resume offset from disk.
         """
-        attempt = 0
+        if retry_http_errors is None:
+            retry_http_errors = download_id in self._vod_retry_downloads
+
+        network_attempt = 0
+        availability_attempt = 0
+        availability_started_at: Optional[float] = None
+        loop = asyncio.get_running_loop()
         current_offset = offset
+
         while True:
             try:
                 return await self._download_file_once(
                     url, output_path, download_id, session, offset=current_offset
                 )
             except Exception as e:
-                if not _is_transient_network_error(e) or attempt >= TRANSIENT_RETRY_LIMIT:
+                status = _http_status_from_exception(e)
+                if retry_http_errors and status in VOD_RETRYABLE_HTTP_STATUSES:
+                    now = loop.time()
+                    if availability_started_at is None:
+                        availability_started_at = now
+                    elapsed = max(0.0, now - availability_started_at)
+                    remaining = VOD_HTTP_RETRY_MAX_SECONDS - elapsed
+                    if remaining <= 0:
+                        raise
+
+                    availability_attempt += 1
+                    try:
+                        current_offset = os.path.getsize(output_path)
+                    except OSError:
+                        current_offset = 0
+
+                    delay = min(
+                        VOD_HTTP_RETRY_INITIAL_BACKOFF_SECONDS
+                        * (2 ** (availability_attempt - 1)),
+                        VOD_HTTP_RETRY_MAX_BACKOFF_SECONDS,
+                        remaining,
+                    )
+                    await self._broadcast_log(
+                        download_id,
+                        f"VOD source temporarily unavailable (HTTP {status}). "
+                        f"Retrying the same source in {delay:.0f}s from byte "
+                        f"{current_offset:,} (availability retry {availability_attempt}; "
+                        f"30-minute maximum).",
+                        level="warning",
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+
+                if not _is_transient_network_error(e) or network_attempt >= TRANSIENT_RETRY_LIMIT:
                     raise
-                attempt += 1
+                network_attempt += 1
                 try:
                     current_offset = os.path.getsize(output_path)
                 except OSError:
                     current_offset = 0
-                delay = TRANSIENT_RETRY_BACKOFF_SECONDS * attempt
+                delay = TRANSIENT_RETRY_BACKOFF_SECONDS * network_attempt
                 await self._broadcast_log(
                     download_id,
                     f"Network error during download: {type(e).__name__}: {e}. "
                     f"Retrying in {delay:.0f}s from byte {current_offset:,} "
-                    f"(attempt {attempt}/{TRANSIENT_RETRY_LIMIT}).",
+                    f"(attempt {network_attempt}/{TRANSIENT_RETRY_LIMIT}).",
                     level="warning",
                 )
                 await asyncio.sleep(delay)

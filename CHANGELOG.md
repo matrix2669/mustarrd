@@ -95,6 +95,11 @@ Nothing changes if you leave the GPU picker on **Automatic**, or if you only hav
 **What you would notice:** A daily program whose provider explicitly publishes XMLTV season `-1` is filed under the airing year, while a real season-zero special—or a program with no raw unknown-season marker—stays in `Season 00`. Episode subtitles from the guide are also used in recording filenames when available.
 
 **What changed:** Filename generation keeps upstream's guide-first season and episode handling, then applies the airing year only when the preserved raw XMLTV value explicitly starts with `-1`. Existing matrix2669 databases and Dispatcharr integrations retain compatibility while moving to upstream's canonical structured-guide field names.
+### Added: Arr Stack Connector can hand downloads to Mustarrd
+
+**What you would notice:** The Dispatcharr Arr Stack Plugin can send a selected movie or episode to Mustarrd, keep the Sonarr/Radarr category-based output path, and follow the job through Mustarrd's queue, retry, cancellation, and completion lifecycle.
+
+**What changed:** Mustarrd now provides the authenticated external VOD download endpoint required by the Arr Stack Connector plugin. The endpoint validates the supplied Dispatcharr proxy URL and relative output path, queues the request as VOD, preserves the requested path when moving the completed file, and retries bounded transient HTTP failures. This is a Mustarrd dependency of `matrix2669/Dispatcharr-Arr-Stack-Plugin`; it is not part of upstream Mustarrd until the focused changes are accepted there.
 
 ---
 
