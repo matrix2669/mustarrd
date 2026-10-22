@@ -146,7 +146,9 @@ function renderDurationAnalysis(download) {
 function renderRowMessages(download) {
   const messages = [download.interruption_reason, download.error_message].filter(Boolean)
   if (messages.length === 0) return null
-  return messages.map((msg, i) => <div key={i}>{renderErrorMessage(msg)}</div>)
+  return messages.map((msg, i) => (
+    <div key={i} style={{ whiteSpace: 'normal', overflowWrap: 'anywhere' }}>{renderErrorMessage(msg)}</div>
+  ))
 }
 
 function getStatusBadge(status) {

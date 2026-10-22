@@ -6,6 +6,12 @@ All notable changes to Mustarrd are listed here. Most recent changes are at the 
 
 ## 2026-10-22
 
+### Added: Keep short recordings visible and optionally retry them
+
+**What you would notice:** A catchup download that finishes normally but is more than five seconds shorter than requested now appears as Interrupted, with the downloaded and expected lengths and your padding included. The available recording stays playable. Enable **Settings > Recording > Download recovery > Auto-retry short downloads** to try again automatically; the new switch is off by default and independent of failed-download retries.
+
+**What changed:** Short recordings follow the existing Interrupted finishing path before Commercial Skip or conversion. A later processing error still appears as Failed, but the short-download switch can retry it using the original duration evidence. Automatic recovery shares the existing three-attempt limit, ten-minute interval, archive and disk checks, and cancellation protections. A retry uses a separate filename when folders or working files would collide with the kept recording. Unavailable or unreliable duration measurements and VOD do not trigger the new retry policy.
+
 ### Added: See the downloaded length before processing changes it
 
 **What you would notice:** Downloads History now compares a catchup recording's original downloaded length with the requested length, including your padding. It shows whether the file is shorter, longer, or within five seconds of the request. Commercial removal no longer makes that comparison use the shortened final file. If the original length cannot be measured reliably, History says so instead of guessing.

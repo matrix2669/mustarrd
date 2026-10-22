@@ -26,8 +26,9 @@ _Avoid_: manual download (ambiguous now that [[time slot]] recording exists),
 instant download
 
 **Interrupted recording**:
-A recording whose capture stopped early - the provider connection dropped and
-the bounded retries ran out - but which left a file ffprobe can open. Mustarrd
+A recording whose capture stopped early - either the provider connection dropped
+and the bounded retries ran out, or a successful transfer contains more than five
+seconds less media than the requested padded window - but which left usable media. Mustarrd
 keeps it: it is post-processed, named and moved to the completed folder like a
 completed recording, and only its status differs. A partial ffprobe cannot open,
 including a zero-byte one, is not an interrupted recording; it is deleted and
@@ -35,6 +36,15 @@ the download is Failed. Distinct from a **completed recording with warnings**,
 which finished but probes oddly - a recording can be both.
 _Avoid_: partial recording (that's the file on disk mid-capture), aborted,
 truncated, incomplete
+
+**Automatic retry of short downloads**:
+An optional recovery policy for catchup recordings with a measured short raw
+duration, including those marked Failed after a later processing error.
+Disabled by default and independent of failed-download retries. Uses the
+existing maximum of three automatic attempts, at least ten
+minutes apart, within the channel's archive window and disk-space limits. A new
+attempt preserves the kept file while capturing and clears the old duration
+evidence; unknown measurements and VOD do not qualify.
 
 **Catchup URL style**:
 Which of the two shapes a provider serves catchup links in: the **path style**

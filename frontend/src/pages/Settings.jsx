@@ -955,6 +955,23 @@ export default function Settings() {
           </SettingRow>
         </Stack>
       </SubGroup>
+
+      <SubGroup label="Download recovery">
+        <SettingRow
+          label="Auto-retry short downloads"
+          description="Retry catchup recordings that end more than five seconds short of the requested length, including padding. Up to three retries, at least ten minutes apart, while the recording remains available."
+        >
+          <Switch
+            size={switchSize}
+            aria-label="Auto-retry short downloads"
+            checked={Boolean(formData.auto_retry_short_downloads)}
+            onChange={(event) => handleChange('auto_retry_short_downloads', event.currentTarget.checked)}
+          />
+        </SettingRow>
+        <Text size="sm" c="dimmed">
+          This also covers short recordings whose processing fails. Failed-download retries on the Scheduled page remain separate.
+        </Text>
+      </SubGroup>
     </Stack>
   )
 
