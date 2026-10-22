@@ -739,7 +739,11 @@ class DownloadManager:
             return False
         if not settings:
             return False
-        return settings.transcode_enabled or settings.comskip_enabled
+        return (
+            settings.transcode_enabled
+            or settings.comskip_enabled
+            or getattr(settings, "trim_dispatcharr_buffer", False) is True
+        )
 
     def _processed_output_candidates(self, input_path: str, settings: Optional[AppSettings]) -> list[str]:
         input_file = Path(input_path)
@@ -2783,6 +2787,50 @@ class DownloadManager:
                     total_size, download_id, session
                 )
 
+    async def _trim_dispatcharr_buffer(
+        self,
+        file_path: str,
+        download_id: int,
+        session: AsyncSession,
+        settings: AppSettings,
+    ) -> Optional[str]:
+        """Best-effort first step, authorized only by the original raw evidence."""
+        if getattr(settings, "trim_dispatcharr_buffer", False) is not True:
+            return None
+        result = await session.execute(select(Download).where(Download.id == download_id))
+        download = result.scalar_one_or_none()
+        if not download or download.is_vod or download.duration_analysis_status != "long":
+            return None
+        expected = download.expected_duration_seconds
+        if analyze_duration(expected, download.raw_duration_seconds).status != "long":
+            return None
+
+        async def log_callback(message: str):
+            await self._broadcast_log(download_id, message)
+
+        try:
+            from services.post_processor import post_processor
+
+            min_free_gb = settings.min_free_space_gb if settings.min_free_space_gb is not None else 25
+            shortfall = await get_free_space_shortfall(str(Path(file_path).parent), min_free_gb)
+            if shortfall:
+                free_gb, required_gb = shortfall
+                raise RuntimeError(
+                    f"Not enough space for a temporary trimmed file "
+                    f"({free_gb:.1f} GB free, {required_gb} GB required)."
+                )
+            await self._update_processing(
+                session, download_id, 0, "Trimming Dispatcharr buffer time...",
+                indeterminate=True, download_progress=100.0,
+            )
+            await log_callback(f"Checking the excess tail against the requested {expected:.1f}s including padding.")
+            await post_processor.trim_buffer_tail(file_path, expected, log_callback=log_callback)
+        except Exception as exc:
+            warning = f"Dispatcharr buffer trim failed: {exc}"
+            await self._broadcast_log(download_id, warning, level="warning")
+            return warning
+        return None
+
     async def _post_process(
         self,
         file_path: str,
@@ -2799,6 +2847,12 @@ class DownloadManager:
             return file_path, warnings
 
         current_path = file_path
+
+        # This must precede even Comskip's input normalization, and it must run
+        # for Keep .ts when every other processing option is disabled.
+        trim_warning = await self._trim_dispatcharr_buffer(file_path, download_id, session, settings)
+        if trim_warning:
+            warnings.append(trim_warning)
 
         if settings.comskip_path:
             post_processor.set_comskip_path(settings.comskip_path)

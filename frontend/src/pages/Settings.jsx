@@ -944,6 +944,7 @@ export default function Settings() {
     const container = !formData.transcode_enabled ? 'ts' : formData.transcode_format === 'mp4' ? 'mp4' : 'mkv'
     const method = formData.remux_only ? 'remux' : 'encode'
     const isTs = container === 'ts'
+    const trimBuffer = Boolean(formData.trim_dispatcharr_buffer)
     const comskipOn = Boolean(formData.comskip_enabled)
     // Off / Mark / Cut. comskip_cut defaults to Cut (true) when comskip is on.
     const comskipMode = !comskipOn ? 'off' : (formData.comskip_cut === false ? 'mark' : 'cut')
@@ -951,7 +952,7 @@ export default function Settings() {
     const comskipReady = toolsStatus?.comskip?.available
 
     const summary = isTs
-      ? 'No processing. The raw .ts file is kept as downloaded.'
+      ? 'Keep the recording in its original .ts format.'
       : method === 'remux'
         ? `The stream is wrapped in an ${container.toUpperCase()} file without re-encoding. Fast and lossless.`
         : container === 'mp4'
@@ -990,6 +991,20 @@ export default function Settings() {
     return (
       <Stack gap="xl">
         <SectionHeader title="Post-Processing" description="What happens to a recording after the download finishes" />
+
+        <SubGroup label="Before other processing">
+          <SettingRow
+            label="Trim Dispatcharr buffer time"
+            description="Check all catchup downloads and trim only a measured extra tail. Keeps your requested start and pre/post padding. Runs before Commercial Skip, remuxing, or re-encoding, including with Keep .ts. Off by default."
+          >
+            <Switch
+              size={switchSize}
+              aria-label="Trim Dispatcharr buffer time"
+              checked={trimBuffer}
+              onChange={(e) => handleChange('trim_dispatcharr_buffer', e.currentTarget.checked)}
+            />
+          </SettingRow>
+        </SubGroup>
 
         <SubGroup label="Output format">
           <Stack gap={0}>
@@ -1054,12 +1069,13 @@ export default function Settings() {
             </Alert>
           )}
 
-          {ffmpegReady === false && !isTs && (
+          {ffmpegReady === false && (!isTs || trimBuffer) && (
             <Alert color="yellow" variant="light">
               <Text size="sm">
                 ffmpeg is unavailable. The Docker image includes ffmpeg; install or fix it manually if running locally.
-                {' '}To save recordings without converting, switch the container above to{' '}
-                <Text component="span" fw={500}>Keep .ts</Text>.
+                {trimBuffer
+                  ? ' Buffer trimming also requires FFmpeg; the original is kept with a warning if trimming cannot run.'
+                  : <> To save recordings without converting, switch the container above to <Text component="span" fw={500}>Keep .ts</Text>.</>}
               </Text>
               {toolsStatus?.ffmpeg?.error && (
                 <Text size="xs" c="dimmed" mt={4}>{toolsStatus.ffmpeg.error}</Text>

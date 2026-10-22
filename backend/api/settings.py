@@ -94,6 +94,7 @@ class SettingsUpdate(BaseModel):
     default_post_padding_minutes: Optional[int] = Field(default=None, ge=0, le=120)
     default_account_id: Optional[int] = None
     # Post-processing
+    trim_dispatcharr_buffer: Optional[bool] = None
     transcode_enabled: Optional[bool] = None
     transcode_format: Optional[Literal["ts", "mp4", "mkv"]] = None
     hw_accel: Optional[Literal["cpu", "videotoolbox", "nvenc", "amf", "vaapi"]] = None
@@ -157,6 +158,7 @@ NON_NULLABLE_FIELDS = {
     "min_free_space_gb",
     "default_pre_padding_minutes",
     "default_post_padding_minutes",
+    "trim_dispatcharr_buffer",
     "transcode_enabled",
     "transcode_format",
     "hw_accel",

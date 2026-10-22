@@ -342,6 +342,49 @@ describe('Settings page', () => {
     expect(settingsApi.update.mock.calls[0][0]).toEqual({ write_nfo_files: false })
   })
 
+  it('enables buffer trimming independently while keeping the original .ts format', async () => {
+    settingsApi.get.mockResolvedValue({ ...baseSettings, transcode_enabled: false })
+    renderSettings()
+    await screen.findByText('Connections')
+    fireEvent.click(screen.getByText('Post-Processing'))
+
+    const toggle = await screen.findByRole('switch', { name: 'Trim Dispatcharr buffer time' })
+    expect(toggle).not.toBeChecked()
+    expect(screen.getByRole('radio', { name: 'Keep .ts' })).toBeChecked()
+    expect(screen.getByText(/Check all catchup downloads/)).toBeInTheDocument()
+    expect(screen.getByText(/Keeps your requested start and pre\/post padding/)).toBeInTheDocument()
+    fireEvent.click(toggle)
+    expect(screen.getByRole('radio', { name: 'Keep .ts' })).toBeChecked()
+    expect(screen.getByRole('radio', { name: 'Off' })).toBeChecked()
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+
+    await waitFor(() => expect(settingsApi.update).toHaveBeenCalled())
+    expect(settingsApi.update.mock.calls[0][0]).toEqual({ trim_dispatcharr_buffer: true })
+  })
+
+  it('finds buffer trimming in search and can turn the saved option off', async () => {
+    settingsApi.get.mockResolvedValue({ ...baseSettings, trim_dispatcharr_buffer: true })
+    renderSettings()
+    await screen.findByText('Connections')
+    fireEvent.change(screen.getByLabelText('Search settings'), { target: { value: 'Dispatcharr' } })
+    fireEvent.click(await screen.findByText('Trim Dispatcharr buffer time'))
+    const toggle = await screen.findByRole('switch', { name: 'Trim Dispatcharr buffer time' })
+    expect(toggle).toBeChecked()
+    fireEvent.click(toggle)
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+    await waitFor(() => expect(settingsApi.update).toHaveBeenCalled())
+    expect(settingsApi.update.mock.calls[0][0]).toEqual({ trim_dispatcharr_buffer: false })
+  })
+
+  it('warns that trimming needs FFmpeg even with Keep .ts', async () => {
+    settingsApi.get.mockResolvedValue({ ...baseSettings, transcode_enabled: false, trim_dispatcharr_buffer: true })
+    settingsApi.getTools.mockResolvedValue({ ffmpeg: { available: false }, comskip: { available: false } })
+    renderSettings()
+    await screen.findByText('Connections')
+    fireEvent.click(screen.getByText('Post-Processing'))
+    expect(await screen.findByText(/Buffer trimming also requires FFmpeg/)).toBeInTheDocument()
+  })
+
   it('maps the two-step format picker onto the transcode fields', async () => {
     renderSettings()
     await screen.findByText('Connections')
