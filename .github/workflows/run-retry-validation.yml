@@ -51,6 +51,10 @@ jobs:
           assert len(selected) == 5
           for index, step in enumerate(selected):
               script = step['run'].replace("chromium.launch({headless:true})", "chromium.launch({headless:true,channel:'chrome'})")
+              script = script.replace("toggle.locator('..').locator('label').first()", "toggle.locator('xpath=ancestor::label[1]')")
+              script = script.replace("if (mode === 'trim') await page.getByText('Post-Processing',{exact:true}).first().click();", "const title = mode === 'trim' ? 'Post-Processing' : 'Recording'; const mobile = page.getByRole('button',{name:title,exact:true}); if (await mobile.count()) await mobile.first().click(); else await page.locator('.mantine-NavLink-root').filter({has:page.getByText(title,{exact:true})}).first().click();")
+              script = script.replace("assert.equal(await toggle.isChecked(),true,'Saved preference survives full reload');", "await page.waitForFunction(name => Array.from(document.querySelectorAll('input[role=switch]')).some(el => el.getAttribute('aria-label') === name && el.checked), label); assert.equal(await toggle.isChecked(),true,'Saved preference survives full reload');")
+              script = script.replace("await page.setViewportSize({width,height});", "await page.setViewportSize({width,height}); if (size === 'mobile') await section();")
               Path(os.environ['RUNNER_TEMP'], f'retry-step-{index}.sh').write_text(script)
               print(index, step['name'])
           PY
