@@ -30,21 +30,28 @@ A recording whose capture stopped early - either the provider connection dropped
 and the bounded retries ran out, or a successful transfer contains more than five
 seconds less media than the requested padded window - but which left usable media. Mustarrd
 keeps it: it is post-processed, named and moved to the completed folder like a
-completed recording, and only its status differs. A partial ffprobe cannot open,
+completed recording, and only its status differs. The optional short-file failure policy instead
+reports a reliably measured short catchup file as Failed. A partial ffprobe cannot open,
 including a zero-byte one, is not an interrupted recording; it is deleted and
 the download is Failed. Distinct from a **completed recording with warnings**,
 which finished but probes oddly - a recording can be both.
 _Avoid_: partial recording (that's the file on disk mid-capture), aborted,
 truncated, incomplete
 
-**Automatic retry of short downloads**:
-An optional recovery policy for catchup recordings with a measured short raw
-duration, including those marked Failed after a later processing error.
-Disabled by default and independent of failed-download retries. Uses the
-existing maximum of three automatic attempts, at least ten
-minutes apart, within the channel's archive window and disk-space limits. A new
-attempt preserves the kept file while capturing and clears the old duration
-evidence; unknown measurements and VOD do not qualify.
+**Short-file failure**:
+An opt-in classification of a reliably measured short raw catchup recording as
+Failed rather than Interrupted. It does not enable recovery by itself: automatic
+re-downloads require **Auto-retry failed downloads**. Unknown measurements and
+VOD do not qualify. A finalized short Failed recording remains playable.
+
+**Deferred retry capture**:
+A raw recording held without Commercial Skip, remuxing or transcoding while
+bounded automatic recovery is still possible. Recovery uses at most three
+retries after the original capture, at least ten minutes apart, within the
+archive window and disk limits. Once recovery ends, finalize one usable attempt.
+Persist exact file ownership across restart; remove superseded attempts only
+after the selected output passes processing, placement and validation. Never
+infer old retry ownership from filename patterns.
 
 **Catchup URL style**:
 Which of the two shapes a provider serves catchup links in: the **path style**

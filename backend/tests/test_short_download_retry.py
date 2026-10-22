@@ -85,17 +85,17 @@ class ShortDownloadTests(unittest.IsolatedAsyncioTestCase):
         ):
             async with self.sessions() as session:
                 payload = await get_settings(None, session)
-                self.assertIs(payload["auto_retry_short_downloads"], False)
+                self.assertIs(payload["mark_short_downloads_failed"], False)
                 self.assertIs(payload["auto_retry_failed_downloads"], False)
-                payload = await update_settings(SettingsUpdate(auto_retry_short_downloads=True), None, session)
-                self.assertIs(payload["auto_retry_short_downloads"], True)
+                payload = await update_settings(SettingsUpdate(mark_short_downloads_failed=True), None, session)
+                self.assertIs(payload["mark_short_downloads_failed"], True)
                 self.assertIs(payload["auto_retry_failed_downloads"], False)
                 payload = await update_settings(SettingsUpdate(auto_retry_failed_downloads=True), None, session)
-                self.assertIs(payload["auto_retry_short_downloads"], True)
-                payload = await update_settings(SettingsUpdate(auto_retry_short_downloads=None), None, session)
-                self.assertIs(payload["auto_retry_short_downloads"], True)
-                payload = await update_settings(SettingsUpdate(auto_retry_short_downloads=False), None, session)
-                self.assertIs(payload["auto_retry_short_downloads"], False)
+                self.assertIs(payload["mark_short_downloads_failed"], True)
+                payload = await update_settings(SettingsUpdate(mark_short_downloads_failed=None), None, session)
+                self.assertIs(payload["mark_short_downloads_failed"], True)
+                payload = await update_settings(SettingsUpdate(mark_short_downloads_failed=False), None, session)
+                self.assertIs(payload["mark_short_downloads_failed"], False)
                 self.assertIs(payload["auto_retry_failed_downloads"], True)
 
     async def test_migration_defaults_existing_installations_to_disabled(self):
@@ -107,7 +107,7 @@ class ShortDownloadTests(unittest.IsolatedAsyncioTestCase):
                 await conn.execute(text("INSERT INTO app_settings (id) VALUES (1)"))
                 await _apply_lightweight_migrations(conn)
                 await _apply_lightweight_migrations(conn)
-                value = (await conn.execute(text("SELECT auto_retry_short_downloads FROM app_settings"))).scalar_one()
+                value = (await conn.execute(text("SELECT mark_short_downloads_failed FROM app_settings"))).scalar_one()
                 self.assertEqual(value, 0)
         finally:
             await engine.dispose()

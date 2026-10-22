@@ -2,7 +2,7 @@ import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import select
 from sqlalchemy import exc as sa_exc
 from database import async_session_maker
 from models import ScheduledRecording, ScheduledStatus, AppSettings, Download, DownloadStatus
@@ -10,6 +10,7 @@ from services.download_builder import build_download_from_program
 from services.download_manager import download_manager
 from services.epg_service import epg_service, NoCatchupSupportError
 from services.disk_space import get_free_space_gb
+from services.retry_policy import AUTO_RETRY_MAX_ATTEMPTS, AUTO_RETRY_MIN_INTERVAL_MINUTES
 from config import settings as app_settings
 
 logger = logging.getLogger(__name__)
@@ -20,13 +21,8 @@ logger = logging.getLogger(__name__)
 # errs on the side of pausing instead of filling the disk.
 ESTIMATED_RECORDING_GB_PER_HOUR = 3.0
 
-# Automatic retry of failed or measured-short catchup downloads, each gated
-# by its own disabled-by-default setting. Each download gets a
-# bounded number of automatic attempts, spaced out so a struggling provider is
-# not hammered, and only while the program is still inside the channel's
-# archive (catchup) window.
-AUTO_RETRY_MAX_ATTEMPTS = 3
-AUTO_RETRY_MIN_INTERVAL_MINUTES = 10
+# Failed-download recovery, including opted-in short-file failures, uses one
+# master switch and the shared bounded retry policy.
 
 # Dispatching a due schedule (build the download row, commit it with the
 # schedule update) can fail for two very different reasons. Infrastructure
@@ -416,128 +412,84 @@ class ScheduledManager:
         return None
 
     async def _auto_retry_failed_downloads(self):
-        """Re-queue eligible failed or short captures inside the archive window.
+        """Retry Failed downloads, or finalize held raw captures when recovery ends.
 
-        Failed and measured-short captures have independent opt-in settings.
-        Short captures remain eligible if post-processing also failed.
-        Unknown duration and VOD never qualify as short. Each
-        download gets at most AUTO_RETRY_MAX_ATTEMPTS automatic retries spaced
-        at least AUTO_RETRY_MIN_INTERVAL_MINUTES apart, and only while
-        now < program end + the channel's archive window. Unknown or
-        unreachable archive windows are treated conservatively: no retry.
-        Downloads whose linked schedule was cancelled or completed are left
-        alone so user-set terminal states are never revived (#330).
+        Every automatic retry requires the failed-download master switch. The
+        short-file setting only controls classification, never enables retries.
         """
         now_utc = datetime.now(timezone.utc)
-        to_retry: list[int] = []
+        to_retry, to_finalize = [], []
         async with async_session_maker() as session:
-            settings_result = await session.execute(select(AppSettings))
-            settings = settings_result.scalar_one_or_none()
-            if not settings:
+            settings = (await session.execute(select(AppSettings))).scalar_one_or_none()
+            if settings is None:
                 return
-            retry_failed = bool(getattr(settings, "auto_retry_failed_downloads", False))
-            retry_short = bool(getattr(settings, "auto_retry_short_downloads", False))
-            retry_conditions = []
-            if retry_failed:
-                retry_conditions.append(Download.status == DownloadStatus.FAILED.value)
-            if retry_short:
-                retry_conditions.append(and_(
-                    Download.status.in_([
-                        DownloadStatus.INTERRUPTED.value, DownloadStatus.FAILED.value,
-                    ]),
-                    Download.duration_analysis_status == "short",
-                ))
-            if not retry_conditions:
-                return
-
-            result = await session.execute(
-                select(Download).where(
-                    or_(*retry_conditions),
-                    Download.is_vod.isnot(True),
-                )
+            master = bool(settings.auto_retry_failed_downloads)
+            mark_short = bool(getattr(settings, "mark_short_downloads_failed", False))
+            query = select(Download).where(
+                Download.status == DownloadStatus.FAILED.value,
+                Download.is_vod.isnot(True),
+                Download.retry_finalized.isnot(True),
             )
-            eligible = [
-                d for d in result.scalars().all()
-                if int(d.retry_count or 0) < AUTO_RETRY_MAX_ATTEMPTS
-            ]
-            if not eligible:
+            if not master:
+                query = query.where(Download.processing_deferred.is_(True))
+            rows = (await session.execute(query)).scalars().all()
+            if not rows:
                 return
-
-            download_folder = settings.download_folder or app_settings.default_download_folder
-            min_free_gb = settings.min_free_space_gb if settings.min_free_space_gb is not None else 25
-            free_gb = await self._get_free_space_gb(download_folder)
-            if free_gb is None or free_gb < min_free_gb:
-                # Folder unavailable or low on space: retrying now would burn
-                # attempts on guaranteed failures; wait instead.
-                return
-
-            schedule_result = await session.execute(
-                select(ScheduledRecording).where(
-                    ScheduledRecording.download_id.in_([d.id for d in eligible])
-                )
-            )
-            # More than one schedule can point at the same download. A dict
-            # keeping only the last row could hide a cancelled/completed one.
-            blocked_download_ids = {
-                schedule.download_id
-                for schedule in schedule_result.scalars().all()
-                if schedule.status in (ScheduledStatus.CANCELLED.value, ScheduledStatus.COMPLETED.value)
-            }
-
-            for download in eligible:
-                if download.id in self._auto_retry_ineligible:
+            schedules = (await session.execute(select(ScheduledRecording).where(
+                ScheduledRecording.download_id.in_([row.id for row in rows])
+            ))).scalars().all()
+            blocked = {row.download_id for row in schedules if row.status in (
+                ScheduledStatus.CANCELLED.value, ScheduledStatus.COMPLETED.value
+            )}
+            free_gb = None
+            disk_checked = False
+            for download in rows:
+                if download.id in blocked:
                     continue
-
-                if download.id in blocked_download_ids:
+                held = bool(download.processing_deferred)
+                classified_short = bool(download.short_file_failed) or held
+                stopped = (not master or (classified_short and not mark_short)
+                           or int(download.retry_count or 0) >= AUTO_RETRY_MAX_ATTEMPTS)
+                if stopped or download.id in self._auto_retry_ineligible:
+                    if held:
+                        to_finalize.append((download.id, download.id in self._auto_retry_ineligible))
                     continue
-
-                last_attempt = download.last_retry_at or download.completed_at
-                if last_attempt is not None:
-                    if last_attempt.tzinfo is None:
-                        last_attempt = last_attempt.replace(tzinfo=timezone.utc)
-                    if now_utc - last_attempt < timedelta(minutes=AUTO_RETRY_MIN_INTERVAL_MINUTES):
-                        continue
-
+                times = [t.replace(tzinfo=timezone.utc) if t.tzinfo is None else t
+                         for t in (download.last_retry_at, download.completed_at) if t is not None]
+                if times and now_utc - max(times) < timedelta(minutes=AUTO_RETRY_MIN_INTERVAL_MINUTES):
+                    continue
+                if not disk_checked:
+                    free_gb = await self._get_free_space_gb(settings.download_folder or app_settings.default_download_folder)
+                    disk_checked = True
+                minimum = settings.min_free_space_gb if settings.min_free_space_gb is not None else 25
+                if free_gb is None or free_gb < minimum:
+                    continue
                 program_end = self._download_program_end_utc(download)
                 if program_end is None:
                     self._auto_retry_ineligible.add(download.id)
+                    if held:
+                        to_finalize.append((download.id, True))
                     continue
-
                 try:
-                    archive_days = await self._get_archive_days_raw(
-                        session, download.account_id, download.channel_id
-                    )
+                    archive_days = await self._get_archive_days_raw(session, download.account_id, download.channel_id)
                 except NoCatchupSupportError:
-                    self._auto_retry_ineligible.add(download.id)
-                    continue
+                    archive_days = 0
                 except Exception:
-                    # Provider unreachable: unknown window, do not retry
-                    # blindly; re-check on a later tick.
+                    # A temporarily unreachable provider is not confirmed expiry.
                     continue
-                if archive_days <= 0:
-                    # Provider reports no archive window: treat conservatively.
+                if archive_days <= 0 or now_utc >= program_end + timedelta(days=archive_days):
                     self._auto_retry_ineligible.add(download.id)
+                    if held:
+                        to_finalize.append((download.id, True))
                     continue
-                if now_utc >= program_end + timedelta(days=archive_days):
-                    # The window only moves forward; this program is gone.
-                    self._auto_retry_ineligible.add(download.id)
-                    continue
-
-                download.retry_count = int(download.retry_count or 0) + 1
-                download.last_retry_at = datetime.utcnow()
                 to_retry.append(download.id)
-
-            if not to_retry:
-                return
-            await session.commit()
-
+        for download_id, unavailable in to_finalize:
+            await download_manager.finalize_deferred_capture(download_id, recovery_unavailable=unavailable)
         for download_id in to_retry:
+            # The manager owns the final recheck and reserves the retry count
+            # atomically with its Pending transition, not during stale selection.
             requeued = await download_manager.retry_download(download_id, automatic=True)
-            logger.info(
-                "Auto-retry %s for download %s",
-                "queued" if requeued else "skipped (status changed)",
-                download_id,
-            )
+            logger.info("Auto-retry %s for download %s", "queued" if requeued else "skipped (status changed)", download_id)
 
     def _estimate_recording_gb(self, schedule) -> float:
         """Expected on-disk size of a recording, including padding."""
