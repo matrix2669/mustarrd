@@ -1,0 +1,73 @@
+name: Complete retry correction validation
+on:
+  push:
+    branches: [automation/retry-finalization-validation-20261022]
+    paths: [.github/workflows/run-retry-validation.yml]
+permissions:
+  contents: write
+  actions: write
+concurrency:
+  group: mustarrd-retry-correction-validation
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NODE_OPTIONS: --max-old-space-size=3072
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+      - name: Stop only the superseded stalled validation job
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --method POST repos/matrix2669/mustarrd/actions/runs/39811703334/cancel || true
+      - name: Prepare bounded tools and preserve the reviewed validation steps
+        timeout-minutes: 4
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/receipts" "$RUNNER_TEMP/media-tmp"
+          command -v google-chrome
+          if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
+            timeout 120 sudo apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 install -y -qq ffmpeg
+          fi
+          python -m pip install -q pyyaml
+          timeout 60 npm install --prefix "$RUNNER_TEMP/browser" playwright --no-audit --no-fund
+          echo "NODE_PATH=$RUNNER_TEMP/browser/node_modules" >> "$GITHUB_ENV"
+          echo "TMPDIR=$RUNNER_TEMP/media-tmp" >> "$GITHUB_ENV"
+          python - <<'PY'
+          import os, subprocess, yaml
+          from pathlib import Path
+          raw = subprocess.check_output(['git','show','48259d1fd5a4c0281be7e15b8ae9fa167e1e9854:.github/workflows/validate-retry-corrections.yml'],text=True)
+          steps = yaml.safe_load(raw)['jobs']['validate']['steps']
+          selected = [step for step in steps if step.get('run') and step['name'] != 'Prepare isolated media and browser validation tools']
+          assert len(selected) == 5
+          for index, step in enumerate(selected):
+              script = step['run'].replace("chromium.launch({headless:true})", "chromium.launch({headless:true,channel:'chrome'})")
+              Path(os.environ['RUNNER_TEMP'], f'retry-step-{index}.sh').write_text(script)
+              print(index, step['name'])
+          PY
+      - name: Import exact reviewed commits
+        run: bash "$RUNNER_TEMP/retry-step-0.sh"
+      - name: Prepare browser assertions
+        run: bash "$RUNNER_TEMP/retry-step-1.sh"
+      - name: Validate isolated features and actual UI
+        run: bash "$RUNNER_TEMP/retry-step-2.sh"
+      - name: Validate detached dev-test preview
+        run: bash "$RUNNER_TEMP/retry-step-3.sh"
+      - name: Publish only validated owning feature heads
+        run: bash "$RUNNER_TEMP/retry-step-4.sh"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: retry-correction-validation
+          path: ${{ runner.temp }}/receipts/
+          retention-days: 30
