@@ -397,9 +397,10 @@ describe('Settings page', () => {
     fireEvent.click(screen.getByText('Post-Processing'))
 
     const toggle = await screen.findByRole('switch', { name: 'Trim Dispatcharr buffer time' })
+    expect(screen.getByText(/Dispatcharr adds buffer time to all catchup recordings/)).toBeInTheDocument()
     expect(toggle).not.toBeChecked()
     expect(screen.getByRole('radio', { name: 'Keep .ts' })).toBeChecked()
-    expect(screen.getByText(/Check all catchup downloads/)).toBeInTheDocument()
+    expect(screen.getByText(/Dispatcharr adds buffer time to all catchup recordings/)).toBeInTheDocument()
     expect(screen.getByText(/Keeps your requested start and pre\/post padding/)).toBeInTheDocument()
     fireEvent.click(toggle)
     expect(screen.getByRole('radio', { name: 'Keep .ts' })).toBeChecked()
