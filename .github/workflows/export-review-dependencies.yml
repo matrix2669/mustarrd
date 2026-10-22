@@ -1,0 +1,31 @@
+name: Export retry review dependencies
+on:
+  push:
+    branches: [automation/retry-finalization-validation-20261022]
+    paths: [.github/workflows/export-review-dependencies.yml]
+permissions:
+  contents: read
+jobs:
+  dependencies:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: feature/short-download-retry
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Collect dependencies
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/deps"
+          python3 -m pip download --no-deps aiosqlite -d "$RUNNER_TEMP/deps"
+          npm --prefix frontend ci --no-audit --no-fund
+          tar -czf "$RUNNER_TEMP/deps/node_modules.tar.gz" -C frontend node_modules
+      - uses: actions/upload-artifact@v4
+        with:
+          name: retry-review-dependencies
+          path: ${{ runner.temp }}/deps/
+          retention-days: 3
