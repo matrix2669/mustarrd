@@ -1,0 +1,223 @@
+name: Integrate duration controls into dev-test
+
+on:
+  push:
+    branches: [automation/duration-controls-dev-test-20261022]
+    paths: [.github/workflows/integrate-duration-controls.yml]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: duration-controls-dev-test-integration
+  cancel-in-progress: false
+
+jobs:
+  validate-and-integrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      EXPECTED_DEV_TEST: aa9fc66fa0cca0cf19810712c8458b5e9cd38c85
+      EXPECTED_MAIN: a6e5fac5024d9eae8db5846066fa1e319c321a5c
+      EXPECTED_DEV: 737b058492c09d32d898b26b5ba7fe32309108aa
+      NODE_OPTIONS: --max-old-space-size=3072
+    steps:
+      - name: Check out the testing composition
+        uses: actions/checkout@v6
+        with:
+          ref: dev-test
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Verify exact approved inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin --prune
+          test "$(git rev-parse HEAD)" = "$EXPECTED_DEV_TEST"
+          test "$(git rev-parse origin/dev-test)" = "$EXPECTED_DEV_TEST"
+          test "$(git rev-parse origin/dev)" = "$EXPECTED_DEV"
+          test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN"
+          test "$(git ls-remote https://github.com/razzamatazm/mustarrd.git refs/heads/main | cut -f1)" = "$EXPECTED_MAIN"
+          test "$(git rev-parse origin/feature/download-duration-analysis)" = e95bae8635092e42f999c39316513ed05638aa2c
+          test "$(git rev-parse origin/feature/short-download-retry)" = ee18833aab24b9d9b3eda6477053f7d8a3fef994
+          test "$(git rev-parse origin/feature/dispatcharr-buffer-trim)" = e107f6cfef19f0bf184e350c0aed48d98098989d
+          git checkout --detach "$EXPECTED_DEV_TEST"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          mkdir -p "$RUNNER_TEMP/duration-validation" "$RUNNER_TEMP/duration-tmp"
+          echo "TMPDIR=$RUNNER_TEMP/duration-tmp" >> "$GITHUB_ENV"
+
+      - name: Merge exact feature heads and retain additive conflict changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import ast
+          import json
+          import os
+          import re
+          import subprocess
+          from pathlib import Path
+
+          def git(*args, check=True):
+              result = subprocess.run(['git', *args], text=True, capture_output=True)
+              if check and result.returncode:
+                  raise RuntimeError(result.stdout + result.stderr)
+              return result
+
+          inputs = [
+              ('download-duration-analysis', 'e95bae8635092e42f999c39316513ed05638aa2c', set()),
+              ('short-download-retry', 'ee18833aab24b9d9b3eda6477053f7d8a3fef994', {'backend/database.py'}),
+              ('dispatcharr-buffer-trim', 'e107f6cfef19f0bf184e350c0aed48d98098989d', {'backend/api/settings.py', 'CHANGELOG.md'}),
+          ]
+          receipts = []
+          for feature, source, expected_conflicts in inputs:
+              result = git('merge', '--no-ff', '--no-commit', source, check=False)
+              conflicts = set(git('diff', '--name-only', '--diff-filter=U').stdout.splitlines())
+              if result.returncode not in (0, 1) or conflicts != expected_conflicts:
+                  raise RuntimeError(f'Unexpected merge result for {feature}: {result.stdout}{result.stderr}; conflicts={conflicts}')
+              if feature == 'short-download-retry':
+                  path = Path('backend/database.py')
+                  text = path.read_text()
+                  pattern = r'<<<<<<< [^\n]+\n.*?=======\n.*?>>>>>>> [^\n]+\n        \)'
+                  replacement = '''    if not await _column_exists(conn, "app_settings", "scheduled_download_delay_minutes"):
+                      await conn.execute(
+                          text(
+                              "ALTER TABLE app_settings "
+                              "ADD COLUMN scheduled_download_delay_minutes INTEGER DEFAULT 5"
+                          )
+                      )
+
+                  if not await _column_exists(conn, "app_settings", "auto_retry_short_downloads"):
+                      await conn.execute(
+                          text("ALTER TABLE app_settings ADD COLUMN auto_retry_short_downloads BOOLEAN DEFAULT 0")
+                      )'''
+                  # The replacement is a source-code fragment, not workflow indentation.
+                  replacement_lines = replacement.splitlines()
+                  replacement = '\n'.join([replacement_lines[0]] + [line[14:] if line.startswith(' ' * 14) else line for line in replacement_lines[1:]])
+                  text, count = re.subn(pattern, lambda match: replacement, text, flags=re.S)
+                  if count != 1:
+                      raise RuntimeError('Expected exactly one independent migration conflict')
+                  ast.parse(text)
+                  path.write_text(text)
+              elif feature == 'dispatcharr-buffer-trim':
+                  for filename in sorted(conflicts):
+                      path = Path(filename)
+                      text = path.read_text()
+                      def keep_both(match):
+                          return match.group(1) + ('\n' if filename == 'CHANGELOG.md' else '') + match.group(2)
+                      text, count = re.subn(r'<<<<<<< [^\n]+\n(.*?)=======\n(.*?)>>>>>>> [^\n]+\n', keep_both, text, flags=re.S)
+                      if count != 1 or '<<<<<<<' in text:
+                          raise RuntimeError(f'Unexpected conflict in {filename}')
+                      if filename.endswith('.py'):
+                          ast.parse(text)
+                      path.write_text(text)
+              if conflicts:
+                  git('add', *sorted(conflicts))
+              git('diff', '--cached', '--check')
+              git('commit', '-m', f'Merge {feature} into dev-test')
+              receipts.append({
+                  'feature': feature,
+                  'source': source,
+                  'merge': git('rev-parse', 'HEAD').stdout.strip(),
+                  'tree': git('rev-parse', 'HEAD^{tree}').stdout.strip(),
+                  'resolved_files': sorted(conflicts),
+              })
+          tree = git('rev-parse', 'HEAD^{tree}').stdout.strip()
+          expected_tree = 'b1d2e34ac6900b748d0089360432b357b4c3912f'
+          if tree != expected_tree:
+              raise RuntimeError(f'Integration tree differs from inspected local candidate: {tree} != {expected_tree}')
+          if git('status', '--porcelain').stdout:
+              raise RuntimeError('Candidate checkout must be clean')
+          candidate = git('rev-parse', 'HEAD').stdout.strip()
+          output = Path(os.environ['RUNNER_TEMP']) / 'duration-validation'
+          (output / 'merges.json').write_text(json.dumps(receipts, indent=2) + '\n')
+          (output / 'candidate.txt').write_text(candidate + '\n' + tree + '\n')
+          with open(os.environ['GITHUB_ENV'], 'a') as stream:
+              stream.write(f'CANDIDATE_SHA={candidate}\n')
+          print(json.dumps(receipts, indent=2))
+          print(f'Candidate: {candidate}; tree: {tree}')
+          PY
+
+      - name: Install test dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m venv backend/venv
+          backend/venv/bin/python -m pip install -r backend/requirements.txt
+          npm --prefix frontend ci --no-audit --no-fund
+          if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y ffmpeg
+          fi
+
+      - name: Run complete backend suite on the candidate
+        working-directory: backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          venv/bin/python -m unittest discover -s tests > "$RUNNER_TEMP/duration-validation/backend.log" 2>&1 || { tail -100 "$RUNNER_TEMP/duration-validation/backend.log"; exit 1; }
+          tail -8 "$RUNNER_TEMP/duration-validation/backend.log"
+
+      - name: Run complete frontend suite on the candidate
+        working-directory: frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm test > "$RUNNER_TEMP/duration-validation/frontend.log" 2>&1 || { tail -100 "$RUNNER_TEMP/duration-validation/frontend.log"; exit 1; }
+          tail -12 "$RUNNER_TEMP/duration-validation/frontend.log"
+
+      - name: Build frontend on the candidate
+        working-directory: frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run build > "$RUNNER_TEMP/duration-validation/build.log" 2>&1 || { tail -100 "$RUNNER_TEMP/duration-validation/build.log"; exit 1; }
+          tail -12 "$RUNNER_TEMP/duration-validation/build.log"
+
+      - name: Publish only the validated dev-test fast-forward
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          git diff --check
+          test -z "$(git status --porcelain)"
+          git fetch origin --prune
+          test "$(git rev-parse origin/dev-test)" = "$EXPECTED_DEV_TEST"
+          test "$(git rev-parse origin/dev)" = "$EXPECTED_DEV"
+          test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN"
+          test "$(git rev-parse origin/feature/download-duration-analysis)" = e95bae8635092e42f999c39316513ed05638aa2c
+          test "$(git rev-parse origin/feature/short-download-retry)" = ee18833aab24b9d9b3eda6477053f7d8a3fef994
+          test "$(git rev-parse origin/feature/dispatcharr-buffer-trim)" = e107f6cfef19f0bf184e350c0aed48d98098989d
+          git merge-base --is-ancestor "$EXPECTED_DEV_TEST" "$CANDIDATE_SHA"
+          git push origin "$CANDIDATE_SHA:refs/heads/dev-test"
+          test "$(git ls-remote origin refs/heads/dev-test | cut -f1)" = "$CANDIDATE_SHA"
+          {
+            echo '## Approved duration-controls integration'
+            echo "Published dev-test: $CANDIDATE_SHA"
+            echo 'Tree: b1d2e34ac6900b748d0089360432b357b4c3912f'
+            echo 'All three exact source heads included; dev, main, and feature branches unchanged.'
+            echo 'Only additive migrations, non-null settings entries, and changelog conflicts resolved.'
+            echo 'No upstream pull request, deployment, release, image publication, or branch deletion performed.'
+          } | tee "$RUNNER_TEMP/duration-validation/publication.txt" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Retain validation receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: duration-controls-integration-evidence
+          path: ${{ runner.temp }}/duration-validation/
+          if-no-files-found: warn
+          retention-days: 30
