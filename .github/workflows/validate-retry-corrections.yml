@@ -1,0 +1,187 @@
+name: Validate Mustarrd retry corrections
+on:
+  push:
+    branches: [automation/retry-finalization-validation-20261022]
+    paths: [.github/workflows/validate-retry-corrections.yml]
+permissions:
+  contents: write
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NODE_OPTIONS: --max-old-space-size=3072
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+      - name: Import exact reviewed source commits
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/receipts" "$RUNNER_TEMP/media-tmp"
+          echo "TMPDIR=$RUNNER_TEMP/media-tmp" >> "$GITHUB_ENV"
+          git fetch origin --prune
+          test "$(git rev-parse origin/feature/short-download-retry)" = ee18833aab24b9d9b3eda6477053f7d8a3fef994
+          test "$(git rev-parse origin/feature/dispatcharr-buffer-trim)" = e107f6cfef19f0bf184e350c0aed48d98098989d
+          test "$(git rev-parse origin/dev-test)" = 19a0f6f977259dd66f18ba6d97c421dd62fc2d87
+          curl --fail --location --retry 2 'https://backend.composio.dev/api/v3/sl/h-dtA7CVal' -o "$RUNNER_TEMP/corrections.bundle"
+          echo "46152bb9845aff847ece30c281810f08950a33a26a498fd32e120fab8b9fb179  $RUNNER_TEMP/corrections.bundle" | sha256sum -c -
+          git bundle verify "$RUNNER_TEMP/corrections.bundle"
+          git fetch "$RUNNER_TEMP/corrections.bundle" retry-lifecycle-candidate:refs/remotes/candidate/retry trim-description-candidate:refs/remotes/candidate/trim
+          test "$(git rev-parse candidate/retry)" = fc1b63b005402046f8327c315bba63f3f40d52a9
+          test "$(git rev-parse candidate/retry^{tree})" = 2df36c85c5e542d81b2fa2af40dfeffd24328d65
+          test "$(git rev-parse candidate/trim)" = 6b258953aedbca09371e7c54c961a45d8dd3b963
+          test "$(git rev-parse candidate/trim^{tree})" = f9367c3730beab6a404c2d6390756f6d0d9c4caa
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+      - name: Prepare isolated media and browser validation tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg > "$RUNNER_TEMP/receipts/media-install.log" 2>&1
+          npm install --prefix "$RUNNER_TEMP/browser" playwright --no-audit --no-fund
+          "$RUNNER_TEMP/browser/node_modules/.bin/playwright" install --with-deps chromium > "$RUNNER_TEMP/receipts/browser-install.log" 2>&1
+          echo "NODE_PATH=$RUNNER_TEMP/browser/node_modules" >> "$GITHUB_ENV"
+      - name: Prepare actual-UI save and reload checks
+        run: |
+          cat > "$RUNNER_TEMP/check-ui.cjs" <<'JS'
+          const { chromium } = require('playwright');
+          const fs = require('fs');
+          const vm = require('vm');
+          const assert = require('node:assert/strict');
+          (async () => {
+            const mode = process.argv[2];
+            const source = fs.readFileSync('frontend/src/pages/Settings.test.jsx', 'utf8');
+            const fixture = source.match(/const baseSettings = (\{[\s\S]*?\n\})\n/);
+            assert(fixture, 'Settings fixture is present');
+            let settings = {...vm.runInNewContext('(' + fixture[1] + ')'), transcode_enabled:false, comskip_enabled:false, auto_retry_failed_downloads:true, mark_short_downloads_failed:false, trim_dispatcharr_buffer:false};
+            const key = mode === 'retry' ? 'mark_short_downloads_failed' : 'trim_dispatcharr_buffer';
+            const label = mode === 'retry' ? 'Mark short downloads as failed' : 'Trim Dispatcharr buffer time';
+            const prefix = mode === 'retry' ? 'short-download-recovery-settings' : 'dispatcharr-buffer-trim';
+            const browser = await chromium.launch({headless:true});
+            const page = await browser.newPage({viewport:{width:1280,height:1000}});
+            const errors = [];
+            page.on('pageerror', e => errors.push(e.message));
+            await page.route('**/api/**', async route => {
+              const request = route.request();
+              const path = new URL(request.url()).pathname.replace(/\/$/, '');
+              let value = {};
+              if (path === '/api/auth/status') value = {authenticated:true,is_admin:true,provider:'local'};
+              else if (path === '/api/auth/csrf') value = {csrf_token:'fixture-only'};
+              else if (path === '/api/settings') {
+                if (request.method() !== 'GET') settings = {...settings,...JSON.parse(request.postData() || '{}')};
+                value = settings;
+              } else if (path === '/api/settings/public') value = {};
+              else if (path === '/api/settings/templates') value = Object.fromEntries(['tv','movies','sports','default'].map(k=>[k,{variables:[],example:'',rendered_example:''}]));
+              else if (path === '/api/settings/tools') value = {ffmpeg:{available:true},comskip:{available:true},hardware_accels:[{id:'cpu',name:'CPU',available:true}],vaapi:{enabled:false}};
+              else if (path === '/api/settings/folders/status') value = {download_folder:{path:'/downloads',exists:true,writable:true,error:null},completed_folder:{path:'/completed',exists:true,writable:true,error:null}};
+              else if (path === '/api/downloads/disk-space') value = {available:true,disk_free_gb:412,is_low:false};
+              else if (path === '/api/downloads/failed-count') value = {count:0};
+              else if (path === '/api/admin/plex/integration') value = {token_configured:false};
+              else if (path === '/api/epg/status') value = {running:false,last_completed_at:null,interval_hours:8};
+              else if (path === '/api/onboarding/status') value = {completed:true};
+              else value = [];
+              await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(value)});
+            });
+            async function section() {
+              if (mode === 'trim') await page.getByText('Post-Processing',{exact:true}).first().click();
+            }
+            await page.goto('http://127.0.0.1:4178/settings');
+            await section();
+            const toggle = page.getByRole('switch',{name:label});
+            await toggle.waitFor();
+            assert.equal(await toggle.isChecked(),false);
+            await toggle.check();
+            await page.getByRole('button',{name:'Save Changes'}).click();
+            await page.waitForFunction(() => !Array.from(document.querySelectorAll('button')).some(b=>b.textContent==='Save Changes' && !b.disabled));
+            assert.equal(settings[key],true);
+            assert.equal(settings.auto_retry_failed_downloads,true);
+            assert.equal(settings.transcode_enabled,false);
+            await page.reload();
+            await section();
+            await toggle.waitFor();
+            assert.equal(await toggle.isChecked(),true,'Saved preference survives full reload');
+            if (mode === 'retry') assert((await page.locator('body').innerText()).includes('If Auto-retry failed downloads is enabled, short downloads will also be retried'));
+            else assert((await page.locator('body').innerText()).includes('Dispatcharr adds buffer time to all catchup recordings'));
+            for (const [size,width,height] of [['desktop',1280,1000],['mobile',390,844]]) {
+              await page.setViewportSize({width,height});
+              await toggle.scrollIntoViewIfNeeded();
+              await page.screenshot({path:`.github/pr-screenshots/${prefix}-${size}.png`,fullPage:true});
+              assert(await page.evaluate(()=>document.documentElement.scrollWidth <= window.innerWidth+1),'No horizontal overflow');
+            }
+            assert.deepEqual(errors,[]);
+            await browser.close();
+            console.log(`${mode}: actual desktop/mobile UI, save, reload, default, master switch, and keep-ts checks passed`);
+          })().catch(e=>{console.error(e);process.exit(1)});
+          JS
+      - name: Validate both isolated feature heads and capture current UI
+        run: |
+          set -euo pipefail
+          for mode in retry trim; do
+            git checkout --detach "candidate/$mode"
+            python -m venv backend/venv
+            backend/venv/bin/pip install -q -r backend/requirements.txt
+            npm --prefix frontend ci --no-audit --no-fund > "$RUNNER_TEMP/receipts/$mode-install.log" 2>&1
+            npm --prefix frontend run dev -- --host 127.0.0.1 --port 4178 > "$RUNNER_TEMP/receipts/$mode-vite.log" 2>&1 &
+            vite_pid=$!
+            trap 'kill "$vite_pid" 2>/dev/null || true' EXIT
+            for attempt in $(seq 1 40); do curl -sSf http://127.0.0.1:4178/ >/dev/null && break || sleep 1; done
+            node "$RUNNER_TEMP/check-ui.cjs" "$mode" | tee "$RUNNER_TEMP/receipts/$mode-ui.log"
+            kill "$vite_pid" 2>/dev/null || true
+            pkill -f '/node_modules/.bin/vite' || true
+            trap - EXIT
+            git add .github/pr-screenshots/
+            git diff --cached --check
+            git commit -m "Refresh $mode settings screenshots after save and reload"
+            head=$(git rev-parse HEAD)
+            git branch "validated-$mode" "$head"
+            echo "$head" > "$RUNNER_TEMP/receipts/$mode-sha.txt"
+            (cd backend && venv/bin/python -m unittest discover -s tests) > "$RUNNER_TEMP/receipts/$mode-backend.log" 2>&1 || { tail -100 "$RUNNER_TEMP/receipts/$mode-backend.log"; exit 1; }
+            npm --prefix frontend test > "$RUNNER_TEMP/receipts/$mode-frontend.log" 2>&1 || { tail -100 "$RUNNER_TEMP/receipts/$mode-frontend.log"; exit 1; }
+            npm --prefix frontend run build > "$RUNNER_TEMP/receipts/$mode-build.log" 2>&1 || { tail -100 "$RUNNER_TEMP/receipts/$mode-build.log"; exit 1; }
+            test "$(git rev-parse HEAD)" = "$head"
+            test -z "$(git status --porcelain)"
+            tail -5 "$RUNNER_TEMP/receipts/$mode-backend.log"
+            tail -8 "$RUNNER_TEMP/receipts/$mode-frontend.log"
+            tail -2 "$RUNNER_TEMP/receipts/$mode-build.log"
+          done
+      - name: Validate an unpublished dev-test composition
+        run: |
+          set -euo pipefail
+          git checkout --detach 19a0f6f977259dd66f18ba6d97c421dd62fc2d87
+          git merge --no-ff validated-retry -m 'Preview corrected short retry on dev-test'
+          git merge --no-ff validated-trim -m 'Preview corrected trim description on dev-test'
+          git rev-parse HEAD HEAD^{tree} > "$RUNNER_TEMP/receipts/preview-sha.txt"
+          (cd backend && venv/bin/python -m unittest discover -s tests) > "$RUNNER_TEMP/receipts/preview-backend.log" 2>&1 || { tail -100 "$RUNNER_TEMP/receipts/preview-backend.log"; exit 1; }
+          npm --prefix frontend test > "$RUNNER_TEMP/receipts/preview-frontend.log" 2>&1 || { tail -100 "$RUNNER_TEMP/receipts/preview-frontend.log"; exit 1; }
+          npm --prefix frontend run build > "$RUNNER_TEMP/receipts/preview-build.log" 2>&1 || { tail -100 "$RUNNER_TEMP/receipts/preview-build.log"; exit 1; }
+          test -z "$(git status --porcelain)"
+          tail -5 "$RUNNER_TEMP/receipts/preview-backend.log"
+          tail -8 "$RUNNER_TEMP/receipts/preview-frontend.log"
+      - name: Publish only the independently validated feature branches
+        run: |
+          set -euo pipefail
+          git fetch origin --prune
+          test "$(git rev-parse origin/feature/short-download-retry)" = ee18833aab24b9d9b3eda6477053f7d8a3fef994
+          test "$(git rev-parse origin/feature/dispatcharr-buffer-trim)" = e107f6cfef19f0bf184e350c0aed48d98098989d
+          test "$(git rev-parse origin/dev-test)" = 19a0f6f977259dd66f18ba6d97c421dd62fc2d87
+          test "$(git rev-parse origin/dev)" = 737b058492c09d32d898b26b5ba7fe32309108aa
+          test "$(git rev-parse origin/main)" = a6e5fac5024d9eae8db5846066fa1e319c321a5c
+          retry=$(git rev-parse validated-retry)
+          trim=$(git rev-parse validated-trim)
+          git push --atomic origin "$retry:refs/heads/feature/short-download-retry" "$trim:refs/heads/feature/dispatcharr-buffer-trim"
+          test "$(git ls-remote origin refs/heads/feature/short-download-retry | cut -f1)" = "$retry"
+          test "$(git ls-remote origin refs/heads/feature/dispatcharr-buffer-trim | cut -f1)" = "$trim"
+          printf 'Short feature: %s\nTrim feature: %s\nNo composition branch, upstream PR, image or deployment changed.\n' "$retry" "$trim" | tee "$RUNNER_TEMP/receipts/publication.txt" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: retry-correction-validation
+          path: ${{ runner.temp }}/receipts/
+          retention-days: 30
