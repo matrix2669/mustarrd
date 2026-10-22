@@ -7,11 +7,11 @@ permissions:
   contents: write
 concurrency:
   group: mustarrd-retry-correction-validation
-  cancel-in-progress: false
+  cancel-in-progress: true
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
     env:
       GH_TOKEN: ${{ github.token }}
       NODE_OPTIONS: --max-old-space-size=3072
@@ -38,10 +38,12 @@ jobs:
           for index,step in enumerate(steps):
               if 'run' not in step: continue
               script=step['run']
+              if step['name']=='Install validation tools':
+                  script='set -euo pipefail\npython -m venv backend/venv\nbackend/venv/bin/python -m pip install -q -r backend/requirements.txt playwright\nnpm --prefix frontend ci --no-audit --no-fund\ncommand -v google-chrome\n(command -v ffmpeg && command -v ffprobe) || echo "Real-media coverage already passed locally; runner may skip unavailable binaries"\n'
               if step['name']=='Validate unpublished combined testing preview':
                   begin=script.index('for branch in validated-retry validated-trim; do')
                   end=script.index('\ndone',begin)+len('\ndone')
-                  replacement="""python - <<'MERGE'
+                  replacement=r"""python - <<'MERGE'
           import ast,re,subprocess
           from pathlib import Path
           for branch,allowed in [('validated-retry',{'backend/database.py'}),('validated-trim',{'CHANGELOG.md'})]:
