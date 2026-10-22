@@ -1,0 +1,201 @@
+name: Validate rebuilt retry corrections
+on:
+  push:
+    branches: [automation/retry-finalization-validation-20261022]
+    paths: [.github/workflows/resume-retry-corrections.yml]
+permissions:
+  contents: write
+concurrency:
+  group: mustarrd-retry-correction-validation
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      NODE_OPTIONS: --max-old-space-size=3072
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Import exact rebuilt changes and verify source heads
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/receipts" "$RUNNER_TEMP/media-tmp"
+          echo "TMPDIR=$RUNNER_TEMP/media-tmp" >> "$GITHUB_ENV"
+          git fetch origin --prune
+          test "$(git rev-parse origin/feature/short-download-retry)" = ee18833aab24b9d9b3eda6477053f7d8a3fef994
+          test "$(git rev-parse origin/feature/dispatcharr-buffer-trim)" = e107f6cfef19f0bf184e350c0aed48d98098989d
+          test "$(git rev-parse origin/dev-test)" = 19a0f6f977259dd66f18ba6d97c421dd62fc2d87
+          test "$(git ls-remote https://github.com/razzamatazm/mustarrd.git refs/heads/main | cut -f1)" = a6e5fac5024d9eae8db5846066fa1e319c321a5c
+          python - <<'PY'
+          import base64,hashlib,json,os,subprocess
+          from pathlib import Path
+          blobs=['0d2dec79ffa345ebdf1c2a9c50ca832c5f4e4427','b47ed36cd24b47ec0aaa4c30e632ab524a77a745','94d91f6b76c012fbdab28eabb0672ded45aa3bdb','19216b9c3c97c609162cffac747e8e7ff735f7dc','69ae297fef7ba01a99c15ef74722a183e1c0dab0','7a1739e49aeeecc8807e16633c3e9bfa0d444a4d','27b3262b24cf079e10d47b85b4df56bbb3f14cbd']
+          data=b''
+          for sha in blobs:
+              value=json.loads(subprocess.check_output(['gh','api',f'repos/matrix2669/mustarrd/git/blobs/{sha}']))
+              assert value['sha']==sha and value['encoding']=='base64'
+              data+=base64.b64decode(value['content'])
+          assert hashlib.sha256(data).hexdigest()=='9fb5298f01efde0354373fb5fa9e3ebf3d813125662e5eeb51b73226fd9567e4'
+          Path(os.environ['RUNNER_TEMP'],'corrections.bundle').write_bytes(data)
+          PY
+          git bundle verify "$RUNNER_TEMP/corrections.bundle"
+          git fetch "$RUNNER_TEMP/corrections.bundle" retry-correction:refs/heads/validated-retry trim-description-correction:refs/heads/validated-trim
+          test "$(git rev-parse validated-retry)" = 0e36653a639853966783081f862c94724abdad5d
+          test "$(git rev-parse validated-retry^{tree})" = fe467bf8c32abce2ac52c7bde4ca7598d43c5aa2
+          test "$(git rev-parse validated-trim)" = b5565d9d0bb98e5b9779710c8c3f0b4f9a94e0b0
+          test "$(git rev-parse validated-trim^{tree})" = d3c9e76849286501871ae878269b4b2a7896ebdc
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+      - name: Install validation tools
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          python -m venv backend/venv
+          backend/venv/bin/python -m pip install -q -r backend/requirements.txt playwright
+          npm --prefix frontend ci --no-audit --no-fund
+          command -v google-chrome
+          if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
+            sudo timeout 120 apt-get update -o Acquire::Retries=1 -o Acquire::http::Timeout=20
+            sudo timeout 120 apt-get install -y ffmpeg -o Acquire::Retries=1 -o Acquire::http::Timeout=20
+          fi
+          command -v ffmpeg
+          command -v ffprobe
+      - name: Prepare actual UI checks
+        run: |
+          cat > "$RUNNER_TEMP/check-ui.py" <<'PY'
+          import json,os,shutil,subprocess,sys
+          from pathlib import Path
+          from urllib.parse import urlparse
+          from playwright.sync_api import sync_playwright,expect
+          mode=sys.argv[1]
+          fixture=json.loads(subprocess.check_output(['node','-e',r'''const fs=require('fs'),vm=require('vm');const s=fs.readFileSync('frontend/src/pages/Settings.test.jsx','utf8');const m=s.match(/const baseSettings = (\{[\s\S]*?\n\})\n/);console.log(JSON.stringify(vm.runInNewContext('('+m[1]+')')));'''],text=True))
+          settings={**fixture,'transcode_enabled':False,'comskip_enabled':False,'auto_retry_failed_downloads':True,'mark_short_downloads_failed':False,'trim_dispatcharr_buffer':False}
+          key='mark_short_downloads_failed' if mode=='retry' else 'trim_dispatcharr_buffer'
+          label='Mark short downloads as failed' if mode=='retry' else 'Trim Dispatcharr buffer time'
+          section='recording' if mode=='retry' else 'processing'
+          prefix='short-download-recovery-settings' if mode=='retry' else 'dispatcharr-buffer-trim'
+          errors=[]
+          with sync_playwright() as p:
+              browser=p.chromium.launch(headless=True,executable_path=shutil.which('google-chrome'))
+              page=browser.new_page(viewport={'width':1280,'height':1000})
+              page.on('pageerror',lambda error:errors.append(str(error)))
+              def route(r):
+                  path=urlparse(r.request.url).path.rstrip('/')
+                  value={}
+                  if path=='/api/auth/status': value={'authenticated':True,'is_admin':True,'provider':'local'}
+                  elif path=='/api/auth/csrf': value={'csrf_token':'fixture-only'}
+                  elif path=='/api/settings':
+                      if r.request.method!='GET': settings.update(r.request.post_data_json or {})
+                      value=settings
+                  elif path=='/api/settings/public': value={}
+                  elif path=='/api/settings/templates': value={k:{'variables':[],'example':'','rendered_example':''} for k in ['tv','movies','sports','default']}
+                  elif path=='/api/settings/tools': value={'ffmpeg':{'available':True},'comskip':{'available':True},'hardware_accels':[{'id':'cpu','name':'CPU','available':True}],'vaapi':{'enabled':False}}
+                  elif path=='/api/settings/folders/status': value={k:{'path':v,'exists':True,'writable':True,'error':None} for k,v in [('download_folder','/downloads'),('completed_folder','/completed')]}
+                  elif path=='/api/downloads/disk-space': value={'available':True,'disk_free_gb':412,'is_low':False}
+                  elif path=='/api/downloads/failed-count': value={'count':0}
+                  elif path=='/api/admin/plex/integration': value={'token_configured':False}
+                  elif path=='/api/epg/status': value={'running':False,'last_completed_at':None,'interval_hours':8}
+                  elif path=='/api/onboarding/status': value={'completed':True}
+                  else: value=[]
+                  r.fulfill(status=200,content_type='application/json',body=json.dumps(value))
+              page.route('**/api/**',route)
+              page.goto(f'http://127.0.0.1:4178/settings?section={section}')
+              toggle=page.get_by_role('switch',name=label,exact=True)
+              expect(toggle).not_to_be_checked()
+              toggle.locator('xpath=ancestor::label[1]').click()
+              expect(toggle).to_be_checked()
+              with page.expect_response(lambda r: urlparse(r.url).path.rstrip('/')=='/api/settings' and r.request.method not in ['GET','OPTIONS']):
+                  page.get_by_role('button',name='Save Changes',exact=True).click()
+              assert settings[key] is True and settings['auto_retry_failed_downloads'] is True and settings['transcode_enabled'] is False
+              page.reload()
+              expect(toggle).to_be_checked()
+              text='If Auto-retry failed downloads is enabled, short downloads will also be retried' if mode=='retry' else 'Dispatcharr adds buffer time to all catchup recordings'
+              expect(page.get_by_text(text,exact=False)).to_be_visible()
+              for size,width,height in [('desktop',1280,1000),('mobile',390,844)]:
+                  page.set_viewport_size({'width':width,'height':height})
+                  page.goto(f'http://127.0.0.1:4178/settings?section={section}')
+                  expect(toggle).to_be_checked()
+                  toggle.locator('xpath=ancestor::label[1]').scroll_into_view_if_needed()
+                  screenshot=Path('.github/pr-screenshots',f'{prefix}-{size}.png')
+                  page.screenshot(path=str(screenshot),full_page=True)
+                  shutil.copyfile(screenshot,Path(os.environ['RUNNER_TEMP'],'receipts',screenshot.name))
+                  assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth + 1')
+              assert not errors,errors
+              browser.close()
+          print(f'{mode}: desktop/mobile UI, explanatory copy, save and full reload passed; master and keep-ts preferences unchanged')
+          PY
+      - name: Validate isolated features and capture current UI
+        run: |
+          set -euo pipefail
+          for mode in retry trim; do
+            git checkout validated-$mode
+            git diff --check HEAD^ HEAD
+            (cd backend && venv/bin/python -m unittest discover -s tests) > "$RUNNER_TEMP/receipts/$mode-backend.log" 2>&1 || { tail -100 "$RUNNER_TEMP/receipts/$mode-backend.log"; exit 1; }
+            tail -5 "$RUNNER_TEMP/receipts/$mode-backend.log"
+            npm --prefix frontend test > "$RUNNER_TEMP/receipts/$mode-frontend.log" 2>&1 || { tail -80 "$RUNNER_TEMP/receipts/$mode-frontend.log"; exit 1; }
+            tail -8 "$RUNNER_TEMP/receipts/$mode-frontend.log"
+            npm --prefix frontend run build > "$RUNNER_TEMP/receipts/$mode-build.log" 2>&1 || { tail -80 "$RUNNER_TEMP/receipts/$mode-build.log"; exit 1; }
+            npm --prefix frontend run dev -- --host 127.0.0.1 --port 4178 --strictPort > "$RUNNER_TEMP/receipts/$mode-vite.log" 2>&1 &
+            vite_pid=$!
+            trap 'kill "$vite_pid" 2>/dev/null || true' EXIT
+            for n in $(seq 1 30); do if curl -sf http://127.0.0.1:4178/ >/dev/null; then break; fi; sleep 1; done
+            backend/venv/bin/python "$RUNNER_TEMP/check-ui.py" "$mode" | tee "$RUNNER_TEMP/receipts/$mode-ui.log"
+            kill "$vite_pid" 2>/dev/null || true
+            pkill -f '/node_modules/.bin/vite' || true
+            trap - EXIT
+            sleep 1
+            git add .github/pr-screenshots/
+            git diff --cached --name-only | grep -vE '^.github/pr-screenshots/(short-download-recovery-settings|dispatcharr-buffer-trim)-(desktop|mobile).png$' && exit 1 || true
+            if ! git diff --cached --quiet; then git commit -m "Refresh $mode settings screenshots after save and reload validation"; fi
+            test -z "$(git status --porcelain)"
+            git rev-parse HEAD > "$RUNNER_TEMP/receipts/$mode-head.txt"
+          done
+      - name: Validate unpublished combined testing preview
+        run: |
+          set -euo pipefail
+          git checkout --detach 19a0f6f977259dd66f18ba6d97c421dd62fc2d87
+          for branch in validated-retry validated-trim; do
+            if ! git merge --no-ff --no-commit "$branch"; then
+              git diff --name-only --diff-filter=U
+              exit 1
+            fi
+            git commit -m "Preview $branch against retained dev-test"
+          done
+          (cd backend && venv/bin/python -m unittest discover -s tests) > "$RUNNER_TEMP/receipts/combined-backend.log" 2>&1 || { tail -100 "$RUNNER_TEMP/receipts/combined-backend.log"; exit 1; }
+          npm --prefix frontend test > "$RUNNER_TEMP/receipts/combined-frontend.log" 2>&1 || { tail -80 "$RUNNER_TEMP/receipts/combined-frontend.log"; exit 1; }
+          npm --prefix frontend run build > "$RUNNER_TEMP/receipts/combined-build.log" 2>&1 || { tail -80 "$RUNNER_TEMP/receipts/combined-build.log"; exit 1; }
+          tail -5 "$RUNNER_TEMP/receipts/combined-backend.log"
+          tail -8 "$RUNNER_TEMP/receipts/combined-frontend.log"
+          git rev-parse HEAD HEAD^{tree} > "$RUNNER_TEMP/receipts/combined-preview.txt"
+          test -z "$(git status --porcelain)"
+      - name: Publish only validated owning feature heads
+        run: |
+          set -euo pipefail
+          git fetch origin --prune
+          test "$(git rev-parse origin/feature/short-download-retry)" = ee18833aab24b9d9b3eda6477053f7d8a3fef994
+          test "$(git rev-parse origin/feature/dispatcharr-buffer-trim)" = e107f6cfef19f0bf184e350c0aed48d98098989d
+          test "$(git rev-parse origin/dev-test)" = 19a0f6f977259dd66f18ba6d97c421dd62fc2d87
+          test "$(git rev-parse origin/dev)" = 737b058492c09d32d898b26b5ba7fe32309108aa
+          test "$(git rev-parse origin/main)" = a6e5fac5024d9eae8db5846066fa1e319c321a5c
+          test "$(git rev-parse origin/feature/download-duration-analysis)" = e95bae8635092e42f999c39316513ed05638aa2c
+          retry=$(git rev-parse validated-retry)
+          trim=$(git rev-parse validated-trim)
+          git push --atomic origin "$retry:refs/heads/feature/short-download-retry" "$trim:refs/heads/feature/dispatcharr-buffer-trim"
+          test "$(git ls-remote origin refs/heads/feature/short-download-retry | cut -f1)" = "$retry"
+          test "$(git ls-remote origin refs/heads/feature/dispatcharr-buffer-trim | cut -f1)" = "$trim"
+          printf 'Published retry: %s\nPublished trim: %s\nDev-test, dev, main and shared analysis unchanged. No deployment or image publication.\n' "$retry" "$trim" | tee "$RUNNER_TEMP/receipts/publication.txt" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rebuilt-retry-validation
+          path: ${{ runner.temp }}/receipts/
+          retention-days: 30
