@@ -4,6 +4,16 @@ All notable changes to Mustarrd are listed here. Most recent changes are at the 
 
 ---
 
+## 2026-10-22
+
+### Added: See the downloaded length before processing changes it
+
+**What you would notice:** Downloads History now compares a catchup recording's original downloaded length with the requested length, including your padding. It shows whether the file is shorter, longer, or within five seconds of the request. Commercial removal no longer makes that comparison use the shortened final file. If the original length cannot be measured reliably, History says so instead of guessing.
+
+**What changed:** Raw catchup duration is measured with ffprobe before post-processing and saved separately from the final file duration. Missing, invalid, or implausibly large measurements are recorded as uncertain. Restart recovery preserves the original observation; retries clear it for the next capture. This change reports the measurement without trimming media or automatically retrying it. Existing completed recordings and VOD are not retrospectively analyzed.
+
+---
+
 ## 2026-09-04
 
 ### Fixed: A brief database hiccup no longer loses a scheduled recording
