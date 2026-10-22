@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-10-22
+
+### Changed: Retry short recordings before processing, then keep one result
+
+**What you would notice:** **Mark short downloads as failed** replaces the separate short-retry switch. Short files are automatically retried only when **Auto-retry failed downloads** is also on. Intermediate attempts wait as raw files instead of repeatedly running Commercial Skip or conversion. After a successful finalization, superseded retry files are removed. A final short recording is kept and remains playable with its Failed status and shortfall explanation.
+
+**What changed:** The existing bounded retry loop now gates all recovery through the failed-download switch and defers processing until recovery ends. Persistent exact-file receipts protect fallback recordings across retries and restarts, and authorize cleanup only after validated final placement. Failed processing or cleanup retains recoverable files with a warning. The normal keep-original preference protects the selected input, not every retry. Historical files without ownership receipts are not guessed at or deleted. The old short-retry preference migrates to failure classification without enabling the master switch.
+
+
 All notable changes to Mustarrd are listed here. Most recent changes are at the top.
 
 ---

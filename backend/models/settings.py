@@ -61,8 +61,8 @@ class AppSettings(Base):
     launch_on_startup: Mapped[bool] = mapped_column(Boolean, default=True)
     auto_retry_failed_downloads: Mapped[bool] = mapped_column(Boolean, default=False)
     # A clean HTTP response can still contain less media than requested.
-    # Retrying that condition is independent of failed-download retries.
-    auto_retry_short_downloads: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Classification does not enable the failed-download retry master switch.
+    mark_short_downloads_failed: Mapped[bool] = mapped_column(Boolean, default=False)
 
     # Post-download ffprobe sanity check; flags suspect files as
     # "Completed with warnings" without failing the recording.
@@ -159,7 +159,7 @@ class AppSettings(Base):
             "show_future_programs": self.show_future_programs,
             "launch_on_startup": self.launch_on_startup,
             "auto_retry_failed_downloads": self.auto_retry_failed_downloads,
-            "auto_retry_short_downloads": self.auto_retry_short_downloads,
+            "mark_short_downloads_failed": self.mark_short_downloads_failed,
             "onboarding_dismissed": self.onboarding_dismissed,
             "onboarding_processing_confirmed": self.onboarding_processing_confirmed,
             "onboarding_comskip_confirmed": self.onboarding_comskip_confirmed,

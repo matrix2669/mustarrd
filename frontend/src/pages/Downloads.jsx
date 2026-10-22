@@ -41,7 +41,7 @@ import { accountsApi, authApi, downloadsApi, createDownloadWebSocket } from '../
 import HistoryRow from '../components/HistoryRow'
 import { formatChannelDateTime, formatAirDateTime, getGuideOffsetHours } from '../utils/channelTime'
 import {
-  PLAYABLE_DOWNLOAD_STATUSES,
+  isPlayableDownload,
   RETRYABLE_DOWNLOAD_STATUSES,
   TERMINAL_DOWNLOAD_STATUSES,
 } from '../constants/downloadStatus'
@@ -513,7 +513,7 @@ export default function Downloads() {
 
     return (
       <>
-        {PLAYABLE_DOWNLOAD_STATUSES.includes(download.status) && (
+        {isPlayableDownload(download) && (
           isDesktop ? (
             <>
               <ActionIcon
@@ -728,7 +728,7 @@ export default function Downloads() {
                     const aired = formatAirDateTime(download, 'start', guideOffset)
                     const subtitleParts = [download.channel_name, aired]
                     if (
-                      PLAYABLE_DOWNLOAD_STATUSES.includes(download.status) &&
+                      isPlayableDownload(download) &&
                       download.output_path
                     ) {
                       subtitleParts.push(getFileName(download.output_path))
@@ -754,7 +754,7 @@ export default function Downloads() {
                           </>
                         }
                         error={renderRowMessages(download)}
-                        size={PLAYABLE_DOWNLOAD_STATUSES.includes(download.status) && download.file_size > 0 ? formatBytes(download.file_size) : null}
+                        size={isPlayableDownload(download) && download.file_size > 0 ? formatBytes(download.file_size) : null}
                         actions={renderHistoryActions(download)}
                       />
                     )

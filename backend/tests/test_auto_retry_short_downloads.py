@@ -1,4 +1,4 @@
-"""Independent retry switches share the existing bounded catchup recovery loop."""
+"""Short classification uses the existing failed-download master retry switch."""
 import sys
 import tempfile
 import unittest
@@ -33,7 +33,7 @@ class AutoRetryShortDownloadTests(unittest.IsolatedAsyncioTestCase):
             session.add(XtreamAccount(id=1, name="Example", server_url="http://example.test", username="u", password="p"))
             session.add(AppSettings(
                 download_folder=str(self.root / "downloads"), completed_folder=str(self.root / "completed"),
-                min_free_space_gb=1, auto_retry_short_downloads=True, auto_retry_failed_downloads=False,
+                min_free_space_gb=1, mark_short_downloads_failed=True, auto_retry_failed_downloads=True,
             ))
             await session.commit()
         self.scheduler = ScheduledManager()
@@ -45,7 +45,7 @@ class AutoRetryShortDownloadTests(unittest.IsolatedAsyncioTestCase):
 
     async def add_download(self, **overrides):
         values = dict(
-            status=DownloadStatus.INTERRUPTED.value, raw_duration_seconds=3240,
+            status=DownloadStatus.FAILED.value, short_file_failed=True, raw_duration_seconds=3240,
             duration_analysis_status="short", interruption_reason="Measured short recording",
             completed_at=datetime.utcnow() - timedelta(minutes=30), retry_count=0,
         )
@@ -64,7 +64,7 @@ class AutoRetryShortDownloadTests(unittest.IsolatedAsyncioTestCase):
         async with self.sessions() as session:
             settings = (await session.execute(select(AppSettings))).scalar_one()
             settings.auto_retry_failed_downloads = failed
-            settings.auto_retry_short_downloads = short
+            settings.mark_short_downloads_failed = short
             await session.commit()
 
     async def sweep(self, *, archive_days=7, archive_error=None, free_gb=1000, before_retry=None):
@@ -87,7 +87,7 @@ class AutoRetryShortDownloadTests(unittest.IsolatedAsyncioTestCase):
             await self.scheduler._auto_retry_failed_downloads()
         return archive
 
-    async def test_all_four_switch_combinations_are_independent(self):
+    async def test_all_four_switch_combinations_require_master(self):
         for failed_enabled in (False, True):
             for short_enabled in (False, True):
                 with self.subTest(failed=failed_enabled, short=short_enabled):
@@ -96,27 +96,20 @@ class AutoRetryShortDownloadTests(unittest.IsolatedAsyncioTestCase):
                         await session.commit()
                     self.manager = DownloadManager()
                     await self.set_flags(failed_enabled, short_enabled)
-                    failed = await self.add_download(status=DownloadStatus.FAILED.value, duration_analysis_status=None)
+                    failed = await self.add_download(duration_analysis_status=None, short_file_failed=False)
                     short = await self.add_download()
-                    failed_short = await self.add_download(status=DownloadStatus.FAILED.value)
-                    archive = await self.sweep()
+                    await self.sweep()
                     failed_after = await self.read(failed.id)
                     short_after = await self.read(short.id)
-                    failed_short_after = await self.read(failed_short.id)
                     self.assertEqual(failed_after.status, "pending" if failed_enabled else "failed")
-                    self.assertEqual(short_after.status, "pending" if short_enabled else "interrupted")
-                    self.assertEqual(failed_short_after.status, "pending" if failed_enabled or short_enabled else "failed")
-                    expected_attempts = int(failed_enabled) + int(short_enabled) + int(failed_enabled or short_enabled)
-                    self.assertEqual(self.manager._queue.qsize(), expected_attempts)
-                    self.assertEqual(archive.await_count, expected_attempts)
-                    if short_enabled:
+                    self.assertEqual(short_after.status, "pending" if failed_enabled and short_enabled else "failed")
+                    self.assertEqual(self.manager._queue.qsize(), int(failed_enabled) + int(failed_enabled and short_enabled))
+                    if failed_enabled and short_enabled:
                         self.assertIsNone(short_after.raw_duration_seconds)
-                        self.assertIsNone(short_after.duration_analysis_status)
-                        self.assertIsNone(short_after.interruption_reason)
                         self.assertEqual(short_after.retry_count, 1)
                         self.assertEqual(short_after.source_url, short.source_url)
 
-    async def test_short_only_policy_retries_after_commercial_processing_fails(self):
+    async def test_master_policy_retries_after_commercial_processing_fails(self):
         path = self.root / "downloads" / "show.ts"
         path.parent.mkdir()
         payload = b"usable short recording retained after processing error"
@@ -128,6 +121,7 @@ class AutoRetryShortDownloadTests(unittest.IsolatedAsyncioTestCase):
         )
         async with self.sessions() as session:
             settings = (await session.execute(select(AppSettings))).scalar_one()
+            settings.mark_short_downloads_failed = False
             settings.comskip_enabled = True
             settings.transcode_enabled = True
             settings.write_nfo_files = False
@@ -171,13 +165,13 @@ class AutoRetryShortDownloadTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.manager._queue.qsize(), 0)
         for download in (capped, recent, recently_retried):
             refreshed = await self.read(download.id)
-            self.assertEqual(refreshed.status, DownloadStatus.INTERRUPTED.value)
+            self.assertEqual(refreshed.status, DownloadStatus.FAILED.value)
             self.assertEqual(refreshed.retry_count, download.retry_count)
 
     async def test_nonshort_unknown_vod_and_cancelled_rows_are_ineligible(self):
         downloads = []
         for status in (None, "matched", "long", "unavailable", "unreliable"):
-            downloads.append(await self.add_download(duration_analysis_status=status))
+            downloads.append(await self.add_download(duration_analysis_status=status, status=DownloadStatus.INTERRUPTED.value))
         downloads.append(await self.add_download(is_vod=True))
         downloads.append(await self.add_download(status=DownloadStatus.CANCELLED.value))
         downloads.append(await self.add_download(status=DownloadStatus.COMPLETED.value))
@@ -265,7 +259,7 @@ class AutoRetryShortDownloadTests(unittest.IsolatedAsyncioTestCase):
                 await session.commit()
 
         await self.sweep(before_retry=cancel)
-        self.assertEqual((await self.read(download.id)).status, DownloadStatus.INTERRUPTED.value)
+        self.assertEqual((await self.read(download.id)).status, DownloadStatus.FAILED.value)
         self.assertEqual(self.manager._queue.qsize(), 0)
 
     async def test_setting_disabled_after_selection_prevents_retry(self):
@@ -275,13 +269,14 @@ class AutoRetryShortDownloadTests(unittest.IsolatedAsyncioTestCase):
             await self.set_flags(False, False)
 
         await self.sweep(before_retry=disable)
-        self.assertEqual((await self.read(download.id)).status, DownloadStatus.INTERRUPTED.value)
+        self.assertEqual((await self.read(download.id)).status, DownloadStatus.FAILED.value)
         self.assertEqual(self.manager._queue.qsize(), 0)
 
     async def test_changed_failure_kind_requires_its_own_enabled_setting(self):
         download = await self.add_download()
 
         async def fail(download_id):
+            await self.set_flags(False, True)
             async with self.sessions() as session:
                 row = await session.get(Download, download_id)
                 row.status = DownloadStatus.FAILED.value
@@ -306,7 +301,7 @@ class AutoRetryShortDownloadTests(unittest.IsolatedAsyncioTestCase):
             await self.sweep()
         self.assertEqual(self.manager._queue.qsize(), 0)
         refreshed = await self.read(download.id)
-        self.assertEqual(refreshed.status, DownloadStatus.INTERRUPTED.value)
+        self.assertEqual(refreshed.status, DownloadStatus.FAILED.value)
         self.assertEqual(refreshed.output_path, download.output_path)
         self.assertEqual(refreshed.raw_duration_seconds, 3240)
 
@@ -324,7 +319,7 @@ class AutoRetryShortDownloadTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(download.id, self.manager._cancelled)
         self.assertEqual(self.manager._queue.qsize(), 0)
         refreshed = await self.read(download.id)
-        self.assertEqual(refreshed.status, DownloadStatus.INTERRUPTED.value)
+        self.assertEqual(refreshed.status, DownloadStatus.FAILED.value)
         self.assertEqual(refreshed.output_path, download.output_path)
         self.assertEqual(refreshed.raw_duration_seconds, 3240)
 

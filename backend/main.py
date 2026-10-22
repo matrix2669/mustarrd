@@ -77,6 +77,7 @@ async def lifespan(app: FastAPI):
     # (webhooks) and #430 (notifications) register here.
     recording_event_task = asyncio.create_task(recording_events.run())
     await download_manager.recover_incomplete_downloads()
+    await download_manager.recover_retained_cleanup()
     download_task = asyncio.create_task(download_manager.process_queue())
     post_process_task = asyncio.create_task(download_manager.process_post_queue())
     schedule_task = asyncio.create_task(scheduled_manager.process_queue())

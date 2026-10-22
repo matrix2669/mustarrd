@@ -108,6 +108,26 @@ beforeEach(() => {
 })
 
 describe('Downloads page', () => {
+  it('keeps a finalized short Failed recording playable but not an awaiting retry', async () => {
+    await renderDownloads({
+      downloads: [{ ...interruptedDownload, status: 'failed', short_file_failed: true,
+        retry_finalized: true, error_message: 'Short recording; retries exhausted' }],
+      initialEntries: ['/downloads?tab=history'],
+    })
+    expect(await screen.findByText('Short recording; retries exhausted')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Play' })).toBeInTheDocument()
+  })
+
+  it('does not expose an unfinished raw short attempt as a final playable file', async () => {
+    await renderDownloads({
+      downloads: [{ ...interruptedDownload, status: 'failed', short_file_failed: true,
+        retry_finalized: false, processing_deferred: true }],
+      initialEntries: ['/downloads?tab=history'],
+    })
+    expect(await screen.findByText('Championship Final')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Play' })).not.toBeInTheDocument()
+  })
+
   it('keeps a successful short capture playable and retryable as Interrupted', async () => {
     const reason = 'Download ended early: received 0:54:00 of the requested 1:00:00 including padding (0:06:00 short).'
     downloadsApi.retry.mockResolvedValue({})
