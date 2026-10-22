@@ -1,0 +1,129 @@
+name: Integrate corrected retries into dev-test
+on:
+  push:
+    branches: [automation/retry-finalization-validation-20261022]
+    paths: [.github/workflows/integrate-corrected-retries.yml]
+permissions:
+  contents: write
+concurrency:
+  group: mustarrd-dev-test-integration
+  cancel-in-progress: false
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: 19a0f6f977259dd66f18ba6d97c421dd62fc2d87
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Verify exact approved source inputs
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/receipts"
+          git fetch origin --prune
+          test "$(git rev-parse origin/dev-test)" = 19a0f6f977259dd66f18ba6d97c421dd62fc2d87
+          test "$(git rev-parse origin/feature/short-download-retry)" = d4caf57c7197e02e5f441c81f414e49f001eb87b
+          test "$(git rev-parse origin/feature/dispatcharr-buffer-trim)" = 686b9b566f47af7a916e8a93a1f452e280a71513
+          test "$(git rev-parse origin/feature/download-duration-analysis)" = e95bae8635092e42f999c39316513ed05638aa2c
+          test "$(git rev-parse origin/dev)" = 737b058492c09d32d898b26b5ba7fe32309108aa
+          test "$(git rev-parse origin/main)" = a6e5fac5024d9eae8db5846066fa1e319c321a5c
+          test "$(git ls-remote https://github.com/razzamatazm/mustarrd.git refs/heads/main | cut -f1)" = a6e5fac5024d9eae8db5846066fa1e319c321a5c
+          git show-ref > "$RUNNER_TEMP/receipts/refs-before.txt"
+      - name: Reproduce exact locally tested composition
+        run: |
+          python - <<'PY' | tee "$RUNNER_TEMP/receipts/candidate.json"
+          import ast,json,os,re,subprocess
+          from pathlib import Path
+          def git(*args,check=True):
+              return subprocess.run(['git',*args],text=True,capture_output=True,check=check)
+          base='19a0f6f977259dd66f18ba6d97c421dd62fc2d87'
+          assert git('rev-parse','HEAD').stdout.strip()==base
+          assert not git('status','--porcelain').stdout
+          os.environ.update({
+              'GIT_AUTHOR_NAME':'github-actions[bot]',
+              'GIT_AUTHOR_EMAIL':'41898282+github-actions[bot]@users.noreply.github.com',
+              'GIT_COMMITTER_NAME':'github-actions[bot]',
+              'GIT_COMMITTER_EMAIL':'41898282+github-actions[bot]@users.noreply.github.com',
+              'GIT_AUTHOR_DATE':'2026-10-22T21:02:06+00:00',
+              'GIT_COMMITTER_DATE':'2026-10-22T21:02:06+00:00'})
+          merges=[]
+          for head,filename,message in [
+              ('d4caf57c7197e02e5f441c81f414e49f001eb87b','backend/database.py','Merge corrected short-download handling into dev-test'),
+              ('686b9b566f47af7a916e8a93a1f452e280a71513','CHANGELOG.md','Merge updated Dispatcharr trim description into dev-test')]:
+              result=git('merge','--no-ff','--no-commit',head,check=False)
+              conflicts=git('diff','--name-only','--diff-filter=U').stdout.splitlines()
+              assert result.returncode==1 and conflicts==[filename],(result.stdout,result.stderr,conflicts)
+              path=Path(filename)
+              def resolve(match):
+                  ours,incoming=match.group(1),match.group(2)
+                  if filename=='backend/database.py':
+                      old='    if not await _column_exists(conn, "app_settings", "auto_retry_short_downloads"):\n'
+                      assert ours.endswith(old) and 'scheduled_download_delay_minutes' in ours
+                      assert 'mark_short_downloads_failed' in incoming
+                      return ours[:-len(old)]+incoming
+                  return ours+'\n'+incoming
+              content,count=re.subn(r'<<<<<<< [^\n]+\n(.*?)=======\n(.*?)>>>>>>> [^\n]+\n',resolve,path.read_text(),flags=re.S)
+              assert count==1 and '<<<<<<<' not in content
+              if filename.endswith('.py'): ast.parse(content)
+              path.write_text(content)
+              git('add',filename)
+              git('diff','--cached','--check')
+              git('-c','commit.gpgsign=false','commit','-m',message)
+              merges.append(git('rev-parse','HEAD').stdout.strip())
+          assert merges==['7d444e0d79776e017fc5f642ef29ba2a40ea48c7','cae29a5c13c7d69d24a565d5747949d8c74e82db'],merges
+          tree=git('rev-parse','HEAD^{tree}').stdout.strip()
+          assert tree=='44b9d64a744845ce59e6d2c2e027e0b3c1b70ae6'
+          assert not git('status','--porcelain').stdout
+          git('diff','--check',base,'HEAD')
+          print(json.dumps({'base':base,'merges':merges,'head':merges[-1],'tree':tree},indent=2))
+          PY
+      - name: Install test dependencies
+        run: |
+          set -euo pipefail
+          python -m venv backend/venv
+          backend/venv/bin/python -m pip install -q -r backend/requirements.txt
+          npm --prefix frontend ci --no-audit --no-fund
+          { command -v ffmpeg || true; command -v ffprobe || true; } > "$RUNNER_TEMP/receipts/media-tools.txt"
+      - name: Run complete backend suite
+        run: |
+          set -euo pipefail
+          (cd backend && venv/bin/python -m unittest discover -s tests -v) > "$RUNNER_TEMP/receipts/backend.log" 2>&1 || { tail -100 "$RUNNER_TEMP/receipts/backend.log"; exit 1; }
+          tail -6 "$RUNNER_TEMP/receipts/backend.log"
+      - name: Run complete frontend suite and build
+        env:
+          NODE_OPTIONS: --max-old-space-size=3072
+        run: |
+          set -euo pipefail
+          npm --prefix frontend test > "$RUNNER_TEMP/receipts/frontend.log" 2>&1 || { tail -80 "$RUNNER_TEMP/receipts/frontend.log"; exit 1; }
+          npm --prefix frontend run build > "$RUNNER_TEMP/receipts/build.log" 2>&1 || { tail -80 "$RUNNER_TEMP/receipts/build.log"; exit 1; }
+          tail -8 "$RUNNER_TEMP/receipts/frontend.log"
+          tail -10 "$RUNNER_TEMP/receipts/build.log"
+      - name: Publish only the tested dev-test fast-forward
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = cae29a5c13c7d69d24a565d5747949d8c74e82db
+          test -z "$(git status --porcelain)"
+          git fetch origin --prune
+          test "$(git rev-parse origin/dev-test)" = 19a0f6f977259dd66f18ba6d97c421dd62fc2d87
+          test "$(git rev-parse origin/feature/short-download-retry)" = d4caf57c7197e02e5f441c81f414e49f001eb87b
+          test "$(git rev-parse origin/feature/dispatcharr-buffer-trim)" = 686b9b566f47af7a916e8a93a1f452e280a71513
+          test "$(git rev-parse origin/dev)" = 737b058492c09d32d898b26b5ba7fe32309108aa
+          test "$(git rev-parse origin/main)" = a6e5fac5024d9eae8db5846066fa1e319c321a5c
+          git merge-base --is-ancestor origin/dev-test HEAD
+          git push origin HEAD:refs/heads/dev-test
+          test "$(git ls-remote origin refs/heads/dev-test | cut -f1)" = cae29a5c13c7d69d24a565d5747949d8c74e82db
+          git ls-remote origin refs/heads/dev-test refs/heads/dev refs/heads/main refs/heads/feature/short-download-retry refs/heads/feature/dispatcharr-buffer-trim > "$RUNNER_TEMP/receipts/publication.txt"
+          cat "$RUNNER_TEMP/receipts/publication.txt" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: corrected-retry-dev-test-integration
+          path: ${{ runner.temp }}/receipts/
+          retention-days: 30
