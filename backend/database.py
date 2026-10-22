@@ -250,6 +250,11 @@ async def _apply_lightweight_migrations(conn) -> None:
             text("ALTER TABLE app_settings ADD COLUMN write_nfo_files BOOLEAN DEFAULT 1")
         )
 
+    if not await _column_exists(conn, "app_settings", "trim_dispatcharr_buffer"):
+        await conn.execute(
+            text("ALTER TABLE app_settings ADD COLUMN trim_dispatcharr_buffer BOOLEAN DEFAULT 0")
+        )
+
 
 async def _carry_over_legacy_comskip_ini(conn) -> None:
     """Preserve a pre-editor custom comskip INI choice.

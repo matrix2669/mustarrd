@@ -66,6 +66,7 @@ export const SEARCH_INDEX = [
   { label: 'Recording padding (start early / end late)', section: 'recording', kw: 'minutes before after buffer' },
   { label: 'Auto-retry short downloads', section: 'recording', kw: 'recovery interrupted incomplete duration retry missing recording' },
   { label: 'Output container (.ts / MKV / MP4)', section: 'processing', kw: 'format remux transcode encode ffmpeg' },
+  { label: 'Trim Dispatcharr buffer time', section: 'processing', kw: 'catchup extra tail duration padding length before processing' },
   { label: 'Commercials', section: 'processing', kw: 'comskip ads skip mark cut commercials' },
   { label: 'Hardware acceleration', section: 'processing', kw: 'gpu vaapi intel quick sync encode' },
   { label: 'Delete original after processing', section: 'processing', kw: 'source ts cleanup' },

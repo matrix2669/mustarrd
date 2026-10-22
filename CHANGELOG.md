@@ -12,6 +12,12 @@ All notable changes to Mustarrd are listed here. Most recent changes are at the 
 
 **What changed:** Short recordings follow the existing Interrupted finishing path before Commercial Skip or conversion. A later processing error still appears as Failed, but the short-download switch can retry it using the original duration evidence. Automatic recovery shares the existing three-attempt limit, ten-minute interval, archive and disk checks, and cancellation protections. A retry uses a separate filename when folders or working files would collide with the kept recording. Unavailable or unreliable duration measurements and VOD do not trigger the new retry policy.
 
+### Added: Trim extra Dispatcharr buffer time before other processing
+
+**What you would notice:** A new **Trim Dispatcharr buffer time** switch in Post-Processing can remove an unwanted extra tail from catchup downloads before Commercial Skip or conversion. It is off by default, works with Keep .ts, and preserves your requested start and pre/post padding. It checks all catchup downloads rather than guessing which accounts use Dispatcharr. On-demand downloads are excluded.
+
+**What changed:** Reliable raw-duration analysis supplies the target; no fixed five-minute correction is used. FFmpeg stream-copies the beginning to a temporary file, then Mustarrd verifies the streams and duration before replacing the original. A current-file probe makes restarting after a completed trim harmless. Failed or unverifiable trims leave the original intact and surface a completion warning while normal processing continues.
+
 ### Added: See the downloaded length before processing changes it
 
 **What you would notice:** Downloads History now compares a catchup recording's original downloaded length with the requested length, including your padding. It shows whether the file is shorter, longer, or within five seconds of the request. Commercial removal no longer makes that comparison use the shortened final file. If the original length cannot be measured reliably, History says so instead of guessing.

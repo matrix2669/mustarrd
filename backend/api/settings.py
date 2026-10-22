@@ -103,6 +103,7 @@ class SettingsUpdate(BaseModel):
     )
     default_account_id: Optional[int] = None
     # Post-processing
+    trim_dispatcharr_buffer: Optional[bool] = None
     transcode_enabled: Optional[bool] = None
     transcode_format: Optional[Literal["ts", "mp4", "mkv"]] = None
     hw_accel: Optional[Literal["cpu", "videotoolbox", "nvenc", "amf", "vaapi"]] = None
@@ -168,6 +169,7 @@ NON_NULLABLE_FIELDS = {
     "default_pre_padding_minutes",
     "default_post_padding_minutes",
     "scheduled_download_delay_minutes",
+    "trim_dispatcharr_buffer",
     "transcode_enabled",
     "transcode_format",
     "hw_accel",
