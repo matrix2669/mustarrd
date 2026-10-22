@@ -1,0 +1,89 @@
+name: Complete rebuilt retry validation
+on:
+  push:
+    branches: [automation/retry-finalization-validation-20261022]
+    paths: [.github/workflows/complete-rebuilt-retry.yml]
+permissions:
+  contents: write
+concurrency:
+  group: mustarrd-retry-correction-validation
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      NODE_OPTIONS: --max-old-space-size=3072
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Prepare pinned validation scripts with additive preview resolution
+        run: |
+          set -euo pipefail
+          python -m pip install -q pyyaml
+          python - <<'PY'
+          import os,subprocess,yaml
+          from pathlib import Path
+          source=subprocess.check_output(['git','show','51131611895f2414c14a85bc20ce61f5799c5ddd:.github/workflows/resume-retry-corrections.yml'],text=True)
+          steps=yaml.safe_load(source)['jobs']['validate']['steps']
+          out=Path(os.environ['RUNNER_TEMP'],'validation-scripts');out.mkdir()
+          for index,step in enumerate(steps):
+              if 'run' not in step: continue
+              script=step['run']
+              if step['name']=='Validate unpublished combined testing preview':
+                  begin=script.index('for branch in validated-retry validated-trim; do')
+                  end=script.index('\ndone',begin)+len('\ndone')
+                  replacement="""python - <<'MERGE'
+          import ast,re,subprocess
+          from pathlib import Path
+          for branch,allowed in [('validated-retry',{'backend/database.py'}),('validated-trim',{'CHANGELOG.md'})]:
+              result=subprocess.run(['git','merge','--no-ff','--no-commit',branch],capture_output=True,text=True)
+              conflicts=set(subprocess.check_output(['git','diff','--name-only','--diff-filter=U'],text=True).splitlines())
+              assert result.returncode in (0,1) and conflicts==allowed,(result.stdout,result.stderr,conflicts)
+              for filename in conflicts:
+                  path=Path(filename)
+                  def resolve(match):
+                      ours,incoming=match.group(1),match.group(2)
+                      if filename=='backend/database.py':
+                          old='    if not await _column_exists(conn, "app_settings", "auto_retry_short_downloads"):\n'
+                          assert ours.endswith(old) and 'scheduled_download_delay_minutes' in ours
+                          assert 'mark_short_downloads_failed' in incoming
+                          return ours[:-len(old)]+incoming
+                      return ours+'\n'+incoming
+                  text,count=re.subn(r'<<<<<<< [^\n]+\n(.*?)=======\n(.*?)>>>>>>> [^\n]+\n',resolve,path.read_text(),flags=re.S)
+                  assert count==1 and '<<<<<<<' not in text
+                  if filename.endswith('.py'): ast.parse(text)
+                  path.write_text(text)
+              subprocess.run(['git','add',*sorted(conflicts)],check=True)
+              subprocess.run(['git','diff','--cached','--check'],check=True)
+              subprocess.run(['git','commit','-m',f'Preview {branch} retaining additive composition changes'],check=True)
+          MERGE"""
+                  script=script[:begin]+replacement+script[end:]
+              if step['name']=='Validate isolated features and capture current UI':
+                  script=script.replace("git diff --cached --name-only | grep -vE '^.github/pr-screenshots/(short-download-recovery-settings|dispatcharr-buffer-trim)-(desktop|mobile).png$' && exit 1 || true", "if git diff --cached --name-only | grep -vE '^.github/pr-screenshots/(short-download-recovery-settings|dispatcharr-buffer-trim)-(desktop|mobile).png$'; then exit 1; fi")
+              (out/f'{index:02d}.sh').write_text(script)
+          print('Prepared pinned validation scripts; no feature or integration ref changed')
+          PY
+      - name: Validate and publish only owning feature heads
+        run: |
+          set -euo pipefail
+          export TMPDIR="$RUNNER_TEMP/media-tmp"
+          mkdir -p "$TMPDIR"
+          for script in "$RUNNER_TEMP/validation-scripts/"*.sh; do
+            echo "Executing $(basename "$script")"
+            bash "$script"
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rebuilt-retry-final-validation
+          path: ${{ runner.temp }}/receipts/
+          retention-days: 30
