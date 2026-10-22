@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-10-22
+
+### Clarified: Why the Dispatcharr buffer option is useful
+
+**What you would notice:** The trim option now explains that Dispatcharr adds buffer time to catchup recordings and that this option removes that additional tail before other processing, without removing your requested padding.
+
+**What changed:** Updated the Settings explanation and its regression coverage. The measured-duration trimming behavior and disabled default are unchanged.
+
+
 All notable changes to Mustarrd are listed here. Most recent changes are at the top.
 
 ---
