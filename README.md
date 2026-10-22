@@ -96,8 +96,10 @@ Then open **http://localhost:4177** in your browser.
 - A red badge on the **Downloads** menu item shows how many recordings have permanently failed since you last visited. Opening Downloads clears it
 - A badge at the top shows how much free space is left on your recording drive. It turns red when space is low. If your recording drive is not found (for example after an array restart), the badge shows "Recording drive not found" in orange
 - When any scheduled recording is paused for low disk space, or when free space drops below the configured minimum, an orange banner appears at the top of every page, not just Downloads, so you are alerted no matter where you are in the app
-- The **History** tab shows past downloads. Use the status filter dropdown at the top to show only Completed, Failed, or Cancelled entries
+- The **History** tab shows past downloads. Use the status filter dropdown at the top to show only Completed, Interrupted, Failed, or Cancelled entries
 - Failed downloads show a **Retry** button directly on the card; cancelled downloads show a **Download Again** button
+- Catchup downloads more than five seconds shorter than the requested length, including your padding, are marked **Interrupted** even if the transfer ended normally. History shows the downloaded and expected lengths, and the available recording is kept for playback and manual retry.
+- **Settings > Recording > Download recovery > Auto-retry short downloads** can retry those recordings automatically, including a short recording whose later processing failed. It is off by default and independent of **Auto-retry failed downloads** on Scheduled. Retries use the same catchup window, run at least ten minutes apart, and stop after three attempts or when the archive expires; low disk space postpones them. VOD and uncertain duration measurements do not qualify.
 - Use the **Clear finished** button to remove all completed and failed entries from history at once (a confirmation prompt prevents accidents; cancelled entries are not cleared so you can still retry them)
 
 | Desktop | Mobile |

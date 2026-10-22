@@ -108,6 +108,29 @@ beforeEach(() => {
 })
 
 describe('Downloads page', () => {
+  it('keeps a successful short capture playable and retryable as Interrupted', async () => {
+    const reason = 'Download ended early: received 0:54:00 of the requested 1:00:00 including padding (0:06:00 short).'
+    downloadsApi.retry.mockResolvedValue({})
+    await renderDownloads({
+      downloads: [{
+        ...interruptedDownload,
+        raw_duration_seconds: 3240,
+        expected_duration_seconds: 3600,
+        duration_analysis_status: 'short',
+        interruption_reason: reason,
+      }],
+      initialEntries: ['/downloads?tab=history'],
+    })
+    expect(await screen.findByText(reason)).toBeInTheDocument()
+    expect(screen.getByText('Downloaded before processing: 54m')).toBeInTheDocument()
+    expect(screen.getByText('Expected: 1h (including padding) · Shorter than expected')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Play' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('radio', { name: 'Interrupted' }))
+    expect(screen.getByText('Championship Final')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    await waitFor(() => expect(downloadsApi.retry.mock.calls[0][0]).toBe(interruptedDownload.id))
+  })
+
   it('shows only Active and History tabs (Upcoming removed)', async () => {
     await renderDownloads()
     expect(screen.getByRole('tab', { name: /Active/ })).toBeInTheDocument()

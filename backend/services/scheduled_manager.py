@@ -2,7 +2,7 @@ import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy import exc as sa_exc
 from database import async_session_maker
 from models import ScheduledRecording, ScheduledStatus, AppSettings, Download, DownloadStatus
@@ -20,8 +20,8 @@ logger = logging.getLogger(__name__)
 # errs on the side of pausing instead of filling the disk.
 ESTIMATED_RECORDING_GB_PER_HOUR = 3.0
 
-# Automatic retry of FAILED catchup downloads (gated by the
-# auto_retry_failed_downloads app setting, default off). Each download gets a
+# Automatic retry of failed or measured-short catchup downloads, each gated
+# by its own disabled-by-default setting. Each download gets a
 # bounded number of automatic attempts, spaced out so a struggling provider is
 # not hammered, and only while the program is still inside the channel's
 # archive (catchup) window.
@@ -416,9 +416,11 @@ class ScheduledManager:
         return None
 
     async def _auto_retry_failed_downloads(self):
-        """Re-queue FAILED catchup downloads still inside the archive window.
+        """Re-queue eligible failed or short captures inside the archive window.
 
-        Gated by the auto_retry_failed_downloads setting (default off). Each
+        Failed and measured-short captures have independent opt-in settings.
+        Short captures remain eligible if post-processing also failed.
+        Unknown duration and VOD never qualify as short. Each
         download gets at most AUTO_RETRY_MAX_ATTEMPTS automatic retries spaced
         at least AUTO_RETRY_MIN_INTERVAL_MINUTES apart, and only while
         now < program end + the channel's archive window. Unknown or
@@ -431,20 +433,34 @@ class ScheduledManager:
         async with async_session_maker() as session:
             settings_result = await session.execute(select(AppSettings))
             settings = settings_result.scalar_one_or_none()
-            if not settings or not getattr(settings, "auto_retry_failed_downloads", False):
+            if not settings:
+                return
+            retry_failed = bool(getattr(settings, "auto_retry_failed_downloads", False))
+            retry_short = bool(getattr(settings, "auto_retry_short_downloads", False))
+            retry_conditions = []
+            if retry_failed:
+                retry_conditions.append(Download.status == DownloadStatus.FAILED.value)
+            if retry_short:
+                retry_conditions.append(and_(
+                    Download.status.in_([
+                        DownloadStatus.INTERRUPTED.value, DownloadStatus.FAILED.value,
+                    ]),
+                    Download.duration_analysis_status == "short",
+                ))
+            if not retry_conditions:
                 return
 
             result = await session.execute(
                 select(Download).where(
-                    Download.status == DownloadStatus.FAILED.value,
+                    or_(*retry_conditions),
                     Download.is_vod.isnot(True),
                 )
             )
-            failed = [
+            eligible = [
                 d for d in result.scalars().all()
                 if int(d.retry_count or 0) < AUTO_RETRY_MAX_ATTEMPTS
             ]
-            if not failed:
+            if not eligible:
                 return
 
             download_folder = settings.download_folder or app_settings.default_download_folder
@@ -457,20 +473,22 @@ class ScheduledManager:
 
             schedule_result = await session.execute(
                 select(ScheduledRecording).where(
-                    ScheduledRecording.download_id.in_([d.id for d in failed])
+                    ScheduledRecording.download_id.in_([d.id for d in eligible])
                 )
             )
-            schedules_by_download = {s.download_id: s for s in schedule_result.scalars().all()}
+            # More than one schedule can point at the same download. A dict
+            # keeping only the last row could hide a cancelled/completed one.
+            blocked_download_ids = {
+                schedule.download_id
+                for schedule in schedule_result.scalars().all()
+                if schedule.status in (ScheduledStatus.CANCELLED.value, ScheduledStatus.COMPLETED.value)
+            }
 
-            for download in failed:
+            for download in eligible:
                 if download.id in self._auto_retry_ineligible:
                     continue
 
-                schedule = schedules_by_download.get(download.id)
-                if schedule and schedule.status in (
-                    ScheduledStatus.CANCELLED.value,
-                    ScheduledStatus.COMPLETED.value,
-                ):
+                if download.id in blocked_download_ids:
                     continue
 
                 last_attempt = download.last_retry_at or download.completed_at
@@ -514,9 +532,9 @@ class ScheduledManager:
             await session.commit()
 
         for download_id in to_retry:
-            requeued = await download_manager.retry_download(download_id)
+            requeued = await download_manager.retry_download(download_id, automatic=True)
             logger.info(
-                "Auto-retry %s for failed download %s",
+                "Auto-retry %s for download %s",
                 "queued" if requeued else "skipped (status changed)",
                 download_id,
             )

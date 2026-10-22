@@ -63,6 +63,7 @@ export const SEARCH_INDEX = [
   { label: 'Max concurrent downloads', section: 'recording', kw: 'simultaneous parallel limit' },
   { label: 'Minimum free space', section: 'recording', kw: 'disk gb pause low' },
   { label: 'Recording padding (start early / end late)', section: 'recording', kw: 'minutes before after buffer' },
+  { label: 'Auto-retry short downloads', section: 'recording', kw: 'recovery interrupted incomplete duration retry missing recording' },
   { label: 'Output container (.ts / MKV / MP4)', section: 'processing', kw: 'format remux transcode encode ffmpeg' },
   { label: 'Commercials', section: 'processing', kw: 'comskip ads skip mark cut commercials' },
   { label: 'Hardware acceleration', section: 'processing', kw: 'gpu vaapi intel quick sync encode' },

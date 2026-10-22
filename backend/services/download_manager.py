@@ -8,7 +8,7 @@ import math
 import os
 import shutil
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, Callable, Dict, List, Set, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
@@ -978,7 +978,7 @@ class DownloadManager:
                         is_complete = False
 
                     if is_complete:
-                        await self._analyze_downloaded_file(download)
+                        await self._prepare_downloaded_file(download)
                         if self._needs_post_processing(download, settings):
                             recovered_post_ids.append(download.id)
                             await self._transition_processing(
@@ -1022,7 +1022,7 @@ class DownloadManager:
                     # A legacy processing row may already point at media that
                     # Commercial Skip transformed. Missing raw evidence cannot
                     # be reconstructed from that final file.
-                    await self._analyze_downloaded_file(download, raw_available=False)
+                    await self._prepare_downloaded_file(download, raw_available=False)
                     # Only trust "file already in the completed folder" as proof
                     # that post-processing finished when the completed folder is
                     # distinct from the download folder. With equal folders the
@@ -1215,7 +1215,7 @@ class DownloadManager:
                     )
                 transfer_complete = True
                 await self._broadcast_log(download_id, "Download transfer complete.")
-                await self._analyze_downloaded_file(download)
+                await self._prepare_downloaded_file(download)
 
                 settings_result = await session.execute(select(AppSettings))
                 settings = settings_result.scalar_one_or_none()
@@ -1422,7 +1422,7 @@ class DownloadManager:
 
                 # Captured while the session is known good: the error handlers
                 # below may run against a session poisoned by a failed commit.
-                await self._analyze_downloaded_file(download, raw_available=False)
+                await self._prepare_downloaded_file(download, raw_available=False)
                 interrupted_reason = self._interruption_reason(download)
 
                 if download_id in self._cancelled:
@@ -1687,6 +1687,34 @@ class DownloadManager:
         download.duration_analysis_status = None
         download.duration_analysis_reason = None
 
+    async def _prepare_downloaded_file(
+        self, download: Download, *, raw_available: bool = True
+    ) -> None:
+        """Observe the raw capture and preserve a measured shortfall as Interrupted.
+
+        A provider may finish HTTP successfully while returning only part of
+        the requested window. The normal finishing pipeline still keeps and
+        processes that file; its terminal status must reflect the shortfall.
+        """
+        await self._analyze_downloaded_file(download, raw_available=raw_available)
+        if (
+            download.is_vod
+            or download.duration_analysis_status != "short"
+            or self._interruption_reason(download)
+        ):
+            return
+        analysis = analyze_duration(download.expected_duration_seconds, download.raw_duration_seconds)
+        if analysis.status != "short":
+            return
+        actual = str(timedelta(seconds=round(analysis.actual_seconds)))
+        expected = str(timedelta(seconds=round(analysis.expected_seconds)))
+        missing = str(timedelta(seconds=round(analysis.expected_seconds - analysis.actual_seconds)))
+        download.interruption_reason = (
+            f"Download ended early: received {actual} of the requested {expected} "
+            f"including padding ({missing} short)."
+        )
+        await self._broadcast_log(download.id, download.interruption_reason, level="warning")
+
     async def _analyze_downloaded_file(
         self, download: Download, *, raw_available: bool = True
     ) -> None:
@@ -1864,6 +1892,7 @@ class DownloadManager:
         path = download.output_path
         if not path:
             return path
+        retained_path = path
         try:
             settings = await self._load_app_settings()
             completed_folder = self._resolve_completed_folder(settings)
@@ -1872,11 +1901,37 @@ class DownloadManager:
                 completed_folder, download_folder
             ):
                 path = os.path.join(download_folder, os.path.relpath(path, completed_folder))
-            if not download.is_vod:
-                path = os.path.splitext(path)[0] + ".ts"
-            return path
         except Exception:
-            return download.output_path
+            # If settings cannot be read, use the existing folder but still
+            # allocate a fresh stem. Falling back to the kept file is unsafe.
+            pass
+        if not download.is_vod:
+            path = os.path.splitext(path)[0] + ".ts"
+        return self._unused_recapture_path(path, retained_path)
+
+    @staticmethod
+    def _unused_recapture_path(candidate: str, retained_path: str) -> str:
+        """Protect the kept media from both capture and container conversion.
+
+        Equal or aliased folders can turn show.mkv -> show.ts -> show.mkv
+        into an overwrite before the retry succeeds. Existing working files
+        also belong to an earlier attempt. Use another stem only on collision;
+        ordinary separate download/completed folders keep their usual names.
+        """
+        stem, extension = os.path.splitext(candidate)
+        retained_stem = os.path.splitext(retained_path)[0]
+        same_stem = os.path.realpath(stem) == os.path.realpath(retained_stem)
+        extensions = {extension, ".ts", ".mkv", ".mp4", os.path.splitext(retained_path)[1]}
+
+        def occupied(value: str) -> bool:
+            return any(os.path.lexists(value + suffix) for suffix in extensions)
+
+        if not same_stem and not occupied(stem):
+            return candidate
+        attempt = 1
+        while occupied(f"{stem} - retry {attempt}"):
+            attempt += 1
+        return f"{stem} - retry {attempt}{extension}"
 
     async def _finalize_interrupted(
         self,
@@ -1895,7 +1950,7 @@ class DownloadManager:
         either message clobbering the other.
         """
         download.interruption_reason = reason
-        await self._analyze_downloaded_file(download)
+        await self._prepare_downloaded_file(download)
         if settings is None:
             settings = await self._load_app_settings()
 
@@ -3104,40 +3159,102 @@ class DownloadManager:
             dest = os.path.join(completed_folder, os.path.basename(path))
         return dest
 
-    async def retry_download(self, download_id: int) -> bool:
+    @staticmethod
+    def _has_short_capture(download: Download) -> bool:
+        """Trust only the original raw observation, never a processed length."""
+        return (
+            not download.is_vod
+            and download.duration_analysis_status == "short"
+            and analyze_duration(
+                download.expected_duration_seconds, download.raw_duration_seconds
+            ).status == "short"
+        )
+
+    async def _automatic_retry_allowed(self, session: AsyncSession, download: Download) -> bool:
+        """Recheck recovery policy after the sweep and path allocation awaits."""
+        if download.id in self._cancelled or download.is_vod or download.status not in (
+            DownloadStatus.FAILED.value, DownloadStatus.INTERRUPTED.value
+        ):
+            return False
+        current_settings = (await session.execute(select(AppSettings))).scalar_one_or_none()
+        retry_failed = (
+            download.status == DownloadStatus.FAILED.value
+            and bool(getattr(current_settings, "auto_retry_failed_downloads", False))
+        )
+        retry_short = (
+            self._has_short_capture(download)
+            and bool(getattr(current_settings, "auto_retry_short_downloads", False))
+        )
+        if not (retry_failed or retry_short):
+            return False
+        blocked = await session.execute(
+            select(ScheduledRecording.id).where(
+                ScheduledRecording.download_id == download.id,
+                ScheduledRecording.status.in_([
+                    ScheduledStatus.CANCELLED.value, ScheduledStatus.COMPLETED.value,
+                ]),
+            ).limit(1)
+        )
+        return blocked.scalar_one_or_none() is None and download.id not in self._cancelled
+
+    async def retry_download(self, download_id: int, *, automatic: bool = False) -> bool:
         """Retry a failed, cancelled or interrupted download."""
         async with async_session_maker() as session:
             result = await session.execute(
                 select(Download).where(Download.id == download_id)
             )
             download = result.scalar_one_or_none()
-
-            if download and download.status in [
+            if not download or download.status not in (
                 DownloadStatus.FAILED.value,
                 DownloadStatus.CANCELLED.value,
-                DownloadStatus.INTERRUPTED.value
-            ]:
-                self._reset_duration_analysis(download)
-                if download.status == DownloadStatus.INTERRUPTED.value:
-                    # The kept partial already lives in the completed folder.
-                    # Re-recording writes a fresh capture into the download
-                    # folder so the partial the user still has is not clobbered.
-                    download.output_path = await self._recapture_path(download)
-                    download.interruption_reason = None
-                    download.recorded_duration_seconds = None
-                download.progress = 0
-                download.downloaded_bytes = 0
-                download.error_message = None
-                download.completed_at = None
-                await self._transition_pending(
-                    session, download, schedule_status=ScheduledStatus.QUEUED.value
-                )
+                DownloadStatus.INTERRUPTED.value,
+            ):
+                return False
+            if automatic and (download_id in self._cancelled or download.status == DownloadStatus.CANCELLED.value):
+                return False
 
+            original_status = download.status
+            original_path = download.output_path
+            kept_capture = (
+                download.status == DownloadStatus.INTERRUPTED.value
+                or (download.status == DownloadStatus.FAILED.value and self._has_short_capture(download))
+            )
+            capture_path = await self._recapture_path(download) if kept_capture else original_path
+
+            if automatic:
+                # Selection and path allocation may await provider/DB work.
+                # Reload before mutating so a cancellation, setting change or
+                # another retry cannot be overwritten by this older decision.
+                await session.refresh(download)
+                if download.status != original_status or download.output_path != original_path:
+                    return False
+                if not await self._automatic_retry_allowed(session, download):
+                    return False
+
+            self._reset_duration_analysis(download)
+            if kept_capture:
+                # A short capture can also be Failed after a processing error.
+                # Keep either file safe while the fresh capture is in flight.
+                download.output_path = capture_path
+                download.interruption_reason = None
+                download.recorded_duration_seconds = None
+            download.progress = 0
+            download.downloaded_bytes = 0
+            download.error_message = None
+            download.completed_at = None
+            await self._transition_pending(
+                session, download, schedule_status=ScheduledStatus.QUEUED.value
+            )
+
+            if automatic and download_id in self._cancelled:
+                # Cancellation may arrive while committing Pending. Keep its
+                # marker and let it win before the download is enqueued.
+                await self._transition_cancelled(session, download)
+                return False
+            if not automatic:
                 self._cancelled.discard(download_id)
-                await self._queue.put(download_id)
-                return True
-
-        return False
+            await self._queue.put(download_id)
+            return True
 
     async def get_queue(self) -> list:
         """Get pending and downloading downloads."""

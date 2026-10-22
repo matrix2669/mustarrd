@@ -123,6 +123,40 @@ beforeEach(() => {
 })
 
 describe('Settings page', () => {
+  it.each([false, true])('enables short-download retries independently of failed retries (%s)', async (failedEnabled) => {
+    settingsApi.get.mockResolvedValue({ ...baseSettings, auto_retry_failed_downloads: failedEnabled })
+    renderSettings()
+    const toggle = await screen.findByRole('switch', { name: 'Auto-retry short downloads' })
+    expect(toggle).not.toBeChecked()
+    expect(screen.getByText('Download recovery')).toBeInTheDocument()
+    expect(screen.getByText(/Up to three retries, at least ten minutes apart/)).toBeInTheDocument()
+    fireEvent.click(toggle)
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+    await waitFor(() => expect(settingsApi.update).toHaveBeenCalled())
+    expect(settingsApi.update.mock.calls[0][0]).toEqual({ auto_retry_short_downloads: true })
+  })
+
+  it('can disable the saved short-download retry setting without changing other preferences', async () => {
+    settingsApi.get.mockResolvedValue({ ...baseSettings, auto_retry_short_downloads: true, auto_retry_failed_downloads: true })
+    renderSettings()
+    const toggle = await screen.findByRole('switch', { name: 'Auto-retry short downloads' })
+    expect(toggle).toBeChecked()
+    fireEvent.click(toggle)
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+    await waitFor(() => expect(settingsApi.update).toHaveBeenCalled())
+    expect(settingsApi.update.mock.calls[0][0]).toEqual({ auto_retry_short_downloads: false })
+  })
+
+  it('finds download recovery through settings search', async () => {
+    renderSettings()
+    await screen.findByText('Connections')
+    fireEvent.click(screen.getByText('Post-Processing'))
+    fireEvent.change(screen.getByLabelText('Search settings'), { target: { value: 'recovery' } })
+    fireEvent.click(await screen.findByRole('button', { name: /Auto-retry short downloads/ }))
+    expect(await screen.findByText('Download recovery')).toBeInTheDocument()
+    expect(screen.getByRole('switch', { name: 'Auto-retry short downloads' })).not.toBeChecked()
+  })
+
   it('renders the grouped rail with renamed sections and lands on Recording', async () => {
     renderSettings()
 
