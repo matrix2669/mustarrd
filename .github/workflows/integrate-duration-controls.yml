@@ -77,6 +77,7 @@ jobs:
                   raise RuntimeError(result.stdout + result.stderr)
               return result
 
+          output = Path(os.environ['RUNNER_TEMP']) / 'duration-validation'
           inputs = [
               ('download-duration-analysis', 'e95bae8635092e42f999c39316513ed05638aa2c', set()),
               ('short-download-retry', 'ee18833aab24b9d9b3eda6477053f7d8a3fef994', {'backend/database.py'}),
@@ -92,21 +93,20 @@ jobs:
                   path = Path('backend/database.py')
                   text = path.read_text()
                   pattern = r'<<<<<<< [^\n]+\n.*?=======\n.*?>>>>>>> [^\n]+\n        \)'
-                  replacement = '''    if not await _column_exists(conn, "app_settings", "scheduled_download_delay_minutes"):
-                      await conn.execute(
-                          text(
-                              "ALTER TABLE app_settings "
-                              "ADD COLUMN scheduled_download_delay_minutes INTEGER DEFAULT 5"
-                          )
-                      )
-
-                  if not await _column_exists(conn, "app_settings", "auto_retry_short_downloads"):
-                      await conn.execute(
-                          text("ALTER TABLE app_settings ADD COLUMN auto_retry_short_downloads BOOLEAN DEFAULT 0")
-                      )'''
-                  # The replacement is a source-code fragment, not workflow indentation.
-                  replacement_lines = replacement.splitlines()
-                  replacement = '\n'.join([replacement_lines[0]] + [line[14:] if line.startswith(' ' * 14) else line for line in replacement_lines[1:]])
+                  replacement = '\n'.join([
+                      '    if not await _column_exists(conn, "app_settings", "scheduled_download_delay_minutes"):',
+                      '        await conn.execute(',
+                      '            text(',
+                      '                "ALTER TABLE app_settings "',
+                      '                "ADD COLUMN scheduled_download_delay_minutes INTEGER DEFAULT 5"',
+                      '            )',
+                      '        )',
+                      '',
+                      '    if not await _column_exists(conn, "app_settings", "auto_retry_short_downloads"):',
+                      '        await conn.execute(',
+                      '            text("ALTER TABLE app_settings ADD COLUMN auto_retry_short_downloads BOOLEAN DEFAULT 0")',
+                      '        )',
+                  ])
                   text, count = re.subn(pattern, lambda match: replacement, text, flags=re.S)
                   if count != 1:
                       raise RuntimeError('Expected exactly one independent migration conflict')
@@ -126,7 +126,17 @@ jobs:
                       path.write_text(text)
               if conflicts:
                   git('add', *sorted(conflicts))
-              git('diff', '--cached', '--check')
+              whitespace = git('diff', '--cached', '--check', check=False)
+              if whitespace.returncode:
+                  # This file arrives unchanged from already-accepted upstream #450.
+                  # Preserve it rather than authoring an unrelated formatting fix.
+                  known = 'backend/services/recording_events.py:211: new blank line at EOF.'
+                  path = 'backend/services/recording_events.py'
+                  if (whitespace.stdout.strip() != known or whitespace.stderr.strip()
+                      or git('rev-parse', ':' + path).stdout != git('rev-parse', 'origin/main:' + path).stdout):
+                      raise RuntimeError(whitespace.stdout + whitespace.stderr)
+                  (output / 'baseline-whitespace.txt').write_text(known + '\nUnchanged upstream baseline blob; no feature or resolution whitespace error.\n')
+                  print('Preserved unchanged upstream baseline whitespace:', known)
               git('commit', '-m', f'Merge {feature} into dev-test')
               receipts.append({
                   'feature': feature,
@@ -142,7 +152,6 @@ jobs:
           if git('status', '--porcelain').stdout:
               raise RuntimeError('Candidate checkout must be clean')
           candidate = git('rev-parse', 'HEAD').stdout.strip()
-          output = Path(os.environ['RUNNER_TEMP']) / 'duration-validation'
           (output / 'merges.json').write_text(json.dumps(receipts, indent=2) + '\n')
           (output / 'candidate.txt').write_text(candidate + '\n' + tree + '\n')
           with open(os.environ['GITHUB_ENV'], 'a') as stream:
