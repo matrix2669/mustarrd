@@ -1,5 +1,14 @@
 # Changelog
 
+
+## 2026-10-23
+
+### Improved: Keep short-recording recovery details in the option description
+
+**What you would notice:** The explanation of deferred processing and retry-file cleanup now appears in parentheses at the end of Mark short downloads as failed, instead of as a separate line below it.
+
+**What changed:** Consolidated the setting description; classification, retry gating, defaults and cleanup behavior are unchanged.
+
 ## 2026-10-22
 
 ### Changed: Retry short recordings before processing, then keep one result
@@ -13,6 +22,7 @@
 **What you would notice:** The trim option now explains that Dispatcharr adds buffer time to catchup recordings and that this option removes that additional tail before other processing, without removing your requested padding.
 
 **What changed:** Updated the Settings explanation and its regression coverage. The measured-duration trimming behavior and disabled default are unchanged.
+
 
 
 ## 2026-10-23

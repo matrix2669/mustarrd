@@ -137,6 +137,12 @@ describe('Settings page', () => {
     expect(settingsApi.update.mock.calls[0][0]).toEqual({ mark_short_downloads_failed: true })
   })
 
+  it('keeps the short-attempt explanation in parentheses in the setting description', async () => {
+    await renderSettings()
+    expect(await screen.findByText('Mark catchup recordings that are more than five seconds shorter than the requested length, including padding, as Failed. If Auto-retry failed downloads is enabled, short downloads will also be retried. (Short attempts are retained without post-processing while retries remain. The final recording is processed once, and superseded retry files are removed only after successful finalization.)')).toBeInTheDocument()
+    expect(screen.queryByText('Short attempts are retained without post-processing while retries remain. The final recording is processed once, and superseded retry files are removed only after successful finalization.', { exact: true })).not.toBeInTheDocument()
+  })
+
   it('can disable the saved short-file classification setting without changing other preferences', async () => {
     settingsApi.get.mockResolvedValue({ ...baseSettings, mark_short_downloads_failed: true, auto_retry_failed_downloads: true })
     renderSettings()
