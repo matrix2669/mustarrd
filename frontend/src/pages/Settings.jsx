@@ -1027,7 +1027,7 @@ export default function Settings() {
         <SubGroup label="Before other processing">
           <SettingRow
             label="Trim Dispatcharr buffer time"
-            description="Dispatcharr adds buffer time to all catchup recordings. This trims that additional time from the end of the downloaded file, before Commercial Skip, remuxing, or re-encoding. Keeps your requested start and pre/post padding, and works with Keep .ts. Checks all catchup downloads when enabled; VOD is excluded. Off by default."
+            description="Dispatcharr adds buffer time to all catchup recordings. This trims that additional time from the end of the downloaded file, before Commercial Skip, remuxing, or re-encoding. Keeps your requested start and pre/post padding, and works with Keep .ts. Checks all catchup downloads when enabled; VOD is excluded."
           >
             <Switch
               size={switchSize}

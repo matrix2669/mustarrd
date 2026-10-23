@@ -55,6 +55,9 @@ class Download(Base):
     raw_duration_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
     duration_analysis_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
     duration_analysis_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Outcome of this capture's buffer step, before Commercial Skip or conversion.
+    # Null on old rows: final duration is not evidence that a trim took place.
+    buffer_trim_status: Mapped[str | None] = mapped_column(String(32), nullable=True, default="not_run")
     # Why the capture stopped early. Non-null marks the recording as interrupted
     # and is kept separate from error_message so an interruption and a
     # "Completed with warnings" integrity note can coexist without clobbering.
@@ -116,6 +119,7 @@ class Download(Base):
             "expected_duration_seconds": self.expected_duration_seconds,
             "duration_analysis_status": self.duration_analysis_status,
             "duration_analysis_reason": self.duration_analysis_reason,
+            "buffer_trim_status": self.buffer_trim_status,
             "interruption_reason": self.interruption_reason,
             "processing_deferred": bool(self.processing_deferred),
             "short_file_failed": bool(self.short_file_failed),

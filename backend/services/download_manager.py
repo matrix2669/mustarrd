@@ -1750,6 +1750,7 @@ class DownloadManager:
         download.raw_duration_seconds = None
         download.duration_analysis_status = None
         download.duration_analysis_reason = None
+        download.buffer_trim_status = "not_run"
 
     async def _prepare_downloaded_file(
         self, download: Download, *, raw_available: bool = True
@@ -2976,6 +2977,13 @@ class DownloadManager:
         expected = download.expected_duration_seconds
         if analyze_duration(expected, download.raw_duration_seconds).status != "long":
             return None
+        # A successful trim is a fact about this capture, not the later file
+        # length. Do not redo it on a recovered processing job (Commercial Skip
+        # may already have shortened the same input).
+        if download.buffer_trim_status == "trimmed":
+            return None
+        download.buffer_trim_status = "in_progress"
+        await session.commit()
 
         async def log_callback(message: str):
             await self._broadcast_log(download_id, message)
@@ -2996,11 +3004,17 @@ class DownloadManager:
                 indeterminate=True, download_progress=100.0,
             )
             await log_callback(f"Checking the excess tail against the requested {expected:.1f}s including padding.")
-            await post_processor.trim_buffer_tail(file_path, expected, log_callback=log_callback)
+            trimmed = await post_processor.trim_buffer_tail(file_path, expected, log_callback=log_callback)
         except Exception as exc:
+            download.buffer_trim_status = "failed"
+            await session.commit()
             warning = f"Dispatcharr buffer trim failed: {exc}"
             await self._broadcast_log(download_id, warning, level="warning")
             return warning
+        # False means a recovery probe already found the target length. It is
+        # not proof that this attempt performed a trim, so keep it distinct.
+        download.buffer_trim_status = "trimmed" if trimmed else "already_matched"
+        await session.commit()
         return None
 
     async def _post_process(

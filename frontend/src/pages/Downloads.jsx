@@ -102,6 +102,19 @@ function formatMediaDuration(seconds) {
   return parts.join(' ')
 }
 
+function bufferTrimOutcome(download) {
+  const outcomes = {
+    trimmed: 'Successfully trimmed to expected length',
+    failed: 'Not trimmed — trim failed',
+    not_run: 'Not trimmed',
+    already_matched: 'Already at expected length (no trim needed)',
+  }
+  if (download.buffer_trim_status === 'in_progress') {
+    return download.status === 'processing' ? 'Trimming in progress' : 'Trim outcome not confirmed'
+  }
+  return outcomes[download.buffer_trim_status] || 'Trim result not recorded'
+}
+
 function renderDurationAnalysis(download) {
   const status = download.duration_analysis_status
   if (download.is_vod || !status) return null
@@ -126,6 +139,7 @@ function renderDurationAnalysis(download) {
           <div>Downloaded before processing: {formatMediaDuration(raw)} · {labels[status]}</div>
           <div>
             Expected: {formatMediaDuration(expected)} (including padding)
+            {status === 'long' && ` · ${bufferTrimOutcome(download)}`}
           </div>
         </>
       ) : (

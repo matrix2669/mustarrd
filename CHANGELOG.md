@@ -9,6 +9,14 @@
 
 **What changed:** Consolidated the setting description; classification, retry gating, defaults and cleanup behavior are unchanged.
 
+## 2026-10-23
+
+### Improved: Show the buffer trim result beside the expected length
+
+**What you would notice:** History reports whether a long recording was successfully trimmed beside Expected, while keeping Longer than expected beside the original downloaded time. The trim setting description no longer says Off by default; its default is unchanged.
+
+**What changed:** Persist the buffer step outcome before other processing. Later commercial removal cannot be mistaken for successful trimming. Existing recordings without a saved result say Trim result not recorded. A new capture clears the prior result; interrupted or already-matching operations do not claim confirmed trimming.
+
 ## 2026-10-22
 
 ### Changed: Retry short recordings before processing, then keep one result
@@ -22,6 +30,7 @@
 **What you would notice:** The trim option now explains that Dispatcharr adds buffer time to catchup recordings and that this option removes that additional tail before other processing, without removing your requested padding.
 
 **What changed:** Updated the Settings explanation and its regression coverage. The measured-duration trimming behavior and disabled default are unchanged.
+
 
 
 
