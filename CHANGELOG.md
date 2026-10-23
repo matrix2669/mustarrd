@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-10-23
+
+### Improved: Keep short-recording recovery details in the option description
+
+**What you would notice:** The explanation of deferred processing and retry-file cleanup now appears in parentheses at the end of Mark short downloads as failed, instead of as a separate line below it.
+
+**What changed:** Consolidated the setting description; classification, retry gating, defaults and cleanup behavior are unchanged.
+
 ## 2026-10-22
 
 ### Changed: Retry short recordings before processing, then keep one result
@@ -8,6 +16,14 @@
 
 **What changed:** The existing bounded retry loop now gates all recovery through the failed-download switch and defers processing until recovery ends. Persistent exact-file receipts protect fallback recordings across retries and restarts, and authorize cleanup only after validated final placement. Failed processing or cleanup retains recoverable files with a warning. The normal keep-original preference protects the selected input, not every retry. Historical files without ownership receipts are not guessed at or deleted. The old short-retry preference migrates to failure classification without enabling the master switch.
 
+
+## 2026-10-23
+
+### Improved: Put the original length comparison beside the downloaded time
+
+**What you would notice:** History shows Longer than expected, Shorter than expected, or Matches expected length beside Downloaded before processing, rather than beside the requested length.
+
+**What changed:** Moved the existing comparison label without changing duration analysis, recording status, or playback actions.
 
 All notable changes to Mustarrd are listed here. Most recent changes are at the top.
 

@@ -941,7 +941,7 @@ export default function Settings() {
       <SubGroup label="Download recovery">
         <SettingRow
           label="Mark short downloads as failed"
-          description="Mark catchup recordings that are more than five seconds shorter than the requested length, including padding, as Failed. If Auto-retry failed downloads is enabled, short downloads will also be retried."
+          description="Mark catchup recordings that are more than five seconds shorter than the requested length, including padding, as Failed. If Auto-retry failed downloads is enabled, short downloads will also be retried. (Short attempts are retained without post-processing while retries remain. The final recording is processed once, and superseded retry files are removed only after successful finalization.)"
         >
           <Switch
             size={switchSize}
@@ -950,9 +950,6 @@ export default function Settings() {
             onChange={(event) => handleChange('mark_short_downloads_failed', event.currentTarget.checked)}
           />
         </SettingRow>
-        <Text size="sm" c="dimmed">
-          Short attempts are retained without post-processing while retries remain. The final recording is processed once, and superseded retry files are removed only after successful finalization.
-        </Text>
       </SubGroup>
     </Stack>
   )
