@@ -166,8 +166,8 @@ describe('Downloads page', () => {
       initialEntries: ['/downloads?tab=history'],
     })
 
-    expect(await screen.findByText(`Downloaded before processing: ${formatted}`)).toBeInTheDocument()
-    expect(screen.getByText(`Expected: 1h (including padding) · ${label}`)).toBeInTheDocument()
+    expect(await screen.findByText(`Downloaded before processing: ${formatted} · ${label}`)).toBeInTheDocument()
+    expect(screen.getByText(status === 'long' ? 'Expected: 1h (including padding) · Trim result not recorded' : 'Expected: 1h (including padding)')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Play' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('radio', { name: 'Completed' }))
@@ -188,11 +188,38 @@ describe('Downloads page', () => {
       initialEntries: ['/downloads?tab=history'],
     })
 
-    expect(await screen.findByText('Downloaded before processing: 1h 4m')).toBeInTheDocument()
+    expect(await screen.findByText('Downloaded before processing: 1h 4m · Shorter than expected')).toBeInTheDocument()
     expect(screen.getByText(/Expected: 1h 6m \(including padding\)/)).toBeInTheDocument()
     expect(screen.queryByText(/45m/)).not.toBeInTheDocument()
     expect(screen.getByText(/Connection to the provider was lost/)).toBeInTheDocument()
     expect(screen.getByText(/Completed with warnings: unusual stream metadata/)).toBeInTheDocument()
+  })
+
+  it.each([
+    ['trimmed', 'Successfully trimmed to expected length'],
+    ['failed', 'Not trimmed — trim failed'],
+    ['not_run', 'Not trimmed'],
+    ['already_matched', 'Already at expected length (no trim needed)'],
+    [null, 'Trim result not recorded'],
+    [undefined, 'Trim result not recorded'],
+    ['future_status', 'Trim result not recorded'],
+    ['in_progress', 'Trim outcome not confirmed'],
+  ])('shows saved trim outcome %s after Expected, independently of final file length', async (outcome, label) => {
+    await renderDownloads({
+      downloads: [{
+        ...completedDownload,
+        duration_minutes: 122,
+        raw_duration_seconds: 7617,
+        expected_duration_seconds: 7320,
+        recorded_duration_seconds: 5400,
+        duration_analysis_status: 'long',
+        buffer_trim_status: outcome,
+      }],
+      initialEntries: ['/downloads?tab=history'],
+    })
+    expect(await screen.findByText('Downloaded before processing: 2h 6m 57s · Longer than expected')).toBeInTheDocument()
+    expect(screen.getByText(`Expected: 2h 2m (including padding) · ${label}`)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Play' })).toBeInTheDocument()
   })
 
   it.each([

@@ -361,6 +361,8 @@ describe('Settings page', () => {
 
     await waitFor(() => expect(settingsApi.update).toHaveBeenCalled())
     expect(settingsApi.update.mock.calls[0][0]).toEqual({ trim_dispatcharr_buffer: true })
+    const description = screen.getByText(/Dispatcharr adds buffer time to all catchup recordings/)
+    expect(description).not.toHaveTextContent('Off by default.')
   })
 
   it('finds buffer trimming in search and can turn the saved option off', async () => {

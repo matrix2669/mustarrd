@@ -94,6 +94,70 @@ class BufferTrimPipelineTests(unittest.IsolatedAsyncioTestCase):
                 str(self.source), self.download.id, session, self.settings
             )
 
+    async def _saved_outcome(self):
+        async with self.sessions() as session:
+            download = await session.get(Download, self.download.id)
+            return download.to_dict()["buffer_trim_status"]
+
+    async def test_success_is_persisted_before_later_processing_can_fail(self):
+        self.settings.comskip_enabled = True
+        self.settings.transcode_enabled = True
+        self.processor.detect_commercials.side_effect = RuntimeError("commercial detection failed")
+        with self.assertRaisesRegex(RuntimeError, "ComSkip failed"):
+            await self._process()
+        self.assertEqual(await self._saved_outcome(), "trimmed")
+
+    async def test_saved_success_is_preserved_when_processing_restarts(self):
+        await self._process()
+        self.processor.trim_buffer_tail.reset_mock()
+        # A later stage may already have shortened this file. A resumed job
+        # must preserve the completed trim observation, not run it again.
+        self.processor._get_duration.return_value = 2700
+        async with self.sessions() as session:
+            await self.manager._post_process(str(self.source), self.download.id, session, self.settings)
+        self.processor.trim_buffer_tail.assert_not_awaited()
+        self.assertEqual(await self._saved_outcome(), "trimmed")
+
+    async def test_already_matching_file_is_not_claimed_as_a_confirmed_trim(self):
+        self.processor.trim_buffer_tail.return_value = False
+        await self._process()
+        self.assertEqual(await self._saved_outcome(), "already_matched")
+
+    async def test_failure_is_persisted_even_when_later_conversion_succeeds(self):
+        self.settings.transcode_enabled = True
+        self.processor.trim_buffer_tail.side_effect = RuntimeError("invalid candidate")
+        await self._process()
+        self.processor.transcode.assert_awaited_once()
+        self.assertEqual(await self._saved_outcome(), "failed")
+
+    async def test_disabled_trim_does_not_infer_success_from_a_matching_final_duration(self):
+        self.settings.trim_dispatcharr_buffer = False
+        self.download.recorded_duration_seconds = 3960
+        await self._process()
+        self.assertEqual(await self._saved_outcome(), "not_run")
+
+    async def test_cancelled_trim_keeps_an_unconfirmed_outcome(self):
+        self.processor.trim_buffer_tail.side_effect = asyncio.CancelledError()
+        with self.assertRaises(asyncio.CancelledError):
+            await self._process()
+        self.assertEqual(await self._saved_outcome(), "in_progress")
+
+    async def test_new_capture_resets_previous_trim_outcome(self):
+        for previous in ("trimmed", "failed", "already_matched", "in_progress"):
+            self.download.buffer_trim_status = previous
+            self.manager._reset_duration_analysis(self.download)
+            self.assertEqual(self.download.buffer_trim_status, "not_run")
+            self.assertIsNone(self.download.raw_duration_seconds)
+            self.assertIsNone(self.download.duration_analysis_status)
+
+    async def test_upgrade_keeps_old_outcomes_unknown_and_is_idempotent(self):
+        async with self.engine.begin() as conn:
+            await conn.execute(text("ALTER TABLE downloads DROP COLUMN buffer_trim_status"))
+            await _apply_lightweight_migrations(conn)
+            await _apply_lightweight_migrations(conn)
+            result = await conn.execute(text("SELECT buffer_trim_status FROM downloads"))
+            self.assertIsNone(result.scalar_one())
+
     async def test_keep_ts_uses_processing_queue_and_preserves_raw_evidence_and_padding(self):
         self.assertTrue(self.manager._needs_post_processing(self.download, self.settings))
         path, warnings = await self._process()
@@ -115,6 +179,7 @@ class BufferTrimPipelineTests(unittest.IsolatedAsyncioTestCase):
         async def trim(*args, **kwargs):
             events.append("trim")
             self.source.write_bytes(b"trimmed input")
+            return True
 
         async def detect(*args, **kwargs):
             self.assertEqual(self.source.read_bytes(), b"trimmed input")

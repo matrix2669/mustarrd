@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-10-23
+
+### Improved: Show the buffer trim result beside the expected length
+
+**What you would notice:** History reports whether a long recording was successfully trimmed beside Expected, while keeping Longer than expected beside the original downloaded time. The trim setting description no longer says Off by default; its default is unchanged.
+
+**What changed:** Persist the buffer step outcome before other processing. Later commercial removal cannot be mistaken for successful trimming. Existing recordings without a saved result say Trim result not recorded. A new capture clears the prior result; interrupted or already-matching operations do not claim confirmed trimming.
+
 ## 2026-10-22
 
 ### Clarified: Why the Dispatcharr buffer option is useful
@@ -8,6 +16,14 @@
 
 **What changed:** Updated the Settings explanation and its regression coverage. The measured-duration trimming behavior and disabled default are unchanged.
 
+
+## 2026-10-23
+
+### Improved: Put the original length comparison beside the downloaded time
+
+**What you would notice:** History shows Longer than expected, Shorter than expected, or Matches expected length beside Downloaded before processing, rather than beside the requested length.
+
+**What changed:** Moved the existing comparison label without changing duration analysis, recording status, or playback actions.
 
 All notable changes to Mustarrd are listed here. Most recent changes are at the top.
 
