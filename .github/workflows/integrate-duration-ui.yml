@@ -1,0 +1,101 @@
+name: Integrate duration UI into dev-test
+on:
+  push:
+    branches: [automation/retry-finalization-validation-20261022]
+    paths: [.github/workflows/integrate-duration-ui.yml]
+permissions:
+  contents: write
+concurrency:
+  group: mustarrd-dev-test-integration
+  cancel-in-progress: false
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NODE_OPTIONS: --max-old-space-size=3072
+      GIT_AUTHOR_DATE: '2026-10-23T14:42:00Z'
+      GIT_COMMITTER_DATE: '2026-10-23T14:42:00Z'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Verify approved inputs and reproduce reviewed merge
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/receipts" "$RUNNER_TEMP/media-tmp"
+          echo "TMPDIR=$RUNNER_TEMP/media-tmp" >> "$GITHUB_ENV"
+          git fetch origin --prune
+          test "$(git rev-parse origin/dev-test)" = cae29a5c13c7d69d24a565d5747949d8c74e82db
+          test "$(git rev-parse origin/feature/download-duration-analysis)" = fb949197ac627f4170db12ab98fa9af243a60074
+          test "$(git rev-parse origin/feature/short-download-retry)" = 7ee74ae7f54c574a41c62e3837a10f36741762e8
+          test "$(git rev-parse origin/feature/dispatcharr-buffer-trim)" = c76fe84bbe07529e282f22423e62c82b68fdf905
+          test "$(git rev-parse origin/dev)" = 737b058492c09d32d898b26b5ba7fe32309108aa
+          test "$(git rev-parse origin/main)" = a6e5fac5024d9eae8db5846066fa1e319c321a5c
+          test "$(git ls-remote https://github.com/razzamatazm/mustarrd.git refs/heads/main | cut -f1)" = a6e5fac5024d9eae8db5846066fa1e319c321a5c
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git checkout --detach origin/dev-test
+          python - <<'PY'
+          import json,os,re,subprocess
+          from pathlib import Path
+          def git(*args):return subprocess.check_output(['git',*args],text=True).strip()
+          sources=[('analysis','fb949197ac627f4170db12ab98fa9af243a60074'),('retry','7ee74ae7f54c574a41c62e3837a10f36741762e8'),('trim','c76fe84bbe07529e282f22423e62c82b68fdf905')]
+          records=[]
+          for mode,sha in sources:
+              result=subprocess.run(['git','merge','--no-ff','--no-commit',sha],capture_output=True,text=True)
+              conflicts=git('diff','--name-only','--diff-filter=U').splitlines()
+              assert result.returncode in (0,1) and set(conflicts)=={'CHANGELOG.md'},(result.stdout,result.stderr,conflicts)
+              path=Path('CHANGELOG.md')
+              value,n=re.subn(r'<<<<<<< [^\n]+\n(.*?)=======\n(.*?)>>>>>>> [^\n]+\n',lambda m:m[1]+'\n'+m[2],path.read_text(),flags=re.S)
+              assert n>0 and '<<<<<<<' not in value
+              path.write_text(value);git('add',str(path));git('diff','--cached','--check')
+              git('commit','-m',f'Merge {mode} duration UI updates into dev-test')
+              records.append({'mode':mode,'source':sha,'merge':git('rev-parse','HEAD'),'tree':git('rev-parse','HEAD^{tree}')})
+          assert git('rev-parse','HEAD')=='8b9015b42b059d39b250e78e42f091cdb15217f9'
+          assert git('rev-parse','HEAD^{tree}')=='f4341077ed52f69d8b7c585303f1e661a0eec7d3'
+          assert not git('status','--porcelain')
+          Path(os.environ['RUNNER_TEMP'],'receipts','merges.json').write_text(json.dumps(records,indent=2))
+          PY
+      - name: Install validation dependencies
+        run: |
+          set -euo pipefail
+          python -m venv backend/venv
+          backend/venv/bin/python -m pip install -q -r backend/requirements.txt
+          npm --prefix frontend ci --no-audit --no-fund
+          { command -v ffmpeg || true; command -v ffprobe || true; } > "$RUNNER_TEMP/receipts/media-tools.txt"
+      - name: Validate exact combined commit
+        run: |
+          set -euo pipefail
+          (cd backend && venv/bin/python -m unittest discover -s tests) > "$RUNNER_TEMP/receipts/backend.log" 2>&1 || { tail -100 "$RUNNER_TEMP/receipts/backend.log"; exit 1; }
+          npm --prefix frontend test > "$RUNNER_TEMP/receipts/frontend.log" 2>&1 || { tail -100 "$RUNNER_TEMP/receipts/frontend.log"; exit 1; }
+          npm --prefix frontend run build > "$RUNNER_TEMP/receipts/build.log" 2>&1 || { tail -100 "$RUNNER_TEMP/receipts/build.log"; exit 1; }
+          tail -5 "$RUNNER_TEMP/receipts/backend.log"
+          tail -10 "$RUNNER_TEMP/receipts/frontend.log"
+          git diff --check
+          test -z "$(git status --porcelain)"
+      - name: Publish only approved dev-test integration
+        run: |
+          set -euo pipefail
+          git fetch origin --prune
+          test "$(git rev-parse origin/dev-test)" = cae29a5c13c7d69d24a565d5747949d8c74e82db
+          test "$(git rev-parse origin/feature/download-duration-analysis)" = fb949197ac627f4170db12ab98fa9af243a60074
+          test "$(git rev-parse origin/feature/short-download-retry)" = 7ee74ae7f54c574a41c62e3837a10f36741762e8
+          test "$(git rev-parse origin/feature/dispatcharr-buffer-trim)" = c76fe84bbe07529e282f22423e62c82b68fdf905
+          test "$(git rev-parse origin/dev)" = 737b058492c09d32d898b26b5ba7fe32309108aa
+          test "$(git rev-parse origin/main)" = a6e5fac5024d9eae8db5846066fa1e319c321a5c
+          git push origin 8b9015b42b059d39b250e78e42f091cdb15217f9:refs/heads/dev-test
+          test "$(git ls-remote origin refs/heads/dev-test | cut -f1)" = 8b9015b42b059d39b250e78e42f091cdb15217f9
+          printf 'Published dev-test: 8b9015b42b059d39b250e78e42f091cdb15217f9\nTree: f4341077ed52f69d8b7c585303f1e661a0eec7d3\nOwning features, dev and main unchanged; no image or deployment.\n' | tee "$RUNNER_TEMP/receipts/publication.txt" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: duration-ui-dev-test-integration
+          path: ${{ runner.temp }}/receipts/
+          retention-days: 30
