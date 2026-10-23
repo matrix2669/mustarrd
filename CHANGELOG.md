@@ -15,6 +15,14 @@
 **What changed:** Updated the Settings explanation and its regression coverage. The measured-duration trimming behavior and disabled default are unchanged.
 
 
+## 2026-10-23
+
+### Improved: Put the original length comparison beside the downloaded time
+
+**What you would notice:** History shows Longer than expected, Shorter than expected, or Matches expected length beside Downloaded before processing, rather than beside the requested length.
+
+**What changed:** Moved the existing comparison label without changing duration analysis, recording status, or playback actions.
+
 All notable changes to Mustarrd are listed here. Most recent changes are at the top.
 
 ---
