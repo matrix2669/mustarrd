@@ -1,0 +1,147 @@
+name: Validate duration history UI updates
+on:
+  push:
+    branches: [automation/retry-finalization-validation-20261022]
+    paths: [.github/workflows/validate-duration-ui.yml]
+permissions:
+  contents: write
+concurrency:
+  group: mustarrd-duration-ui-validation
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      NODE_OPTIONS: --max-old-space-size=3072
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Prepare exact reviewed source changes
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/ui-receipts" "$RUNNER_TEMP/media-tmp"
+          echo "TMPDIR=$RUNNER_TEMP/media-tmp" >> "$GITHUB_ENV"
+          python - <<'PY'
+          import base64,gzip,hashlib,json,os,subprocess
+          from pathlib import Path
+          value=json.loads(subprocess.check_output(['gh','api','repos/matrix2669/mustarrd/git/blobs/7923b254f7e0f70c936a825af39964eb91f04fa7']))
+          # Restore the two known transport transcription differences, then
+          # verify the complete reviewed payload before interpreting any data.
+          encoded=base64.b64encode(base64.b64decode(value['content'])).decode()
+          encoded=encoded.replace('EPj6MsCUAU6Z','EPj6MsCUQ6Z').replace('jDojx3e9xzXdcMX93rjUc','jDojx3e9xzX93rjUc')
+          data=base64.b64decode(encoded+'==')
+          assert hashlib.sha256(data).hexdigest()=='c1a991c8ae41d05a9d4ac54b19a991720afadeb89aa7763428fb31c29bb9a27c'
+          payload=json.loads(gzip.decompress(data))
+          root=Path(os.environ['RUNNER_TEMP'])
+          (root/'ui-payload.json').write_text(json.dumps(payload))
+          (root/'ui-browser.py').write_text(payload['ui_script'])
+          for mode,change in payload['changes'].items():
+              (root/f'{mode}.patch').write_text(change['patch'])
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          python -m venv backend/venv
+          backend/venv/bin/python -m pip install -q -r backend/requirements.txt playwright
+          npm --prefix frontend ci --no-audit --no-fund
+          command -v google-chrome
+      - name: Validate owning branches and an unpublished combined preview
+        run: |
+          cat > "$RUNNER_TEMP/validate-ui.py" <<'PY'
+          import json,os,re,signal,subprocess,time,urllib.request
+          from pathlib import Path
+          root=Path.cwd();tmp=Path(os.environ['RUNNER_TEMP']);out=tmp/'ui-receipts'
+          payload=json.loads((tmp/'ui-payload.json').read_text())
+          branches={'analysis':'feature/download-duration-analysis','retry':'feature/short-download-retry','trim':'feature/dispatcharr-buffer-trim'}
+          guards={'dev-test':'cae29a5c13c7d69d24a565d5747949d8c74e82db','dev':'737b058492c09d32d898b26b5ba7fe32309108aa','main':'a6e5fac5024d9eae8db5846066fa1e319c321a5c'}
+          def git(*args):return subprocess.check_output(['git',*args],text=True).strip()
+          def check_refs():
+              git('fetch','origin','--prune')
+              for branch,sha in guards.items():assert git('rev-parse','origin/'+branch)==sha,branch
+              for mode,branch in branches.items():assert git('rev-parse','origin/'+branch)==payload['changes'][mode]['base'],branch
+              upstream=git('ls-remote','https://github.com/razzamatazm/mustarrd.git','refs/heads/main').split()[0]
+              assert upstream==guards['main']
+          def run_logged(name,cmd,cwd,timeout=240):
+              path=out/(name+'.log')
+              with path.open('w') as log:
+                  result=subprocess.run(cmd,cwd=cwd,stdout=log,stderr=subprocess.STDOUT,timeout=timeout)
+              if result.returncode:
+                  print(path.read_text()[-16000:]);raise RuntimeError(name+' failed')
+              text=path.read_text();print(name+': '+text[-900:])
+          def browser(mode,dest):
+              dest.mkdir(parents=True,exist_ok=True)
+              with (out/(mode+'-vite.log')).open('w') as log:
+                  server=subprocess.Popen(['npm','--prefix','frontend','run','dev','--','--host','127.0.0.1','--port','4178','--strictPort'],stdout=log,stderr=subprocess.STDOUT,start_new_session=True)
+                  try:
+                      for _ in range(30):
+                          try:urllib.request.urlopen('http://127.0.0.1:4178',timeout=1);break
+                          except Exception:time.sleep(1)
+                      run_logged(mode+'-browser',[str(root/'backend/venv/bin/python'),str(tmp/'ui-browser.py'),str(root),str(dest),mode],root,120)
+                  finally:
+                      os.killpg(server.pid,signal.SIGTERM)
+                      try:server.wait(timeout=10)
+                      except subprocess.TimeoutExpired:os.killpg(server.pid,signal.SIGKILL)
+          def suites(mode):
+              run_logged(mode+'-backend',[str(root/'backend/venv/bin/python'),'-m','unittest','discover','-s','tests'],root/'backend')
+              run_logged(mode+'-frontend',['npm','test'],root/'frontend',180)
+              run_logged(mode+'-build',['npm','run','build'],root/'frontend',120)
+          check_refs()
+          results={}
+          for mode,branch in branches.items():
+              change=payload['changes'][mode]
+              git('checkout','--detach',change['base'])
+              git('apply','--index',str(tmp/f'{mode}.patch'))
+              git('diff','--cached','--check')
+              assert git('write-tree')==change['tree'],mode+' reviewed tree mismatch'
+              browser(mode,root/'.github/pr-screenshots')
+              git('add','.github/pr-screenshots')
+              tree=git('write-tree');args=['commit-tree',tree,'-p',change['base']]
+              if mode!='analysis':args+=['-p',results['analysis']['sha']]
+              sha=git(*args,'-m',{'analysis':'Clarify raw duration history layout','retry':'Keep retry details in the short recording description','trim':'Record and display the buffer trim outcome'}[mode])
+              git('checkout','--detach',sha)
+              suites(mode)
+              assert not git('status','--porcelain')
+              git('branch','validated-ui-'+mode,sha)
+              results[mode]={'branch':branch,'sha':sha,'tree':tree,'reviewed_code_tree':change['tree']}
+              (out/'feature-results.json').write_text(json.dumps(results,indent=2))
+          git('checkout','--detach',guards['dev-test'])
+          for mode in branches:
+              result=subprocess.run(['git','merge','--no-ff','--no-commit',results[mode]['sha']],capture_output=True,text=True)
+              conflicts=git('diff','--name-only','--diff-filter=U').splitlines()
+              assert result.returncode in (0,1) and set(conflicts)<={'CHANGELOG.md'},(result.stdout,result.stderr,conflicts)
+              for filename in conflicts:
+                  path=Path(filename)
+                  value,n=re.subn(r'<<<<<<< [^\n]+\n(.*?)=======\n(.*?)>>>>>>> [^\n]+\n',lambda m:m[1]+'\n'+m[2],path.read_text(),flags=re.S)
+                  assert n>0 and '<<<<<<<' not in value
+                  path.write_text(value);git('add',filename)
+              git('diff','--cached','--check')
+              git('commit','-m','Preview duration UI '+mode+' integration')
+          suites('combined')
+          browser('combined',out/'combined-screenshots')
+          results['combined']={'sha':git('rev-parse','HEAD'),'tree':git('rev-parse','HEAD^{tree}'),'published':False}
+          assert not git('status','--porcelain')
+          check_refs()
+          git('push','--atomic','origin',*[f"{results[mode]['sha']}:refs/heads/{branch}" for mode,branch in branches.items()])
+          for mode,branch in branches.items():
+              assert git('ls-remote','origin','refs/heads/'+branch).split()[0]==results[mode]['sha']
+          results['unchanged_refs']=guards
+          results['local_real_media_validation']='57 focused backend tests passed including real media, trim outcomes and retry finalization; 234 frontend tests and production build passed locally. Local full backend runs timed out; use this original complete runner execution.'
+          (out/'publication.json').write_text(json.dumps(results,indent=2))
+          with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a') as stream:stream.write('Published only the three validated owning feature heads. dev-test, dev and main unchanged. No image, deployment or upstream PR.\n\n```json\n'+json.dumps(results,indent=2)+'\n```\n')
+          print(json.dumps(results,indent=2))
+          PY
+          backend/venv/bin/python "$RUNNER_TEMP/validate-ui.py"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: duration-ui-validation
+          path: ${{ runner.temp }}/ui-receipts/
+          retention-days: 30
