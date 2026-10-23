@@ -166,8 +166,8 @@ describe('Downloads page', () => {
       initialEntries: ['/downloads?tab=history'],
     })
 
-    expect(await screen.findByText(`Downloaded before processing: ${formatted}`)).toBeInTheDocument()
-    expect(screen.getByText(`Expected: 1h (including padding) · ${label}`)).toBeInTheDocument()
+    expect(await screen.findByText(`Downloaded before processing: ${formatted} · ${label}`)).toBeInTheDocument()
+    expect(screen.getByText('Expected: 1h (including padding)')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Play' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('radio', { name: 'Completed' }))
@@ -188,7 +188,7 @@ describe('Downloads page', () => {
       initialEntries: ['/downloads?tab=history'],
     })
 
-    expect(await screen.findByText('Downloaded before processing: 1h 4m')).toBeInTheDocument()
+    expect(await screen.findByText('Downloaded before processing: 1h 4m · Shorter than expected')).toBeInTheDocument()
     expect(screen.getByText(/Expected: 1h 6m \(including padding\)/)).toBeInTheDocument()
     expect(screen.queryByText(/45m/)).not.toBeInTheDocument()
     expect(screen.getByText(/Connection to the provider was lost/)).toBeInTheDocument()

@@ -123,9 +123,9 @@ function renderDurationAnalysis(download) {
     <div style={{ whiteSpace: 'normal', marginTop: 4 }}>
       {hasComparison ? (
         <>
-          <div>Downloaded before processing: {formatMediaDuration(raw)}</div>
+          <div>Downloaded before processing: {formatMediaDuration(raw)} · {labels[status]}</div>
           <div>
-            Expected: {formatMediaDuration(expected)} (including padding) · {labels[status]}
+            Expected: {formatMediaDuration(expected)} (including padding)
           </div>
         </>
       ) : (
